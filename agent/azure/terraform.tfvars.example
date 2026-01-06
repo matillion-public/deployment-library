@@ -1,0 +1,32 @@
+# Azure Configuration
+azure_subscription_id = "12345678-1234-1234-1234-123456789012"
+resource_group_name   = "matillion-agent-rg"
+location             = "East US"
+name                 = "matillion-agent"
+
+# Matillion Configuration
+agent_id            = "your-unique-agent-id"
+account_id          = "your-matillion-account-id"
+matillion_region    = "us-east-1"
+client_id          = "your-oauth-client-id"
+client_secret      = "your-oauth-client-secret"
+
+# AKS Cluster Configuration
+vm_size            = "Standard_D4s_v4"    # 4 vCPU, 16GB RAM
+node_disk_size     = 250                   # GB
+desired_node_count = 3                     # Initial node count
+is_private_cluster = false                 # Set to true for production
+authorized_ip_ranges = ["0.0.0.0/0"]     # Restrict to specific IPs in production
+
+# Agent Configuration
+agent_replicas = 2                         # Number of agent pods
+metrics_exporter_image_repository = "brbajematillion/metrics-sidecar"
+metrics_exporter_image_tag = "latest"
+
+# Optional: Resource Tags
+tags = {
+  Environment = "production"
+  Project     = "matillion-agent"
+  Owner       = "data-team"
+  CostCenter  = "engineering"
+}

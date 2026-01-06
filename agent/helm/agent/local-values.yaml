@@ -1,0 +1,80 @@
+---
+cloudProvider: "aws"
+config:
+  oauthClientId: "<AgentClientId>"
+  oauthClientSecret: "<AgentClientSecret>"
+
+# AWS local configuration - use direct credentials instead of role-based auth
+aws:
+  local:
+    enabled: true
+    region: "<AWS_REGION>"
+    accessKeyId: "<AWS_ACCESS_KEY_ID>"
+    secretAccessKey: "<AWS_SECRET_ACCESS_KEY>"
+
+# Service account configuration - no roleArn needed for local credentials
+serviceAccount: {}
+
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: <MatillionAccountId>
+      agentId: <MatillionAgentId>
+      matillionRegion: <MatillionRegion>
+    image:
+      repository: <AgentImageRepository>
+      tag: <AgentImageTag>
+    imagePullPolicy: IfNotPresent
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "1"
+        memory: 4Gi
+  metricsExporter:
+    image:
+      repository: <MetricsExporterImageRepository>
+      tag: <MetricsExporterImageTag>
+    imagePullPolicy: Always
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "1000m"
+        memory: 1024Mi
+      requests:
+        cpu: "500m"
+        memory: 512Mi
+  replicas: 2
+
+kubernetesClusterDomain: cluster.local
+
+hpa:
+  scaleDown:
+    selctPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+  maxReplicas: <MaxReplicas>
+  minReplicas: 2
+  metrics:
+    target:
+      averageValue: <ScaleUpAverageValue>
+      type: AverageValue
+
+# Network security configuration
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []

@@ -1,0 +1,67 @@
+# Test values for CI/CD pipeline testing
+cloudProvider: "test"
+config:
+  oauthClientId: "test-client-id"
+  oauthClientSecret: "test-client-secret"
+serviceAccount:
+  roleArn: "arn:aws:iam::123456789012:role/test-role"
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: "12345"
+      agentId: "test-agent-id"
+      matillionRegion: "us-east-1"
+    image:
+      repository: "nginx"  # Use nginx for testing
+      tag: "latest"
+    imagePullPolicy: IfNotPresent
+    livenessProbe:
+      enabled: false
+    readinessProbe:
+      enabled: false
+    resources:
+      limits:
+        cpu: "1"
+        memory: 2Gi
+      requests:
+        cpu: "500m"
+        memory: 1Gi
+  metricsExporter:
+    image:
+      repository: "nginx"  # Use nginx for testing
+      tag: "latest"
+    imagePullPolicy: IfNotPresent
+    livenessProbe:
+      enabled: false
+    readinessProbe:
+      enabled: false
+    resources:
+      limits:
+        cpu: "100m"
+        memory: 128Mi
+      requests:
+        cpu: "50m"
+        memory: 64Mi
+  replicas: 1  # Minimal for testing
+kubernetesClusterDomain: cluster.local
+hpa:
+  scaleDown:
+    selectPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+    - periodSeconds: 60
+      type: Pods
+      value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+    - periodSeconds: 30
+      type: Pods
+      value: 1
+  maxReplicas: 3
+  minReplicas: 1
+  metrics:
+    target:
+      averageValue: 50
+      type: AverageValue

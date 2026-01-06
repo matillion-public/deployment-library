@@ -1,0 +1,191 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "matillion-agent.fullname" . }}-app
+  labels:
+    app: {{ include "matillion-agent.fullname" . }}-pods
+  {{- include "matillion-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.dpcAgent.replicas }}
+  selector:
+    matchLabels:
+      app: {{ include "matillion-agent.fullname" . }}-pods
+    {{- include "matillion-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "matillion-agent.fullname" . }}-pods
+      {{- include "matillion-agent.selectorLabels" . | nindent 8 }}
+        {{- if and (eq (include "matillion-agent.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+      annotations:
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+        prometheus.io/scrape: "true"
+        {{- if and (eq (include "matillion-agent.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+        azure.workload.identity/service-account-token-expiration: {{ quote .Values.azure.workloadIdentity.tokenExpiration }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" (include "matillion-agent.fullname" .)) }}
+      {{- if and (eq (include "matillion-agent.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+      automountServiceAccountToken: true
+      {{- else }}
+      automountServiceAccountToken: false
+      {{- end }}
+      securityContext:
+        {{- with .Values.podSecurityContext.sysctls }}
+        sysctls:
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - envFrom:
+        - secretRef:
+            name: {{ include "matillion-agent.fullname" . }}-config
+        env:
+        {{- if .Values.dpcAgent.dpcAgent.env.direct }}
+        {{- range .Values.dpcAgent.dpcAgent.env.direct }}
+        - name: {{ .name }}
+          value: {{ quote .value }}
+        {{- end }}
+        {{- else }}
+        - name: ACCOUNT_ID
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.accountId }}
+        - name: AGENT_ID
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.agentId }}
+        - name: MATILLION_REGION
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.matillionRegion }}
+        - name: CLOUD_PROVIDER
+          value: {{ include "matillion-agent.cloudProvider" . | upper | quote }}
+        - name: PROXY_HTTP
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.proxyHttp }}
+        - name: PROXY_HTTPS
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.proxyHttps }}
+        - name: PROXY_EXCLUDE
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.proxyExclude }}
+        - name: CUSTOM_CERT_LOCATION
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.customCertLocation }}
+        - name: EXTENSION_LIBRARY_LOCATION
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.extensionLibraryLocation }}
+        - name: EXTERNAL_DRIVER_LOCATION
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.externalDriverLocation }}
+        {{- end }}
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        {{- if .Values.dpcAgent.dpcAgent.env.fromSecret }}
+        {{- range .Values.dpcAgent.dpcAgent.env.fromSecret }}
+        - name: {{ .name }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .secretName }}
+              key: {{ .secretKey }}
+        {{- end }}
+        {{- else }}
+        {{- if eq (include "matillion-agent.cloudProvider" .) "aws" }}
+        {{- if .Values.aws.local.enabled }}
+        - name: AWS_REGION
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "matillion-agent.fullname" . }}-aws-local
+              key: aws-region
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "matillion-agent.fullname" . }}-aws-local
+              key: aws-access-key-id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "matillion-agent.fullname" . }}-aws-local
+              key: aws-secret-access-key
+        {{- end }}
+        {{- end }}
+        {{- if eq (include "matillion-agent.cloudProvider" .) "azure" }}
+        - name: DEFAULT_KEYVAULT
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.defaultKeyvault }}
+        {{- if .Values.azure.workloadIdentity.enabled }}
+        - name: AZURE_CLIENT_ID
+          value: {{ required "azure.workloadIdentity.clientId is required for Azure workload identity deployments" .Values.azure.workloadIdentity.clientId }}
+        {{- if .Values.azure.subscriptionId }}
+        - name: AZURE_SUBSCRIPTION_ID
+          value: {{ quote .Values.azure.subscriptionId }}
+        {{- end }}
+        {{- else if .Values.azure.servicePrincipal.enabled }}
+        - name: AZURE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "matillion-agent.fullname" . }}-azure-sp
+              key: client-id
+        - name: AZURE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "matillion-agent.fullname" . }}-azure-sp
+              key: client-secret
+        - name: AZURE_TENANT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "matillion-agent.fullname" . }}-azure-sp
+              key: tenant-id
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/config
+          readOnly: true
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: api-profiles-volume
+          mountPath: /home/agentuser/api_profiles
+        image: {{ .Values.dpcAgent.dpcAgent.image.repository }}{{ if .Values.dpcAgent.dpcAgent.image.digest }}@{{ .Values.dpcAgent.dpcAgent.image.digest }}{{ else }}:{{ .Values.applicationImageTag | default .Values.dpcAgent.dpcAgent.image.tag | default .Chart.AppVersion }}{{ end }}
+        imagePullPolicy: Always
+        name: {{ include "matillion-agent.fullname" . }}-pods
+        securityContext: {}
+        resources: {{- toYaml .Values.dpcAgent.dpcAgent.resources | nindent 10 }}
+      {{- if and .Values.hpa.enabled .Values.dpcAgent.metricsExporter }}
+      - name: metrics-exporter
+        image: {{ .Values.dpcAgent.metricsExporter.image.repository }}{{ if .Values.dpcAgent.metricsExporter.image.digest }}@{{ .Values.dpcAgent.metricsExporter.image.digest }}{{ else }}:{{ .Values.metricsExporterImageTag | default .Values.applicationImageTag | default .Values.dpcAgent.metricsExporter.image.tag | default "latest" }}{{ end }}
+        imagePullPolicy: Always
+        env:
+        - name: GRACE_PERIOD_SECONDS
+          value: {{ quote .Values.dpcAgent.metricsExporter.gracePeriodSeconds }}
+        ports:
+        - containerPort: 8000
+          name: metrics
+        securityContext: {}
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 2"]
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 3
+          timeoutSeconds: 1
+          failureThreshold: 3
+        resources: {{- toYaml .Values.dpcAgent.metricsExporter.resources | nindent 10 }}
+      {{- end }}
+      volumes:
+      - name: config-volume
+        secret:
+          secretName: {{ include "matillion-agent.fullname" . }}-config
+      - name: tmp-volume
+        emptyDir: {}
+      - name: api-profiles-volume
+        emptyDir: {}

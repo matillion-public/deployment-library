@@ -1,0 +1,141 @@
+# Global module control flags (TAKES PRECEDENCE over individual component flags)
+# These flags provide centralized control over all components
+modules:
+  prometheus:
+    enabled: true  # Deploy Prometheus server
+  adapter:
+    enabled: true  # Deploy Prometheus adapter
+  api:
+    enabled: true  # Deploy custom metrics API
+
+# External Prometheus configuration (when modules.prometheus.enabled=false)
+externalPrometheus:
+  enabled: false
+  url: "http://prometheus.monitoring.svc.cluster.local:9090"  # External Prometheus URL
+  namespace: "monitoring"  # Namespace where external Prometheus is running
+  serviceName: "prometheus"  # Service name of external Prometheus
+  # Network policy configuration for external Prometheus access
+  networkPolicy:
+    # Method to target external namespace: "label" or "name"
+    targetMethod: "label"
+    # Label selector for external namespace (when targetMethod: "label")
+    namespaceLabels:
+      name: "monitoring"
+    # Alternative: Use namespace name directly (when targetMethod: "name")
+    namespaceName: "monitoring"
+
+adapter:
+  enabled: true  # LEGACY: Individual control (DEPRECATED - use modules.adapter.enabled instead)
+  podSecurityContext:
+    fsGroup: 65534
+  ports:
+    - port: 443
+      targetPort: 8443
+  prometheusAdapter:
+    args:
+      - --config=/etc/adapter/config.yaml
+      - --prometheus-url=http://monitor-prometheus.prometheus.svc:9090
+      - --secure-port=8443
+      - --cert-dir=/tmp
+      - --v=10
+      - --metrics-relist-interval=1m
+    image:
+      repository: gcr.io/k8s-staging-prometheus-adapter/prometheus-adapter-amd64
+      tag: v0.12.0
+    resources:
+      limits:
+        cpu: "1"
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+  replicas: 1
+  serviceAccount:
+    annotations: {}
+  type: ClusterIP
+adapterConfig:
+  configYaml: |-
+    rules:
+      - seriesQuery: 'app_active_task_count{container!="POD",namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: {resource: "namespace"}
+            pod: {resource: "pod"}
+        name:
+          matches: "app_.*"
+          as: "app_active_task_count"
+        metricsQuery: 'avg_over_time(<<.Series>>{<<.LabelMatchers>>}[1m])'
+      - seriesQuery: 'app_active_request_count{container!="POD",namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: {resource: "namespace"}
+            pod: {resource: "pod"}
+        name:
+          matches: "app_.*"
+          as: "app_active_request_count"
+        metricsQuery: 'avg_over_time(<<.Series>>{<<.LabelMatchers>>}[1m])'
+api:
+  enabled: true  # LEGACY: Individual control (DEPRECATED - use modules.api.enabled instead)
+  ports:
+    - port: 443
+      targetPort: 8443
+  type: ClusterIP
+config:
+  prometheusYml: |-
+    global:
+      scrape_interval: 5s
+    scrape_configs:
+      - job_name: 'matillion-agent'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - matillion
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: matillion-agent-pods
+          - source_labels: [__meta_kubernetes_pod_ip]
+            target_label: __address__
+            replacement: $1:8000
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: __scheme__
+            replacement: http
+          - target_label: __metrics_path__
+            replacement: /metrics
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            target_label: name
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            target_label: instance
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            target_label: component
+kubernetesClusterDomain: cluster.local
+prometheus:
+  enabled: true  # LEGACY: Individual control (DEPRECATED - use modules.prometheus.enabled instead)
+  ports:
+    - port: 9090
+      protocol: TCP
+      targetPort: 9090
+  prometheus:
+    args:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus/
+    image:
+      repository: prom/prometheus
+      tag: v2.22.0
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  replicas: 1
+  serviceAccount:
+    annotations: {}
+  type: ClusterIP

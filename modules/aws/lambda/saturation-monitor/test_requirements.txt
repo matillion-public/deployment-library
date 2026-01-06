@@ -1,0 +1,17 @@
+# Test dependencies for Lambda function unit tests
+# These are only needed for local testing, not for the deployed Lambda
+
+# Testing framework
+pytest==7.4.4
+pytest-cov==4.1.0
+pytest-mock==3.14.0
+
+# AWS SDK for testing (matches Lambda runtime)
+boto3==1.34.0
+botocore==1.34.0
+
+# AWS service mocking for integration tests
+moto==4.2.14
+
+# Coverage reporting
+coverage==7.4.1

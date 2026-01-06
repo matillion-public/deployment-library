@@ -1,0 +1,115 @@
+---
+# AWS EKS Deployment Example
+# This example shows configuration for deploying the agent on AWS EKS using IAM Roles for Service Accounts (IRSA)
+
+cloudProvider: "aws"
+
+config:
+  oauthClientId: ""
+  oauthClientSecret: ""
+
+serviceAccount:
+  # IAM Role ARN for the service account (IRSA)
+  # This role should have permissions to access AWS services (S3, Secrets Manager, etc.)
+  roleArn: "arn:aws:iam::123456789012:role/matillion-agent-role"
+
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: ""
+      agentId: ""
+      matillionRegion: "eu1"  # Options: us, eu, ap
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: ""
+      customCertLocation: ""
+      extensionLibraryLocation: ""
+      externalDriverLocation: ""
+    image:
+      repository: "public.ecr.aws/matillion/etl-agent"
+      tag: "current"
+      # digest: "sha256:abc123..."  # Optional: use digest for immutable deployments
+    imagePullPolicy: IfNotPresent
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "1"
+        memory: 4Gi
+  # metricsExporter is required for HPA (autoscaling)
+  # This sidecar container exports custom metrics to Prometheus for autoscaling decisions
+  metricsExporter:
+    image:
+      repository: "123456789012.dkr.ecr.us-east-1.amazonaws.com/metrics-exporter"
+      tag: "latest"
+      # digest: "sha256:def456..."  # Optional: use digest for immutable deployments
+    imagePullPolicy: Always
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "1000m"
+        memory: 1024Mi
+      requests:
+        cpu: "500m"
+        memory: 512Mi
+  replicas: 2
+
+kubernetesClusterDomain: cluster.local
+
+hpa:
+  enabled: true
+  scaleDown:
+    selectPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+  maxReplicas: 10
+  minReplicas: 2
+  metrics:
+    target:
+      averageValue: "80"
+      type: AverageValue
+
+# AWS-specific configuration
+# For AWS EKS, use IAM Roles for Service Accounts (IRSA) - no need to enable local
+aws:
+  local:
+    enabled: false  # Keep false for EKS IRSA-based authentication
+
+# Azure configuration - disabled for AWS
+azure:
+  workloadIdentity:
+    enabled: false
+  servicePrincipal:
+    enabled: false
+
+# Network security configuration
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []
+
+# Pod security configuration
+podSecurityContext:
+  sysctls:
+    - name: "net.ipv4.tcp_keepalive_time"
+      value: "30"
+
+# Node selector configuration
+# Example: Schedule pods on specific AWS instance types
+nodeSelector: {}
+#   kubernetes.io/os: linux
+#   node.kubernetes.io/instance-type: m5.large
+#   topology.kubernetes.io/zone: us-east-1a

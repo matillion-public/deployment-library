@@ -1,0 +1,107 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      working-directory: agent/helm/image
+      run: |
+        pip install -r requirements.txt
+
+    - name: Run Python unit tests
+      working-directory: agent/helm/image
+      run: |
+        pytest test_custom_metrics_exporter.py -v --cov=custom_metics_exporter
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./agent/helm/image/coverage.xml
+        flags: python-tests
+
+  helm-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install Python dependencies
+      run: |
+        pip install pytest pyyaml
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: '3.12.0'
+
+    - name: Run Helm chart tests
+      run: |
+        pytest tests/helm/test_agent_chart.py -v
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        pip install pytest requests
+
+    - name: Build and run metrics exporter
+      run: |
+        cd agent/helm/image
+        # Build the image
+        docker build -f Dockerfile.sidecar -t metrics-exporter:test .
+        
+        # Create a custom network for container communication
+        docker network create test-network
+        
+        # Start a mock backend (simulates the agent)
+        docker run -d --name mock-agent --network test-network -p 8080:80 nginx:alpine
+        
+        # Configure mock response
+        docker exec mock-agent sh -c 'mkdir -p /usr/share/nginx/html/actuator'
+        docker exec mock-agent sh -c 'echo "{\"buildInfo\":{\"version\":\"test\",\"commitHash\":\"abc123\",\"buildTimestamp\":\"1234567890\"},\"agentStatus\":\"RUNNING\",\"activeTaskCount\":0,\"activeRequestCount\":0,\"openSessionsCount\":0}" > /usr/share/nginx/html/actuator/info'
+        
+        # Start metrics exporter with network connection
+        docker run -d --name metrics-exporter --network test-network -p 8000:8000 -e METRICS_ENDPOINT=http://mock-agent:80/actuator/info metrics-exporter:test
+        
+        # Wait for services to start
+        sleep 10
+
+    - name: Run integration tests
+      run: |
+        pytest tests/integration/test_metrics_endpoint.py -v
+
+    - name: Cleanup
+      if: always()
+      run: |
+        docker stop mock-agent metrics-exporter || true
+        docker rm mock-agent metrics-exporter || true
+        docker network rm test-network || true

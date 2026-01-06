@@ -1,0 +1,18 @@
+{{- if .Values.modules.api.enabled | default .Values.api.enabled }}
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.custom.metrics.k8s.io  # Correct the name to match spec.version + "." + spec.group
+  labels:
+{{- include "prometheus.labels" . | nindent 4 }}
+spec:
+  group: custom.metrics.k8s.io  # Only the group name here
+  groupPriorityMinimum: 1000
+  insecureSkipTLSVerify: true
+  service:
+    name: {{ include "prometheus.fullname" . }}-adapter
+    namespace: {{ .Release.Namespace}}
+  version: v1beta1
+  versionPriority: 5
+{{- end }}

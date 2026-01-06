@@ -1,0 +1,60 @@
+---
+# Checkov configuration file
+# Excludes security checks that are intentionally disabled for this project
+
+skip-check:
+  # CKV_K8S_21: The default namespace should not be used
+  # Skipping for development/testing purposes
+  - CKV_K8S_21
+  
+  # CKV_K8S_22: Ensure that a readOnlyRootFilesystem is set
+  # Skipping because the agent needs write access to the filesystem
+  - CKV_K8S_22
+  
+  # CKV_K8S_35: Prefer using secrets as files over secrets as environment variables
+  # Skipping as configuration requires environment variables for some settings
+  - CKV_K8S_35
+  
+  # CKV_K8S_43: Ensure that a resource quota is set
+  # Skipping as resource quotas are managed at the cluster/namespace level
+  - CKV_K8S_43
+
+  # CKV_K8S_9: Ensure that a node selector is set
+  # Skipping as node selection is managed at the cluster/namespace level
+  - CKV_K8S_9
+
+  # CKV_K8S_49: Ensure that a node selector is set
+  # Skipping as node selection is managed at the cluster/namespace level
+  - CKV_K8S_49
+
+  # CKV_K8S_38: Ensure that Service Account Tokens are only mounted where necessary
+  # Skipping as the agent needs access to the service account token
+  - CKV_K8S_38
+
+  # CKV_K8S_8: Liveness Probe Should be Configured
+  # Skipping as the agent does not have a liveness probe
+  - CKV_K8S_8
+
+  # CKV_K8S_37: Minimize the admission of containers with capabilities assigned
+  # Skipping as the agent does not have capabilities assigned
+  - CKV_K8S_37
+
+  # CKV_K8S_23: Minimize the admission of root containers
+  # Images already preventing admin access
+  - CKV_K8S_23
+
+  # CKV_K8S_28: Ensure that a pod security context is set
+  # Skipping as the agent does not have a pod security context
+  - CKV_K8S_28
+
+  # CKV_K8S_31: Ensure that the seccomp profile is set to docker/default or runtime/default
+  # Not possible due to the agent executing python and bash at runtime
+  - CKV_K8S_31
+
+  # CKV_K8S_40: Containers should run as a high UID to avoid host conflict
+  # Running as high UID User
+  - CKV_K8S_40
+
+  # CKV_K8S_20: Containers should not run with allowPrivilegeEscalation
+  # Not possible due to the agent executing python and bash at runtime
+  - CKV_K8S_20

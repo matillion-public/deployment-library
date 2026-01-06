@@ -1,0 +1,143 @@
+name: Helm Chart Release
+
+on:
+  # Only allow manual releases to ensure tests are verified first
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Chart version to release'
+        required: true
+        type: string
+      force_release:
+        description: 'Force release without waiting for tests (use with caution)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  HELM_REPO_NAME: matillion-helm-charts
+
+jobs:
+  # Verify that tests have passed before releasing
+  verify-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+    steps:
+    - name: Check if force release is enabled
+      if: ${{ github.event.inputs.force_release == 'true' }}
+      run: |
+        echo "⚠️ FORCE RELEASE MODE ENABLED"
+        echo "Skipping test verification - releasing without waiting for tests"
+        echo "This should only be used in emergency situations"
+
+    - name: Wait for status checks
+      if: ${{ github.event.inputs.force_release != 'true' }}
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const sha = context.sha;
+          
+          console.log(`Checking status checks for commit ${sha}...`);
+          
+          try {
+            const { data: checkRuns } = await github.rest.checks.listForRef({
+              owner,
+              repo,
+              ref: sha
+            });
+            
+            const requiredChecks = [
+              'python-tests',
+              'helm-tests', 
+              'integration-tests',
+              'helm-lint',
+              'docker-security-scan',
+              'secrets-scan'
+            ];
+            
+            const relevantChecks = checkRuns.check_runs.filter(check => 
+              requiredChecks.some(req => check.name.includes(req))
+            );
+            
+            const failed = relevantChecks.filter(check => 
+              check.status === 'completed' && check.conclusion !== 'success'
+            );
+            
+            const pending = relevantChecks.filter(check =>
+              check.status !== 'completed'
+            );
+            
+            if (failed.length > 0) {
+              console.log('❌ Failed checks:', failed.map(c => c.name));
+              core.setFailed('Required tests failed - release blocked');
+              return;
+            }
+            
+            if (pending.length > 0) {
+              console.log('⏳ Pending checks:', pending.map(c => c.name));
+              core.setFailed('Tests still running - please wait for completion');
+              return;
+            }
+            
+            console.log('✅ All required tests passed - release approved');
+            
+          } catch (error) {
+            console.log('⚠️ Could not verify test status:', error.message);
+            console.log('Please manually verify that all tests have passed before proceeding');
+            console.log('You can use force_release=true to skip this check if needed');
+            core.setFailed('Unable to verify test status');
+          }
+
+  release:
+    needs: verify-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Configure Git
+      run: |
+        git config user.name "$GITHUB_ACTOR"
+        git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+    - name: Install Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: '3.12.0'
+
+    - name: Package Helm charts
+      run: |
+        mkdir -p ./charts
+        helm package agent/helm/agent/ -d ./charts
+        helm package agent/helm/prometheus/ -d ./charts
+
+    - name: Generate Helm repository index
+      run: |
+        helm repo index ./charts --url https://matillion.github.io/poc-agent-deployment/
+
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./charts
+        publish_branch: gh-pages
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: |
+          ./charts/*.tgz
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,132 @@
+---
+# Azure AKS Deployment Example
+# This example shows configuration for deploying the agent on Azure AKS using Workload Identity
+
+cloudProvider: "azure"
+
+config:
+  oauthClientId: "your-oauth-client-id"
+  oauthClientSecret: "your-oauth-client-secret"
+
+serviceAccount:
+  # Optional: Override the default service account name
+  name: ""
+  # Not used for Azure
+  roleArn: ""
+
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: "your-matillion-account-id"
+      agentId: "your-matillion-agent-id"
+      matillionRegion: "us"  # Options: us, eu, ap
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: ""
+      customCertLocation: ""
+      extensionLibraryLocation: ""
+      externalDriverLocation: ""
+      # Azure Key Vault name for storing secrets
+      defaultKeyvault: "matillion-agent-kv"
+    image:
+      repository: "yourregistry.azurecr.io/matillion-agent"
+      tag: "latest"
+      # digest: "sha256:abc123..."  # Optional: use digest for immutable deployments
+    imagePullPolicy: IfNotPresent
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "1"
+        memory: 4Gi
+  # metricsExporter is required for HPA (autoscaling)
+  # This sidecar container exports custom metrics to Prometheus for autoscaling decisions
+  metricsExporter:
+    image:
+      repository: "yourregistry.azurecr.io/metrics-exporter"
+      tag: "latest"
+      # digest: "sha256:def456..."  # Optional: use digest for immutable deployments
+    imagePullPolicy: Always
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "1000m"
+        memory: 1024Mi
+      requests:
+        cpu: "500m"
+        memory: 512Mi
+  replicas: 2
+
+kubernetesClusterDomain: cluster.local
+
+hpa:
+  enabled: true
+  scaleDown:
+    selectPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+  maxReplicas: 10
+  minReplicas: 2
+  metrics:
+    target:
+      averageValue: "80"
+      type: AverageValue
+
+# AWS configuration - disabled for Azure
+aws:
+  local:
+    enabled: false
+
+# Azure-specific configuration
+azure:
+  # Azure Subscription ID (optional but recommended for workload identity)
+  # Get this from Terraform: terraform output -raw azure_subscription_id
+  subscriptionId: "your-azure-subscription-id"
+
+  # Workload Identity (recommended for AKS)
+  # Requires AKS cluster with OIDC issuer enabled
+  workloadIdentity:
+    enabled: true
+    # Client ID of the Azure Managed Identity for Workload Identity
+    # Get this value from Terraform output: agent_workload_identity_client_id
+    clientId: "your-agent-workload-identity-client-id"
+
+  # Service Principal (alternative to Workload Identity)
+  # Use this if you cannot enable Workload Identity
+  servicePrincipal:
+    enabled: false
+    clientId: ""
+    clientSecret: ""
+    tenantId: ""
+
+# Network security configuration
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []
+
+# Pod security configuration
+podSecurityContext:
+  sysctls:
+    - name: "net.ipv4.tcp_keepalive_time"
+      value: "30"
+
+# Node selector configuration
+# Example: Schedule pods on specific Azure VM sizes
+nodeSelector: {}
+#   kubernetes.io/os: linux
+#   agentpool: userpool
+#   kubernetes.azure.com/agentpool: userpool

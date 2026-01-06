@@ -1,0 +1,99 @@
+{{- if .Values.modules.adapter.enabled | default .Values.adapter.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "prometheus.fullname" . }}-adapter
+  labels:
+  {{- include "prometheus.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus-adapter
+    {{- include "prometheus.selectorLabels" . | nindent 6 }}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 8443
+  egress:
+  {{- if and (.Values.modules.prometheus.enabled | default .Values.prometheus.enabled) (not .Values.externalPrometheus.enabled) }}
+  - to:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 9090
+  {{- else if .Values.externalPrometheus.enabled }}
+  - to:
+    {{- if eq (.Values.externalPrometheus.networkPolicy.targetMethod | default "label") "label" }}
+    - namespaceSelector:
+        matchLabels:
+          {{- toYaml .Values.externalPrometheus.networkPolicy.namespaceLabels | nindent 10 }}
+    {{- else }}
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Values.externalPrometheus.networkPolicy.namespaceName | default .Values.externalPrometheus.namespace | default "monitoring" }}
+    {{- end }}
+    ports:
+    - protocol: TCP
+      port: 9090
+  {{- end }}
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+{{- end }}
+{{- if .Values.modules.prometheus.enabled | default .Values.prometheus.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "prometheus.fullname" . }}
+  labels:
+  {{- include "prometheus.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+    {{- include "prometheus.selectorLabels" . | nindent 6 }}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  {{- if .Values.modules.adapter.enabled | default .Values.adapter.enabled }}
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus-adapter
+  {{- end }}
+  - from:
+    - podSelector:
+        matchLabels:
+          app: matillion-agent-pods
+    ports:
+    - protocol: TCP
+      port: 9090
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: matillion-agent-pods
+    ports:
+    - protocol: TCP
+      port: 8000
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+{{- end }}

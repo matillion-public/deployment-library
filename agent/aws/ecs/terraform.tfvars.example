@@ -1,0 +1,59 @@
+# Name for the ECS Fargate cluster
+name = "data-insights"
+
+# AWS region where resources will be deployed
+region = "us-east-1"
+
+# Matillion agent container image URL
+image_url = "public.ecr.aws/matillion/etl-agent:current"
+
+# Matillion account ID from Matillion HUB
+account_id = "your-matillion-account-id"
+
+# Matillion Agent ID from Matillion HUB
+agent_id = "your-agent-id"
+
+# Matillion designer region
+matillion_region = "eu1"
+
+# Matillion environment (Internal use only)
+matillion_environment = ""
+
+# Optional: Location for additional Python libraries
+extension_library_location = ""
+
+# Optional: Protocol for extension library location
+extension_library_protocol = ""
+
+# Client ID from Agent credentials (sensitive)
+client_id = "your-client-id"
+
+# Client secret from Agent credentials (sensitive)
+client_secret = "your-client-secret"
+
+# VPC ID where ECS service will be deployed
+vpc_id = "vpc-xxxxxxxxx"
+
+# Subnet IDs for ECS service deployment
+subnet_ids = ["subnet-xxxxxxxxx", "subnet-yyyyyyyyy"]
+
+# Security group IDs for ECS tasks
+security_group_ids = ["sg-xxxxxxxxx"]
+
+# Whether to create a new S3 bucket
+create_bucket = true
+
+# Desired number of running tasks
+desired_count = 2
+
+# Memory allocation for agent (in MiB)
+agent_memory = 4096
+
+# CPU allocation for agent (in CPU units)
+agent_cpu = 1024
+
+# Optional ephemeral storage size in GiB
+ephemeral_storage_size = null
+
+# Optional: Assign a public IP address to the ECS tasks
+assign_public_ip = false

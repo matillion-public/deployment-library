@@ -1,0 +1,10 @@
+{{- if .Values.modules.adapter.enabled | default .Values.adapter.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "prometheus.fullname" . }}-adapter-config
+  labels:
+  {{- include "prometheus.labels" . | nindent 4 }}
+data:
+  config.yaml: {{ .Values.adapterConfig.configYaml | toYaml | indent 1 }}
+{{- end }}

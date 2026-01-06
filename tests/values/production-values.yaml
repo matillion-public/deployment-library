@@ -1,0 +1,59 @@
+# Production-like values for integration testing
+cloudProvider: "aws"
+config:
+  oauthClientId: "prod-client-id"
+  oauthClientSecret: "prod-client-secret"
+serviceAccount:
+  roleArn: "arn:aws:iam::123456789012:role/matillion-agent-role"
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: "123456789012"
+      agentId: "prod-agent-123"
+      matillionRegion: "us-east-1"
+    image:
+      repository: "matillion/etl-agent"
+      tag: "latest"
+    imagePullPolicy: Always
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "1"
+        memory: 2Gi
+  metricsExporter:
+    image:
+      repository: "brbajematillion/metrics-sidecar"
+      tag: "latest"
+    imagePullPolicy: Always
+    resources:
+      limits:
+        cpu: "200m"
+        memory: 256Mi
+      requests:
+        cpu: "100m"
+        memory: 128Mi
+  replicas: 2
+kubernetesClusterDomain: cluster.local
+hpa:
+  scaleDown:
+    selctPolicy: Min
+    stabilizationWindowSeconds: 300
+    policies:
+    - periodSeconds: 60
+      type: Pods
+      value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 60
+    policies:
+    - periodSeconds: 30
+      type: Pods
+      value: 2
+  maxReplicas: 10
+  minReplicas: 2
+  metrics:
+    target:
+      averageValue: "70"
+      type: AverageValue

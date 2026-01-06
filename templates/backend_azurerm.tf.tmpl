@@ -1,0 +1,28 @@
+# Azure Blob Storage Backend Configuration Template for Azure Deployments
+# This file is dynamically generated during deployment
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "${resource_group_name}"
+    storage_account_name = "${storage_account_name}"
+    container_name       = "terraform-states"
+    key                  = "${deployment_type}/${region}/${cluster_name}/terraform.tfstate"
+    
+    # Use managed identity for authentication
+    use_msi = true
+  }
+  
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.0"
+    }
+    %{if include_azuread}
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 2.0"
+    }
+    %{endif}
+  }
+  
+  required_version = ">= 1.0"
+}

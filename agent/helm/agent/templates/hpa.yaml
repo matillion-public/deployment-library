@@ -1,0 +1,39 @@
+{{- if .Values.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "matillion-agent.fullname" . }}-hpa
+  labels:
+{{- include "matillion-agent.labels" . | nindent 4 }}
+spec:
+  behavior:
+    scaleDown:
+      policies:
+      {{ toYaml .Values.hpa.scaleDown.policies | nindent 8 }}
+      selectPolicy: {{ .Values.hpa.scaleDown.selectPolicy }}
+      stabilizationWindowSeconds: {{ .Values.hpa.scaleDown.stabilizationWindowSeconds }}
+    scaleUp:
+      policies:
+      {{ toYaml .Values.hpa.scaleUp.policies | nindent 8 }}
+      selectPolicy: {{ .Values.hpa.scaleUp.selectPolicy }}
+      stabilizationWindowSeconds: {{ .Values.hpa.scaleUp.stabilizationWindowSeconds }}
+  maxReplicas: {{ .Values.hpa.maxReplicas }}
+  metrics:
+  - pods:
+      metric:
+        name: app_active_task_count
+      target:
+        {{ .Values.hpa.metrics.target | toYaml | nindent 8 }}
+    type: Pods
+  - pods:
+      metric:
+        name: app_active_request_count
+      target:
+        {{ .Values.hpa.metrics.target | toYaml | nindent 8 }}
+    type: Pods
+  minReplicas: {{ .Values.hpa.minReplicas }}
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "matillion-agent.fullname" . }}-app
+{{- end }}

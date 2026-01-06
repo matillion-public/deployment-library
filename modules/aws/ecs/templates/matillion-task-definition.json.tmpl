@@ -1,0 +1,66 @@
+[
+    {
+        "name": "${name}-task-definition",
+        "image": "${image}",
+        "essential": true,
+        "readonlyRootFilesystem": true,
+        "mountPoints": [
+            {
+                "sourceVolume": "tmp-volume",
+                "containerPath": "/tmp",
+                "readOnly": false
+            },
+            {
+                "sourceVolume": "api-profiles-volume",
+                "containerPath": "/home/agentuser/api_profiles",
+                "readOnly": false
+            }
+        ],
+        "user": "0",
+        "environment": [
+            {
+                "name": "ACCOUNT_ID",
+                "value": "${account_id}"
+            },
+            {
+                "name": "AGENT_ID",
+                "value": "${agent_id}"
+            },
+            {
+                "name": "MATILLION_REGION",
+                "value": "${matillion_region}"
+            },
+            {
+                "name": "MATILLION_ENV",
+                "value": "${matillion_environment}"
+            },
+            {
+                "name": "EXTENSION_LIBRARY_LOCATION",
+                "value": "${extension_library_location}"
+            },
+            {
+                "name": "EXTENSION_LIBRARY_PROTOCOL",
+                "value": "${extension_library_protocol}"
+            }
+        ],
+        "secrets":[
+            {
+                "name": "OAUTH_CLIENT_ID",
+                "ValueFrom": "${agent_secret_arn}:client_id::"
+            },
+            {
+                "name": "OAUTH_CLIENT_SECRET",
+                "ValueFrom": "${agent_secret_arn}:client_secret::"
+            }
+        ],
+        "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+                "awslogs-group": "${log_group}",
+                "awslogs-region": "${region}",
+                "awslogs-stream-prefix": "/ecs"
+            }
+        },
+        "versionConsistency": "${version_consistency}"
+    }
+]

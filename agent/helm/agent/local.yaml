@@ -1,0 +1,89 @@
+---
+# Override the fullname to match the Terraform federated credential subject
+# This ensures the service account name matches: agent-poc-brbaje-sa
+fullnameOverride: "agent-poc-brbaje"
+
+cloudProvider: "azure"
+config:
+  oauthClientId: "ea85c7b5-776a-4228-9efa-93425cf2cdbc"
+  oauthClientSecret: "qcKAyT8kAYElhnPwBwFCPAoVALFta8zQ"
+serviceAccount:
+  # Client ID of the Azure Managed Identity for Workload Identity
+  # Get this value from Terraform output: agent_workload_identity_client_id
+  clientId: "3b46093e-575e-4c1e-a474-7deaff2549db"
+  # Not used for Azure
+  roleArn: ""
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: 1d49b50a-f822-4e12-78d6-b71f2cb14dba
+      agentId: 22474164-a814-4bcc-b896-642199e05dcf
+      matillionRegion: eu1
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: ""
+      customCertLocation: ""
+      extensionLibraryLocation: "https://adamstorage.blob.core.windows.net/python"
+      externalDriverLocation: ""
+      defaultKeyvault: "agent-poc-brbaje-Rybgqw"  # Azure Key Vault name for storing secrets
+    image:
+      repository: public.ecr.aws/matillion/etl-agent
+      tag: current
+      # digest: <AgentImageDigest>  # Optional: use digest instead of tag for immutable deployments
+    imagePullPolicy: IfNotPresent
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "1"
+        memory: 4Gi
+  # metricsExporter is NOT needed since HPA is disabled
+  # Uncomment and configure this section only if you enable autoscaling (hpa.enabled: true)
+  # metricsExporter:
+  #   image:
+  #     repository: public.ecr.aws/matillion/metrics-exporter
+  #     tag: latest
+  #   imagePullPolicy: IfNotPresent
+  #   gracePeriodSeconds: 43200
+  #   resources:
+  #     limits:
+  #       cpu: "1000m"
+  #       memory: 1024Mi
+  #     requests:
+  #       cpu: "500m"
+  #       memory: 512Mi
+  replicas: 2
+kubernetesClusterDomain: cluster.local
+hpa:
+  enabled: false
+
+# Azure-specific configuration
+azure:
+  # Azure Subscription ID (optional but recommended for workload identity)
+  subscriptionId: "47b72173-e519-41b6-afd1-10018741e1d3"
+
+  workloadIdentity:
+    enabled: true   # Set to true to use Azure Workload Identity (requires AKS with OIDC issuer)
+
+# Network security configuration
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []
+
+# Pod security configuration
+podSecurityContext:
+  sysctls:
+    - name: "net.ipv4.tcp_keepalive_time"
+      value: "30"
+
+# Node selector configuration
+# Optional: specify node labels to schedule pods on specific nodes
+# Example:
+#   nodeSelector:
+#     kubernetes.io/os: linux
+#     node.kubernetes.io/instance-type: m5.large
+nodeSelector: {}

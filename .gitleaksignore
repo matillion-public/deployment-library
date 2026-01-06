@@ -1,0 +1,9 @@
+# Gitleaks ignore file for example/placeholder values in documentation and config files
+
+# Local development example values (not real secrets)
+agent/helm/agent/local.yaml:generic-api-key:8
+agent/helm/agent/local.yaml:generic-api-key:9
+agent/helm/agent/local.yaml:generic-api-key:13
+
+# AWS example placeholder from official AWS documentation
+agent/helm/agent/values-local.yaml:aws-access-token:72

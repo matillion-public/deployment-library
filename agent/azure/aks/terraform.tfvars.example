@@ -1,0 +1,55 @@
+# Name for the AKS cluster
+name = "matillion-aks-cluster"
+
+# Azure subscription ID
+azure_subscription_id = "your-azure-subscription-id"
+
+# Azure tenant ID
+azure_tenant_id = "your-azure-tenant-id"
+
+# Azure region for resource deployment
+location = "East US"
+
+# Resource group name
+resource_group_name = "matillion-rg"
+
+# Tags to apply to resources
+tags = {
+  Environment = "production"
+  Project     = "matillion-agent"
+  Owner       = "data-team"
+}
+
+# Desired number of nodes in the cluster
+desired_node_count = 2
+
+# Whether to create a private cluster
+is_private_cluster = true
+
+# Authorized IP ranges for API server access
+authorized_ip_ranges = ["10.0.0.0/8"]
+
+# VM size for AKS node pool
+vm_size = "Standard_D4s_v4"
+
+# Node disk size in GB
+node_disk_size = 250
+
+# ========================================
+# Authentication Configuration
+# ========================================
+# Choose ONE of the following authentication methods:
+
+# Option 1: Azure Workload Identity (Recommended - No credentials needed!)
+# Uncomment these lines to use Workload Identity:
+workload_identity_enabled = true
+service_principal_enabled = false
+# service_principal_client_id = ""  # Not needed for Workload Identity
+# service_principal_secret = ""     # Not needed for Workload Identity
+
+# Option 2: Service Principal (Legacy - Requires managing credentials)
+# Uncomment these lines to use Service Principal instead:
+# workload_identity_enabled = false
+# service_principal_enabled = true
+# service_principal_client_id = "your-service-principal-client-id"
+# service_principal_secret = "your-service-principal-secret"

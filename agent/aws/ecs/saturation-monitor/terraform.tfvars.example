@@ -1,0 +1,80 @@
+# Example terraform.tfvars for ECS Agent Saturation Monitor
+
+# Basic configuration
+name = "my-matillion-agent"
+
+# CloudWatch configuration
+cloudwatch_namespace = "ECS/AgentSaturation"
+
+# Scheduling (EventBridge cron expressions)
+# schedule_expression = "rate(1 minute)"     # Every minute
+# schedule_expression = "rate(2 minutes)"    # Every 2 minutes
+# schedule_expression = "cron(0/5 * * * ? *)" # Every 5 minutes
+
+# Logging
+log_level = "INFO"  # DEBUG, INFO, WARNING, ERROR
+
+# Dashboard and alarms
+create_dashboard = true
+create_alarms    = false  # Set to true when ready for production alerting
+
+# Alarm thresholds (only used if create_alarms = true)
+high_task_count_threshold    = 50
+high_request_count_threshold = 20
+
+# Notification targets (SNS topic ARNs)
+# alarm_actions = ["arn:aws:sns:us-east-1:123456789012:my-alerts-topic"]
+
+# Service discovery patterns
+agent_service_indicators = "matillion,agent,dpc"
+
+# Examples for different naming conventions:
+# agent_service_indicators = "matillion-prod,matillion-staging"
+# agent_service_indicators = "my-agent,worker-service"
+# agent_service_indicators = "data-processor"
+
+# VPC Configuration (REQUIRED for Lambda to access ECS tasks)
+# The Lambda needs to be in the same VPC as your ECS tasks to reach their private IPs
+vpc_config = {
+  vpc_id     = "vpc-12345678"     # Replace with your VPC ID
+  subnet_ids = [
+    "subnet-12345678",  # Replace with your private subnet IDs
+    "subnet-87654321"   # Use same subnets as your ECS tasks or private subnets in same VPC
+  ]
+  security_group_ids = []  # Leave empty to auto-create security group, or specify existing ones
+}
+
+# Alternative with existing security groups:
+# vpc_config = {
+#   vpc_id             = "vpc-12345678"
+#   subnet_ids         = ["subnet-12345678", "subnet-87654321"]
+#   security_group_ids = ["sg-existing123"]  # Security group that allows outbound to ECS tasks
+# }
+
+# VPC Endpoints (recommended for VPC Lambda to reach AWS APIs)
+# When Lambda is deployed in VPC, it needs either:
+# 1. VPC endpoints for AWS services (recommended - no internet required)
+# 2. NAT Gateway/Instance for internet access to AWS APIs
+create_vpc_endpoints = false  # Set to false if you have existing VPC endpoints in the VPC
+
+# Alternative: Set to true to create new VPC endpoints if none exist
+# create_vpc_endpoints = true
+
+# Deployment Mode - Controls how Lambda connects to agents
+# "public"  - Lambda outside VPC, works with agents that have public IPs
+# "private" - Lambda in VPC, works with agents on private IPs only  
+# "hybrid"  - Lambda outside VPC, tries both public and private IPs (recommended)
+deployment_mode = "hybrid"
+
+# Security Group Rules for Agent Access
+# Set to true if you need to allow internet access to agent ports (for public agents)
+# Only needed when using existing security groups that don't allow the required access
+create_internet_access_rules = false
+
+# For testing with public agents, you might set:
+# create_internet_access_rules = true
+
+# VPC Endpoint DNS Configuration
+# Set to true only if no existing VPC endpoints exist for these services in your VPC
+# If you get DNS conflicts, leave this as false and use existing VPC endpoints
+vpc_endpoint_private_dns_enabled = false

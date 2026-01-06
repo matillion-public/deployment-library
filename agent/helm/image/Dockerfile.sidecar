@@ -1,0 +1,20 @@
+FROM python:3.12-alpine
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY custom_metics_exporter.py .
+COPY gunicorn.conf.py .
+
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -u 1001 -S appuser -G appgroup
+
+USER appuser
+
+EXPOSE 8000
+
+ENV PRODUCTION=true
+
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "custom_metics_exporter:app"]

@@ -1,0 +1,15 @@
+{{- if .Values.modules.prometheus.enabled | default .Values.prometheus.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "prometheus.fullname" . }}
+  labels:
+  {{- include "prometheus.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.prometheus.type }}
+  selector:
+    app: prometheus
+  {{- include "prometheus.selectorLabels" . | nindent 4 }}
+  ports:
+	{{- .Values.prometheus.ports | toYaml | nindent 2 }}
+{{- end }}

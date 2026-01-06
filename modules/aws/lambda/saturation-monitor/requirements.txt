@@ -1,0 +1,2 @@
+# No external dependencies needed - using built-in urllib and boto3
+# boto3 and botocore are included in Lambda runtime

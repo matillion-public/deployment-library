@@ -1,0 +1,24 @@
+# Lambda deployment artifacts
+package/
+lambda_deployment.zip
+*.zip
+.lambda_function_py.tmp
+
+# Testing artifacts
+venv/
+.pytest_cache/
+htmlcov/
+.coverage
+*.coverage
+coverage.xml
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl

@@ -1,0 +1,24 @@
+# S3 Backend Configuration Template for AWS Deployments
+# This file is dynamically generated during deployment
+terraform {
+  backend "s3" {
+    bucket         = "${account_id}-terraform-states"
+    key            = "${deployment_type}/${region}/${cluster_name}/terraform.tfstate"
+    region         = "${region}"
+    
+    # Enable encryption and versioning
+    encrypt        = true
+    
+    # DynamoDB table for state locking
+    dynamodb_table = "${account_id}-terraform-locks"
+  }
+  
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+  
+  required_version = ">= 1.0"
+}

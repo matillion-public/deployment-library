@@ -1,0 +1,83 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListAllMyBuckets",
+          "s3:ListBucket",
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:GetBucketLocation"
+        ],
+        "Resource": ["*"],
+        "Sid": "StmtMinS3"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "sqs:DeleteMessage",
+          "sqs:ListQueues",
+          "sqs:ReceiveMessage",
+          "sqs:SendMessage",
+          "sqs:GetQueueUrl"
+        ],
+        "Resource": ["*"],
+        "Sid": "StmtMinSQS"
+      },
+      {
+        "Effect": "Allow",
+        "Action": ["rds:DescribeDBInstances"],
+        "Resource": ["*"],
+        "Sid": "StmtMinRDS"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "ec2:CreateSnapshot",
+          "ec2:CreateTags",
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "ec2:DescribeRegions"
+        ],
+        "Resource": ["*"],
+        "Sid": "StmtMinEC2"
+      },
+      {
+        "Effect": "Allow",
+        "Action": ["sns:ListTopics", "sns:CreateTopic", "sns:Publish"],
+        "Resource": ["*"],
+        "Sid": "StmtMinSNS"
+      },
+      {
+        "Effect": "Allow",
+        "Action": ["cloudwatch:PutMetricData", "cloudwatch:ListMetrics"],
+        "Resource": ["*"],
+        "Sid": "StmtMinCloudwatch"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams"
+        ],
+        "Resource": ["arn:aws:logs:*:*:*"],
+        "Sid": "StmtMinCloudwatchLogs"
+      },
+      {
+        "Effect": "Allow",
+        "Action": ["kms:ListAliases", "kms:Encrypt", "kms:Decrypt"],
+        "Resource": ["*"],
+        "Sid": "StmtMinKMS"
+      },
+      {
+        "Effect": "Allow",
+        "Action": ["dynamodb:ListTables", "dynamodb:DescribeTable", "dynamodb:Scan"],
+        "Resource": ["*"],
+        "Sid": "StmtMinDynamoDB"
+      }
+    ]
+  }

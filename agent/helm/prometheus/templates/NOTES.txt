@@ -1,0 +1,72 @@
+{{- $adapterEnabled := .Values.modules.adapter.enabled | default .Values.adapter.enabled }}
+{{- $prometheusEnabled := .Values.modules.prometheus.enabled | default .Values.prometheus.enabled }}
+{{- $apiEnabled := .Values.modules.api.enabled | default .Values.api.enabled }}
+
+1. Prometheus Components Deployed:
+{{- if $prometheusEnabled }}
+   ✓ Prometheus Server: {{ include "prometheus.fullname" . }}:9090
+{{- else }}
+   ✗ Prometheus Server: Not deployed (using external Prometheus)
+{{- end }}
+{{- if $adapterEnabled }}
+   ✓ Prometheus Adapter: {{ include "prometheus.fullname" . }}-adapter:443
+{{- else }}
+   ✗ Prometheus Adapter: Not deployed
+{{- end }}
+{{- if $apiEnabled }}
+   ✓ Custom Metrics API: {{ include "prometheus.fullname" . }}-api:443
+{{- else }}
+   ✗ Custom Metrics API: Not deployed
+{{- end }}
+
+2. Configuration Summary:
+{{- if .Values.externalPrometheus.enabled }}
+   External Prometheus: {{ .Values.externalPrometheus.url }}
+   Target Namespace: {{ .Values.externalPrometheus.namespace }}
+{{- else if $prometheusEnabled }}
+   Internal Prometheus: http://{{ include "prometheus.fullname" . }}.{{ .Release.Namespace }}.svc:9090
+{{- else }}
+   ⚠️  WARNING: No Prometheus server configured! 
+      Either enable modules.prometheus.enabled or configure externalPrometheus.
+{{- end }}
+
+3. Next Steps:
+{{- if $prometheusEnabled }}
+   View Prometheus UI:
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "prometheus.fullname" . }} 9090:9090
+   
+   Then open: http://localhost:9090
+{{- end }}
+{{- if and $adapterEnabled $apiEnabled }}
+   
+   Check custom metrics API:
+   kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1"
+   
+   Test HPA with custom metrics:
+   kubectl get hpa --all-namespaces
+{{- end }}
+
+4. Validation Commands:
+{{- if $prometheusEnabled }}
+   kubectl get pods -n {{ .Release.Namespace }} -l app=prometheus
+{{- end }}
+{{- if $adapterEnabled }}
+   kubectl get pods -n {{ .Release.Namespace }} -l app=prometheus-adapter
+   kubectl logs -n {{ .Release.Namespace }} deployment/{{ include "prometheus.fullname" . }}-adapter
+{{- end }}
+{{- if $apiEnabled }}
+   kubectl get apiservices v1beta1.custom.metrics.k8s.io
+{{- end }}
+
+{{- if not (or $prometheusEnabled .Values.externalPrometheus.enabled) }}
+
+⚠️  CONFIGURATION WARNING:
+   Neither internal Prometheus (modules.prometheus.enabled) nor external Prometheus 
+   (externalPrometheus.enabled) is configured. The adapter will not be able to 
+   connect to a Prometheus server.
+   
+   To fix this, either:
+   1. Enable internal Prometheus: --set modules.prometheus.enabled=true
+   2. Configure external Prometheus: --set externalPrometheus.enabled=true \
+      --set externalPrometheus.url="http://your-prometheus.namespace.svc:9090"
+{{- end }}

@@ -1,0 +1,82 @@
+# =============================================================================
+# AWS EKS Deployment Configuration
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Networking Configuration
+# -----------------------------------------------------------------------------
+
+# Use existing VPC or create new one
+use_existing_vpc = false              # Set to true to use an existing VPC
+existing_vpc_id  = ""                 # VPC ID (required if use_existing_vpc = true)
+
+# Use existing subnets or create new ones
+use_existing_subnet = false           # Set to true to use existing subnets
+
+# IMPORTANT: For EKS Fargate, subnets MUST be private with NAT gateway access
+# existing_subnet_ids MUST contain ONLY private subnets that have:
+#   - map_public_ip_on_launch = false
+#   - Route to NAT Gateway (0.0.0.0/0 -> nat-xxxxx)
+#   - At least 2 subnets in different availability zones
+existing_subnet_ids = []              # Private subnet IDs (required if use_existing_subnet = true)
+                                      # Example: ["subnet-abc123", "subnet-def456"]
+
+# CIDR block for VPC (used when creating new VPC or subnets)
+cidr_block = "172.5.0.0/16"          # Default creates:
+                                      # - Public: 172.5.0.0/24, 172.5.1.0/24
+                                      # - Private: 172.5.2.0/24, 172.5.3.0/24
+
+# -----------------------------------------------------------------------------
+# AWS Configuration
+# -----------------------------------------------------------------------------
+
+region = "us-east-1"                  # AWS region for deployment
+name   = "dpc-autoscaling"            # Name prefix for all resources
+
+# Resource tags
+tags = {
+  Environment = "production"
+  Project     = "matillion-agent"
+  Team        = "data-platform"
+  ManagedBy   = "terraform"
+}
+
+# -----------------------------------------------------------------------------
+# EKS Cluster Configuration
+# -----------------------------------------------------------------------------
+
+# Cluster access configuration
+is_private_cluster   = false          # true = private API endpoint, false = public
+authorized_ip_ranges = ["0.0.0.0/0"]  # CIDR blocks allowed to access EKS API
+                                      # IMPORTANT: Restrict this in production!
+                                      # Example: ["10.0.0.0/8", "203.0.113.0/24"]
+
+# =============================================================================
+# Configuration Examples
+# =============================================================================
+
+# Example 1: Create everything from scratch
+# ------------------------------------------
+# use_existing_vpc      = false
+# use_existing_subnet   = false
+# cidr_block           = "172.5.0.0/16"
+# region               = "us-east-1"
+
+# Example 2: Use existing VPC, create new subnets
+# ------------------------------------------------
+# use_existing_vpc      = true
+# existing_vpc_id       = "vpc-0123456789abcdef0"
+# use_existing_subnet   = false
+# cidr_block           = "172.5.0.0/16"  # Must match VPC CIDR
+# region               = "us-east-1"
+
+# Example 3: Use existing VPC and existing private subnets (for Fargate)
+# -----------------------------------------------------------------------
+# use_existing_vpc      = true
+# existing_vpc_id       = "vpc-0123456789abcdef0"
+# use_existing_subnet   = true
+# existing_subnet_ids   = [
+#   "subnet-0a1b2c3d4e5f6g7h8",  # Private subnet in us-east-1a
+#   "subnet-1i2j3k4l5m6n7o8p9"   # Private subnet in us-east-1b
+# ]
+# region               = "us-east-1"

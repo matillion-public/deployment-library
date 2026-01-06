@@ -1,0 +1,110 @@
+---
+# Local/Development Deployment Example
+# This example shows configuration for local development or testing with direct credentials
+# WARNING: This configuration uses direct credentials and should NOT be used in production
+
+cloudProvider: "aws"  # or "azure" depending on your target cloud
+
+config:
+  oauthClientId: "your-oauth-client-id"
+  oauthClientSecret: "your-oauth-client-secret"
+
+serviceAccount:
+  # Leave empty for local development with direct credentials
+  roleArn: ""
+
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: "your-matillion-account-id"
+      agentId: "your-matillion-agent-id"
+      matillionRegion: "us"  # Options: us, eu, ap
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: "localhost,127.0.0.1,.cluster.local"
+      customCertLocation: ""
+      extensionLibraryLocation: ""
+      externalDriverLocation: ""
+    image:
+      repository: "matillion/agent"  # Use public or local registry
+      tag: "latest"
+      # digest: "sha256:abc123..."  # Optional: use digest for immutable deployments
+    imagePullPolicy: IfNotPresent
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "500m"  # Lower resource requests for local development
+        memory: 2Gi
+  # metricsExporter is NOT needed for local development since HPA is disabled
+  # Uncomment this section only if you want to test autoscaling locally
+  # metricsExporter:
+  #   image:
+  #     repository: "matillion/metrics-exporter"
+  #     tag: "latest"
+  #   imagePullPolicy: IfNotPresent
+  #   gracePeriodSeconds: 43200
+  #   resources:
+  #     limits:
+  #       cpu: "500m"
+  #       memory: 512Mi
+  #     requests:
+  #       cpu: "250m"
+  #       memory: 256Mi
+  replicas: 1  # Single replica for local development
+
+kubernetesClusterDomain: cluster.local
+
+hpa:
+  enabled: false  # Disable autoscaling for local development
+
+# AWS-specific configuration for local deployments
+# WARNING: Storing credentials in values files is insecure. Consider using:
+# - Kubernetes secrets
+# - External secret management (Vault, AWS Secrets Manager, etc.)
+# - Environment-specific values files that are not committed to git
+aws:
+  local:
+    enabled: true  # Enable direct AWS credentials
+    region: "us-east-1"
+    accessKeyId: "AKIAIOSFODNN7EXAMPLE"  # Replace with actual AWS Access Key ID
+    secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # Replace with actual Secret Key
+
+# Azure-specific configuration for local deployments
+# Choose either Service Principal or leave disabled if using AWS
+azure:
+  workloadIdentity:
+    enabled: false
+
+  servicePrincipal:
+    enabled: false  # Set to true if using Azure with Service Principal
+    clientId: "00000000-0000-0000-0000-000000000000"  # Replace with actual Client ID
+    clientSecret: "your-client-secret"  # Replace with actual Client Secret
+    tenantId: "00000000-0000-0000-0000-000000000000"  # Replace with actual Tenant ID
+
+# Network security configuration
+# More permissive for local development
+networkPolicy:
+  enabled: false  # Disable network policies for easier local development
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []
+
+# Pod security configuration
+podSecurityContext:
+  sysctls:
+    - name: "net.ipv4.tcp_keepalive_time"
+      value: "30"
+
+# Node selector configuration
+# Empty for local development (no specific node requirements)
+nodeSelector: {}
+
+# Additional notes for local development:
+# 1. Consider using `minikube`, `kind`, or `docker-desktop` for local Kubernetes
+# 2. Use `kubectl create secret` to store credentials instead of values files
+# 3. For AWS: consider using aws-vault or similar tools for credential management
+# 4. For Azure: consider using Azure CLI authentication instead of Service Principal
+# 5. This configuration is for development only - use IRSA/Workload Identity in production

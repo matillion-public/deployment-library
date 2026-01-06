@@ -1,0 +1,75 @@
+# Alternative approach using AWS Lambda Layer for requests library
+# This is more reliable but requires managing a layer
+
+# Create deployment package (without dependencies)
+data "archive_file" "lambda_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}"
+  output_path = "${path.module}/lambda_deployment.zip"
+  excludes    = ["main.tf", "variables.tf", "outputs.tf", "lambda_deployment.zip", "main_with_layer.tf.alternative", ".gitignore", "requirements.txt"]
+}
+
+# Lambda Layer for requests library
+resource "null_resource" "requests_layer" {
+  provisioner "local-exec" {
+    command = <<EOF
+mkdir -p ${path.module}/layer/python
+pip install requests -t ${path.module}/layer/python/
+cd ${path.module}/layer
+zip -r ../requests_layer.zip python/
+EOF
+  }
+
+  triggers = {
+    always_run = timestamp()
+  }
+}
+
+data "archive_file" "requests_layer_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/layer"
+  output_path = "${path.module}/requests_layer.zip"
+  
+  depends_on = [null_resource.requests_layer]
+}
+
+resource "aws_lambda_layer_version" "requests_layer" {
+  filename   = data.archive_file.requests_layer_zip.output_path
+  layer_name = "${var.name}-requests-layer"
+
+  compatible_runtimes = ["python3.11"]
+  
+  depends_on = [null_resource.requests_layer]
+}
+
+# Lambda function with layer
+resource "aws_lambda_function" "saturation_monitor" {
+  filename         = data.archive_file.lambda_zip.output_path
+  function_name    = "${var.name}-saturation-monitor"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "lambda_function.lambda_handler"
+  runtime         = "python3.11"
+  timeout         = 300
+  memory_size     = 256
+
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+
+  layers = [aws_lambda_layer_version.requests_layer.arn]
+
+  environment {
+    variables = {
+      CLOUDWATCH_NAMESPACE      = var.cloudwatch_namespace
+      LOG_LEVEL                = var.log_level
+      AGENT_SERVICE_INDICATORS = var.agent_service_indicators
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_policy_attachment,
+    aws_cloudwatch_log_group.lambda_logs,
+  ]
+
+  tags = {
+    Name = "${var.name}-saturation-monitor"
+  }
+}

@@ -1,0 +1,51 @@
+{{- if or (.Values.modules.adapter.enabled | default .Values.adapter.enabled) (.Values.modules.api.enabled | default .Values.api.enabled) }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "prometheus.fullname" . }}-custom-metrics-reader
+  labels:
+  {{- include "prometheus.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - custom.metrics.k8s.io
+  - v1beta1.custom.metrics.k8s.io
+  resources:
+  - pods
+  - nodes
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - endpoints
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "prometheus.fullname" . }}-custom-metrics-reader
+  labels:
+  {{- include "prometheus.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: '{{ include "prometheus.fullname" . }}-custom-metrics-reader'
+subjects:
+- kind: ServiceAccount
+  name: '{{ include "prometheus.fullname" . }}-adapter'
+  namespace: '{{ .Release.Namespace }}'
+{{- end }}

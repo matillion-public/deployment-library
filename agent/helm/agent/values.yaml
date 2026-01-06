@@ -1,0 +1,124 @@
+---
+# Optional: Override image tags. These take precedence over nested values.
+# Useful for CI/CD pipelines: helm upgrade --set applicationImageTag=v1.2.3
+# - applicationImageTag: Sets tag for both agent and metrics exporter images
+# - metricsExporterImageTag: If specified, overrides applicationImageTag for metrics exporter only
+applicationImageTag: ""
+metricsExporterImageTag: ""
+
+cloudProvider: "<CloudProvider>"
+config:
+  oauthClientId: "<AgentClientId>"
+  oauthClientSecret: "<AgentClientSecret>"
+serviceAccount:
+  # Optional: Override the default service account name.
+  # If empty, uses the generated name based on release name
+  name: ""
+  roleArn: "<ServiceAccountRoleArn>"
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: <MatillionAccountId>
+      agentId: <MatillionAgentId>
+      matillionRegion: <MatillionRegion>
+      proxyHttp: <ProxyHttp>
+      proxyHttps: <ProxyHttps>
+      proxyExclude: <ProxyExclude>
+      customCertLocation: <CustomCertLocation>
+      extensionLibraryLocation: <ExtensionLibraryLocation>
+      externalDriverLocation: <ExternalDriverLocation>
+      # defaultKeyvault: <KeyVaultName> # Optional: only required for Azure
+    image:
+      repository: <AgentImageRepository>
+      tag: <AgentImageTag>
+      # digest: <AgentImageDigest>  # Optional: use digest instead of tag for immutable deployments
+    imagePullPolicy: IfNotPresent
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "1"
+        memory: 4Gi
+  # metricsExporter is only required when HPA (autoscaling) is enabled
+  # If hpa.enabled is false, you can omit this section
+  metricsExporter:
+    image:
+      repository: <MetricsExporterImageRepository>
+      tag: <MetricsExporterImageTag>
+      # digest: <MetricsExporterImageDigest>  # Optional: use digest instead of tag for immutable deployments
+    imagePullPolicy: Always
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "1000m"
+        memory: 1024Mi
+      requests:
+        cpu: "500m"
+        memory: 512Mi
+  replicas: 2
+kubernetesClusterDomain: cluster.local
+hpa:
+  enabled: true
+  scaleDown:
+    selctPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+  maxReplicas: <MaxReplicas>
+  minReplicas: 2
+  metrics:
+    target:
+      averageValue: <ScaleUpAverageValue>
+      type: AverageValue
+
+# AWS-specific configuration for local deployments
+aws:
+  local:
+    enabled: false  # Set to true to use direct AWS credentials instead of role-based authentication
+    region: ""      # AWS Region (required when local.enabled is true)
+    accessKeyId: "" # AWS Access Key ID (required when local.enabled is true)
+    secretAccessKey: "" # AWS Secret Access Key (required when local.enabled is true)
+
+# Azure-specific configuration
+azure:
+  workloadIdentity:
+    enabled: true   # Set to true to use Azure Workload Identity (requires AKS with OIDC issuer)
+    clientId: ""    # Azure Workload Identity Client ID (User Assigned Managed Identity)
+    tokenExpiration: 3600  # Service account token expiration in seconds (3600-86400, default: 3600)
+  servicePrincipal:
+    enabled: false  # Set to true to use Service Principal instead of Workload Identity
+    clientId: ""    # Azure Service Principal Client ID
+    clientSecret: "" # Azure Service Principal Client Secret
+    tenantId: ""    # Azure Tenant ID
+
+# Network security configuration
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []
+
+# Pod security configuration
+podSecurityContext:
+  sysctls:
+    - name: "net.ipv4.tcp_keepalive_time"
+      value: "30"
+
+# Node selector configuration
+# Optional: specify node labels to schedule pods on specific nodes
+# Example:
+#   nodeSelector:
+#     kubernetes.io/os: linux
+#     node.kubernetes.io/instance-type: m5.large
+nodeSelector: {}

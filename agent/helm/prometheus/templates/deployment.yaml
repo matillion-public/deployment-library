@@ -1,0 +1,118 @@
+{{- if .Values.modules.adapter.enabled | default .Values.adapter.enabled }}
+{{- $prometheusUrl := "" }}
+{{- if .Values.externalPrometheus.enabled }}
+  {{- $prometheusUrl = .Values.externalPrometheus.url }}
+{{- else }}
+  {{- $defaultUrl := printf "http://%s.%s.svc:%d" (include "prometheus.fullname" .) .Release.Namespace 9090 }}
+  {{- $extractedUrl := .Values.adapter.prometheusAdapter.args | toString | regexFind "--prometheus-url=[^ ]*" | regexReplaceAll "--prometheus-url=" "" }}
+  {{- $prometheusUrl = $extractedUrl | default $defaultUrl }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "prometheus.fullname" . }}-adapter
+  labels:
+  {{- include "prometheus.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.adapter.replicas }}
+  selector:
+    matchLabels:
+      app: prometheus-adapter
+    {{- include "prometheus.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: prometheus-adapter
+      {{- include "prometheus.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - args:
+        - --config=/etc/adapter/config.yaml
+        - --prometheus-url={{ $prometheusUrl }}
+        - --secure-port=8443
+        - --cert-dir=/tmp
+        - --v=10
+        - --metrics-relist-interval=1m
+        env:
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.adapter.prometheusAdapter.image.repository }}:{{ .Values.adapter.prometheusAdapter.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: Always
+        name: prometheus-adapter
+        ports:
+        - containerPort: 8443
+          name: https
+        resources: {{- toYaml .Values.adapter.prometheusAdapter.resources | nindent 10
+          }}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /etc/adapter
+          name: config
+      securityContext: 
+        {{- toYaml .Values.adapter.podSecurityContext | nindent 8 }}
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: true
+      serviceAccountName: {{ include "prometheus.fullname" . }}-adapter
+      volumes:
+      - configMap:
+          name: {{ include "prometheus.fullname" . }}-adapter-config
+        name: config
+{{- end }}
+{{- if .Values.modules.prometheus.enabled | default .Values.prometheus.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "prometheus.fullname" . }}
+  labels:
+  {{- include "prometheus.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.prometheus.replicas }}
+  selector:
+    matchLabels:
+      app: prometheus
+    {{- include "prometheus.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: prometheus
+      {{- include "prometheus.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - args: {{- toYaml .Values.prometheus.prometheus.args | nindent 8 }}
+        env:
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.prometheus.prometheus.image.repository }}:{{ .Values.prometheus.prometheus.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: Always
+        name: prometheus
+        resources: {{- toYaml .Values.prometheus.prometheus.resources | nindent 10 }}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /etc/prometheus/
+          name: config-volume
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: true
+      serviceAccountName: {{ include "prometheus.fullname" . }}
+      volumes:
+      - configMap:
+          name: {{ include "prometheus.fullname" . }}-config
+        name: config-volume
+{{- end }}
