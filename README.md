@@ -71,8 +71,10 @@ This repository provides multiple deployment methods for the Matillion Data Prod
 The solution uses the following Docker images across different deployment methods:
 
 ### Core Application Images
-- **`public.ecr.aws/matillion/etl-agent:current`** - Main Matillion ETL agent (AWS deployments)
-- **`matillion.azurecr.io/cloud-agent:current`** - Main Matillion ETL agent (Azure deployments)
+- **`public.ecr.aws/matillion/etl-agent:current`** - Main Data Productivity Cloud agent (AWS deployments)
+- **`public.ecr.aws/matillion/etl-agent:stable`** - Stable Data Productivity Cloud agent (AWS deployments)
+- **`matillion.azurecr.io/cloud-agent:current`** - Main Data Productivity Cloud agent (Azure deployments)
+- **`matillion.azurecr.io/cloud-agent:stable`** - Stable Data Productivity Cloud agent (Azure deployments)
 - **`brbajematillion/metrics-sidecar:latest`** - Custom metrics exporter sidecar
 
 ### Infrastructure Images
