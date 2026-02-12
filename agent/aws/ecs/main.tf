@@ -18,10 +18,55 @@ resource "aws_vpc" "main_vpc" {
 
 locals {
   vpc_id = var.use_existing_vpc ? var.vpc_id : aws_vpc.main_vpc[0].id
+
+  # Convert each existing subnet CIDR to a numeric start + size for overlap detection
+  existing_ranges = [
+    for cidr in [for s in data.aws_subnet.existing : s.cidr_block] : {
+      start = (
+        tonumber(split(".", split("/", cidr)[0])[0]) * 16777216 +
+        tonumber(split(".", split("/", cidr)[0])[1]) * 65536 +
+        tonumber(split(".", split("/", cidr)[0])[2]) * 256 +
+        tonumber(split(".", split("/", cidr)[0])[3])
+      )
+      size = pow(2, 32 - tonumber(split("/", cidr)[1]))
+    }
+  ]
+
+  # Numeric start of the VPC CIDR and size of each candidate subnet
+  vpc_ip = split(".", split("/", data.aws_vpc.vpc.cidr_block)[0])
+  vpc_start = (
+    tonumber(local.vpc_ip[0]) * 16777216 +
+    tonumber(local.vpc_ip[1]) * 65536 +
+    tonumber(local.vpc_ip[2]) * 256 +
+    tonumber(local.vpc_ip[3])
+  )
+  candidate_size = pow(2, 32 - tonumber(split("/", data.aws_vpc.vpc.cidr_block)[1]) - 8)
+
+  # Find subnet indices whose CIDR range does not overlap any existing subnet
+  available_subnet_indices = [
+    for i in range(0, 256) : i
+    if !anytrue([
+      for r in local.existing_ranges :
+      (local.vpc_start + i * local.candidate_size) < (r.start + r.size) &&
+      r.start < (local.vpc_start + (i + 1) * local.candidate_size)
+    ])
+  ]
 }
 
 data "aws_vpc" "vpc" {
   id = local.vpc_id
+}
+
+data "aws_subnets" "existing" {
+  filter {
+    name   = "vpc-id"
+    values = [local.vpc_id]
+  }
+}
+
+data "aws_subnet" "existing" {
+  for_each = toset(data.aws_subnets.existing.ids)
+  id       = each.value
 }
 
 data "aws_availability_zones" "available" {
@@ -59,7 +104,7 @@ resource "aws_subnet" "ecs_subnet" {
   count = var.use_existing_subnet ? 0 : 2
 
   vpc_id                  = data.aws_vpc.vpc.id
-  cidr_block              = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, 0 + count.index)
+  cidr_block              = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.available_subnet_indices[count.index])
   availability_zone       = element(random_shuffle.aws_availability_zone_names.result, count.index)
   map_public_ip_on_launch = true
   tags = merge(var.tags, {
@@ -68,7 +113,7 @@ resource "aws_subnet" "ecs_subnet" {
 }
 
 resource "aws_route_table_association" "ecs_subnet_association" {
-  count          = var.use_existing_subnet ? 0 : 2
+  count          = !var.use_existing_subnet && !var.use_existing_vpc ? 2 : 0
   subnet_id      = element(aws_subnet.ecs_subnet[*].id, count.index)
   route_table_id = aws_route_table.public[0].id
 }
