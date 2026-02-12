@@ -8,7 +8,7 @@ This repository provides multiple deployment methods for the Matillion Data Prod
 
 ### 1. **Kubernetes with Helm Charts** (Recommended)
 - Ready-to-use Helm charts for Kubernetes deployment
-- Built-in metrics collection with Prometheus sidecar
+- Native Prometheus metrics via the agent's `/actuator/prometheus` endpoint
 - Support for AWS EKS (IAM roles) and local/minikube (direct credentials)
 - Configurable resource limits and autoscaling
 - Security-first approach with non-root containers
@@ -27,7 +27,7 @@ This repository provides multiple deployment methods for the Matillion Data Prod
 ### 4. **Azure AKS with Terraform**
 - Infrastructure as Code with Terraform modules
 - Managed Identity and Key Vault integration
-- Built-in metrics sidecar with Prometheus integration
+- Native Prometheus metrics integration
 - AKS deployment with configurable VM sizes
 
 ### 5. **Azure Container Apps with Terraform**
@@ -75,11 +75,9 @@ The solution uses the following Docker images across different deployment method
 - **`public.ecr.aws/matillion/etl-agent:stable`** - Stable Data Productivity Cloud agent (AWS deployments)
 - **`matillion.azurecr.io/cloud-agent:current`** - Main Data Productivity Cloud agent (Azure deployments)
 - **`matillion.azurecr.io/cloud-agent:stable`** - Stable Data Productivity Cloud agent (Azure deployments)
-- **`brbajematillion/metrics-sidecar:latest`** - Custom metrics exporter sidecar
 
 ### Infrastructure Images
 - **`curlimages/curl:8.5.0`** - Init container for readiness checks
-- **`python:3.12-alpine`** - Base image for building metrics exporter
 
 ### Monitoring Stack Images
 - **`prom/prometheus:v2.22.0`** - Prometheus server for metrics collection
@@ -199,29 +197,27 @@ terraform apply
 ### Kubernetes Architecture
 ```
 ┌─────────────────┐    ┌─────────────────┐
-│   Agent Pod     │    │  Prometheus     │
-│  ┌────────────┐ │    │   Scraping      │
-│  │    Agent   │ │    │                 │
+│   Agent Pod     │    │   Prometheus    │
+│  ┌────────────┐ │    │    Scraping     │
+│  │    Agent   │◄├────┤                 │
+│  │    :8080   │ │    │                 │
 │  └────────────┘ │    └─────────────────┘
-│  ┌────────────┐ │           │
-│  │  Metrics   │◄├───────────┘
-│  │  Sidecar   │ │  :8000/metrics
-│  └────────────┘ │
+│                 │  :8080/actuator/prometheus
 └─────────────────┘
 ```
 
 ### Components
-- **Agent Container**: Main Matillion DPC Agent
-- **Metrics Sidecar**: Prometheus-compatible metrics exporter
+- **Agent Container**: Main Matillion DPC Agent (with native Prometheus metrics)
 - **HPA**: Horizontal Pod Autoscaler for scaling
 - **Service**: Kubernetes service for internal communication
 
 ## Metrics and Monitoring
 
-### Metrics Sidecar
-The Kubernetes deployment includes a **metrics exporter sidecar** that provides Prometheus-compatible metrics:
+### Native Prometheus Metrics
+The agent natively exposes Prometheus-compatible metrics at `/actuator/prometheus`:
 
 - **Agent Status**: Running/Stopped state
+- **Agent Connected**: Connection state to the Data Productivity Cloud
 - **Active Tasks**: Number of currently executing tasks
 - **Active Requests**: Number of active API requests
 - **Open Sessions**: Number of open database connections
@@ -231,8 +227,8 @@ The Kubernetes deployment includes a **metrics exporter sidecar** that provides 
 ```yaml
 # Automatic service discovery with annotations
 prometheus.io/scrape: "true"
-prometheus.io/port: "8000" 
-prometheus.io/path: "/metrics"
+prometheus.io/port: "8080"
+prometheus.io/path: "/actuator/prometheus"
 ```
 
 ## Configuration
@@ -249,10 +245,6 @@ dpcAgent:
       matillionRegion: "YOUR_REGION"
     image:
       repository: "your-registry/agent"
-      tag: "latest"
-  metricsExporter:
-    image:
-      repository: "brbajematillion/metrics-sidecar"
       tag: "latest"
   replicas: 2
 ```
@@ -285,8 +277,6 @@ desired_node_count = 3
 
 # Agent Configuration
 agent_replicas = 2
-metrics_exporter_image_repository = "brbajematillion/metrics-sidecar"
-metrics_exporter_image_tag = "latest"
 ```
 
 ## Development
@@ -300,7 +290,7 @@ poc-agent-deployment/
 │   └── helm/                   # Helm charts
 │       ├── agent/              # Main agent chart
 │       ├── prometheus/         # Prometheus adapter chart
-│       └── image/              # Metrics sidecar Docker image
+│       └── image/              # Legacy metrics sidecar (deprecated)
 ├── modules/
 │   ├── azure/                  # Azure Terraform modules
 │   └── aws/                    # AWS Terraform modules

@@ -5,7 +5,7 @@ This directory contains Helm charts for deploying the Matillion Data Productivit
 ## Charts
 
 ### `agent/` - Matillion DPC Agent
-The main Helm chart that deploys the Matillion Agent with a metrics exporter sidecar.
+The main Helm chart that deploys the Matillion Agent with native Prometheus metrics support.
 
 ### `prometheus/` - Modular Prometheus Stack  
 Supporting chart for Prometheus metrics collection, custom metrics API, and Prometheus adapter with selective deployment capabilities. Supports integration with external Prometheus servers.
@@ -169,17 +169,6 @@ helm install prometheus ./prometheus --namespace prometheus \
 | `dpcAgent.replicas` | Number of agent replicas | `2` |
 | `dpcAgent.dpcAgent.resources.limits.cpu` | CPU limit for agent | `"2"` |
 | `dpcAgent.dpcAgent.resources.limits.memory` | Memory limit for agent | `4Gi` |
-| `dpcAgent.metricsExporter.resources.limits.cpu` | CPU limit for sidecar | `"100m"` |
-| `dpcAgent.metricsExporter.resources.limits.memory` | Memory limit for sidecar | `128Mi` |
-
-### Metrics Sidecar Configuration
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `dpcAgent.metricsExporter.image.repository` | Metrics exporter image | `"brbajematillion/metrics-sidecar"` |
-| `dpcAgent.metricsExporter.image.tag` | Image tag | `"latest"` |
-| `dpcAgent.metricsExporter.imagePullPolicy` | Pull policy | `"Always"` |
-
 ## Prometheus Chart Configuration
 
 ### Module Control Parameters
@@ -219,7 +208,7 @@ helm install prometheus ./prometheus --namespace prometheus \
 
 ### Prometheus Metrics
 
-The deployment automatically includes a metrics exporter sidecar that provides:
+The agent natively exposes Prometheus-compatible metrics at `/actuator/prometheus` on port 8080:
 
 - `app_version_info` - Build version information
 - `app_agent_status` - Agent running status (1=running, 0=stopped)
@@ -233,8 +222,8 @@ Prometheus can automatically discover metrics endpoints using annotations:
 
 ```yaml
 prometheus.io/scrape: "true"
-prometheus.io/port: "8000"
-prometheus.io/path: "/metrics"
+prometheus.io/port: "8080"
+prometheus.io/path: "/actuator/prometheus"
 ```
 
 ## Advanced Configuration
@@ -247,10 +236,6 @@ dpcAgent:
     image:
       repository: "your-registry/matillion-agent"
       tag: "v1.2.3"
-  metricsExporter:
-    image:
-      repository: "your-registry/metrics-exporter"
-      tag: "v1.0.0"
 ```
 
 ### Resource Limits
@@ -265,14 +250,6 @@ dpcAgent:
       requests:
         cpu: "2"
         memory: 4Gi
-  metricsExporter:
-    resources:
-      limits:
-        cpu: "200m"
-        memory: 256Mi
-      requests:
-        cpu: "100m"
-        memory: 128Mi
 ```
 
 ### Cloud Provider Specific
@@ -388,12 +365,9 @@ kubectl describe pod -n matillion -l app=matillion-agent
 
 **Metrics not being scraped:**
 ```bash
-# Check sidecar logs
-kubectl logs -n matillion -l app=matillion-agent -c metrics-exporter
-
-# Test metrics endpoint
-kubectl port-forward -n matillion deployment/matillion-agent 8000:8000
-curl http://localhost:8000/metrics
+# Test metrics endpoint directly from the agent container
+kubectl port-forward -n matillion deployment/matillion-agent 8080:8080
+curl http://localhost:8080/actuator/prometheus
 
 # Check Prometheus is discovering targets
 kubectl port-forward -n prometheus svc/prometheus 9090:9090
@@ -439,11 +413,6 @@ dpcAgent:
       requests:
         cpu: "1"
         memory: 2Gi
-  metricsExporter:
-    image:
-      repository: "your-registry/metrics-exporter"
-      tag: "v1.0.0"
-      imagePullPolicy: "IfNotPresent"
 hpa:
   maxReplicas: 20
   minReplicas: 3
@@ -472,10 +441,6 @@ dpcAgent:
       limits:
         cpu: "1"
         memory: 2Gi
-  metricsExporter:
-    image:
-      tag: "latest"
-      imagePullPolicy: "Always"
 hpa:
   maxReplicas: 3
   minReplicas: 1
@@ -512,17 +477,6 @@ dpcAgent:
       requests:
         cpu: "250m"
         memory: 512Mi
-  metricsExporter:
-    image:
-      repository: "metrics-exporter"
-      tag: "latest"
-    resources:
-      limits:
-        cpu: "100m"
-        memory: 128Mi
-      requests:
-        cpu: "50m"
-        memory: 64Mi
 hpa:
   maxReplicas: 2
   minReplicas: 1

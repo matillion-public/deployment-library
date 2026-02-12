@@ -89,7 +89,7 @@ spec:
           app: matillion-agent-pods
     ports:
     - protocol: TCP
-      port: 8000
+      port: 8080
   - to: []
     ports:
     - protocol: TCP

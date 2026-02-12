@@ -1,10 +1,7 @@
 ---
 # Optional: Override image tags. These take precedence over nested values.
 # Useful for CI/CD pipelines: helm upgrade --set applicationImageTag=v1.2.3
-# - applicationImageTag: Sets tag for both agent and metrics exporter images
-# - metricsExporterImageTag: If specified, overrides applicationImageTag for metrics exporter only
 applicationImageTag: ""
-metricsExporterImageTag: ""
 
 cloudProvider: "<CloudProvider>"
 config:
@@ -41,22 +38,6 @@ dpcAgent:
       requests:
         cpu: "1"
         memory: 4Gi
-  # metricsExporter is only required when HPA (autoscaling) is enabled
-  # If hpa.enabled is false, you can omit this section
-  metricsExporter:
-    image:
-      repository: <MetricsExporterImageRepository>
-      tag: <MetricsExporterImageTag>
-      # digest: <MetricsExporterImageDigest>  # Optional: use digest instead of tag for immutable deployments
-    imagePullPolicy: Always
-    gracePeriodSeconds: 43200
-    resources:
-      limits:
-        cpu: "1000m"
-        memory: 1024Mi
-      requests:
-        cpu: "500m"
-        memory: 512Mi
   replicas: 2
 kubernetesClusterDomain: cluster.local
 hpa:
