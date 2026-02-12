@@ -418,20 +418,15 @@ aws application-autoscaling put-scheduled-action \
 - **Storage**: Ephemeral storage only (max 200GB)
 - **Task Size Limits**: Max 4 vCPU, 30GB memory
 
-### Metrics Considerations
+### Metrics
 
-**Important**: This deployment **does not include** the metrics sidecar container available in Kubernetes deployments (AKS/EKS). ECS Fargate supports only single-container tasks.
-
-For comprehensive metrics collection, consider:
-- Using the EKS deployment instead
-- Implementing metrics collection within the agent container
-- Using CloudWatch Container Insights
+The agent natively exposes Prometheus-compatible metrics at `/actuator/prometheus` on port 8080. For ECS deployments, consider using CloudWatch Container Insights for monitoring.
 
 ## Migration Paths
 
 ### From ECS to EKS
 
-If you need advanced features like metrics sidecars:
+If you need Kubernetes-native features like HPA with custom metrics:
 
 ```bash
 # Deploy EKS version

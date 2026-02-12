@@ -20,8 +20,8 @@ spec:
         azure.workload.identity/use: "true"
         {{- end }}
       annotations:
-        prometheus.io/path: "/metrics"
-        prometheus.io/port: "8000"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8080"
         prometheus.io/scrape: "true"
         {{- if and (eq (include "matillion-agent.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
         azure.workload.identity/service-account-token-expiration: {{ quote .Values.azure.workloadIdentity.tokenExpiration }}
@@ -144,43 +144,11 @@ spec:
         image: {{ .Values.dpcAgent.dpcAgent.image.repository }}{{ if .Values.dpcAgent.dpcAgent.image.digest }}@{{ .Values.dpcAgent.dpcAgent.image.digest }}{{ else }}:{{ .Values.applicationImageTag | default .Values.dpcAgent.dpcAgent.image.tag | default .Chart.AppVersion }}{{ end }}
         imagePullPolicy: Always
         name: {{ include "matillion-agent.fullname" . }}-pods
-        securityContext: {}
-        resources: {{- toYaml .Values.dpcAgent.dpcAgent.resources | nindent 10 }}
-      {{- if and .Values.hpa.enabled .Values.dpcAgent.metricsExporter }}
-      - name: metrics-exporter
-        image: {{ .Values.dpcAgent.metricsExporter.image.repository }}{{ if .Values.dpcAgent.metricsExporter.image.digest }}@{{ .Values.dpcAgent.metricsExporter.image.digest }}{{ else }}:{{ .Values.metricsExporterImageTag | default .Values.applicationImageTag | default .Values.dpcAgent.metricsExporter.image.tag | default "latest" }}{{ end }}
-        imagePullPolicy: Always
-        env:
-        - name: GRACE_PERIOD_SECONDS
-          value: {{ quote .Values.dpcAgent.metricsExporter.gracePeriodSeconds }}
         ports:
-        - containerPort: 8000
+        - containerPort: 8080
           name: metrics
         securityContext: {}
-        lifecycle:
-          preStop:
-            exec:
-              command: ["/bin/sh", "-c", "sleep 2"]
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-            scheme: HTTP
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          timeoutSeconds: 1
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-            scheme: HTTP
-          initialDelaySeconds: 5
-          periodSeconds: 3
-          timeoutSeconds: 1
-          failureThreshold: 3
-        resources: {{- toYaml .Values.dpcAgent.metricsExporter.resources | nindent 10 }}
-      {{- end }}
+        resources: {{- toYaml .Values.dpcAgent.dpcAgent.resources | nindent 10 }}
       volumes:
       - name: config-volume
         secret:

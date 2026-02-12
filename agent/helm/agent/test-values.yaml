@@ -32,19 +32,6 @@ dpcAgent:
       requests:
         cpu: "1"
         memory: 4Gi
-  metricsExporter:
-    image:
-      repository: "brbajematillion/metrics-sidecar"
-      tag: "sha-f950ead"
-    imagePullPolicy: IfNotPresent
-    gracePeriodSeconds: 43200
-    resources:
-      limits:
-        cpu: "1000m"
-        memory: 1024Mi
-      requests:
-        cpu: "500m"
-        memory: 512Mi
   replicas: 1
 kubernetesClusterDomain: cluster.local
 hpa:

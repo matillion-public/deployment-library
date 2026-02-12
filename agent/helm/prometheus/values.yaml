@@ -34,7 +34,8 @@ adapter:
   prometheusAdapter:
     args:
       - --config=/etc/adapter/config.yaml
-      - --prometheus-url=http://monitor-prometheus.prometheus.svc:9090
+      # prometheus-url is auto-generated from the release name and namespace
+      # Override via externalPrometheus.url when using an external Prometheus
       - --secure-port=8443
       - --cert-dir=/tmp
       - --v=10
@@ -56,7 +57,7 @@ adapter:
 adapterConfig:
   configYaml: |-
     rules:
-      - seriesQuery: 'app_active_task_count{container!="POD",namespace!="",pod!=""}'
+      - seriesQuery: 'app_active_task_count{namespace!="",pod!=""}'
         resources:
           overrides:
             namespace: {resource: "namespace"}
@@ -65,7 +66,7 @@ adapterConfig:
           matches: "app_.*"
           as: "app_active_task_count"
         metricsQuery: 'avg_over_time(<<.Series>>{<<.LabelMatchers>>}[1m])'
-      - seriesQuery: 'app_active_request_count{container!="POD",namespace!="",pod!=""}'
+      - seriesQuery: 'app_active_request_count{namespace!="",pod!=""}'
         resources:
           overrides:
             namespace: {resource: "namespace"}
@@ -97,13 +98,13 @@ config:
             regex: matillion-agent-pods
           - source_labels: [__meta_kubernetes_pod_ip]
             target_label: __address__
-            replacement: $1:8000
+            replacement: $1:8080
           - source_labels: [__address__]
             target_label: __param_target
           - target_label: __scheme__
             replacement: http
           - target_label: __metrics_path__
-            replacement: /metrics
+            replacement: /actuator/prometheus
           - source_labels: [__meta_kubernetes_namespace]
             target_label: namespace
           - source_labels: [__meta_kubernetes_pod_name]

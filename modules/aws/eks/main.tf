@@ -194,7 +194,26 @@ resource "aws_eks_fargate_profile" "fargate_profile" {
     namespace = "kube-system"
   }
 
+  selector {
+    namespace = "prometheus"
+  }
+
   tags = var.tags
+}
+
+# Patch CoreDNS to run on Fargate nodes
+# EKS Fargate nodes have the eks.amazonaws.com/compute-type=fargate taint
+# which CoreDNS doesn't tolerate by default
+resource "terraform_data" "coredns_fargate_patch" {
+  depends_on = [aws_eks_fargate_profile.fargate_profile]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws eks update-kubeconfig --region ${var.region} --name ${aws_eks_cluster.eks_cluster.name}
+      kubectl patch deployment coredns -n kube-system --type json \
+        -p='[{"op": "add", "path": "/spec/template/spec/tolerations/-", "value": {"key": "eks.amazonaws.com/compute-type", "operator": "Equal", "value": "fargate", "effect": "NoSchedule"}}]'
+    EOT
+  }
 }
 
 resource "aws_s3_bucket" "log_bucket" {

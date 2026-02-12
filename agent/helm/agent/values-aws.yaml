@@ -38,22 +38,6 @@ dpcAgent:
       requests:
         cpu: "1"
         memory: 4Gi
-  # metricsExporter is required for HPA (autoscaling)
-  # This sidecar container exports custom metrics to Prometheus for autoscaling decisions
-  metricsExporter:
-    image:
-      repository: "123456789012.dkr.ecr.us-east-1.amazonaws.com/metrics-exporter"
-      tag: "latest"
-      # digest: "sha256:def456..."  # Optional: use digest for immutable deployments
-    imagePullPolicy: Always
-    gracePeriodSeconds: 43200
-    resources:
-      limits:
-        cpu: "1000m"
-        memory: 1024Mi
-      requests:
-        cpu: "500m"
-        memory: 512Mi
   replicas: 2
 
 kubernetesClusterDomain: cluster.local

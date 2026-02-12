@@ -22,7 +22,7 @@ spec:
           name: {{ .Values.networkPolicy.prometheusNamespace | default "monitoring" }}
     ports:
     - protocol: TCP
-      port: 8000
+      port: 8080
   egress:
   # Allow DNS resolution
   - to: []
