@@ -152,7 +152,6 @@ resource "aws_ecs_service" "matillion_dpc_service" {
     assign_public_ip = var.assign_public_ip
   }
 
-  wait_for_steady_state              = true
   deployment_minimum_healthy_percent = 50
 
   deployment_circuit_breaker {
