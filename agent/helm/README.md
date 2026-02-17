@@ -347,6 +347,120 @@ helm status matillion-agent
 helm rollback matillion-agent 1
 ```
 
+## Pre-Deployment Checks
+
+The `checks/` directory contains validation scripts that detect environment issues **before** they cause hard-to-diagnose failures at runtime.
+
+### Background
+
+These scripts were created after a client experienced Python Script components failing with exit code 137. After extensive debugging, the root cause was identified as CrowdStrike Falcon's container drift detection killing Python processes when invoked with a file argument (`python3 <filepath>`). A pre-deployment check would have identified this immediately.
+
+### When to Use
+
+- **Before initial deployment** — validate the cluster and pod environment before going live
+- **After cluster changes** — node pool upgrades, security tool rollouts, Kubernetes version upgrades
+- **When troubleshooting** — Python script failures (especially exit 137), OOM kills, permission errors
+- **During support escalations** — share the output with Matillion support for faster diagnosis
+
+### Quick Start
+
+```bash
+# Auto-discover the agent pod and run all checks
+./checks/run-check.sh
+
+# Target a specific namespace
+./checks/run-check.sh --namespace matillion
+
+# Target a specific Helm release (when multiple exist)
+./checks/run-check.sh --namespace matillion --release my-agent
+
+# Use a specific pod directly
+./checks/run-check.sh --pod my-agent-pod-abc123 --namespace matillion
+
+# Custom kubeconfig
+./checks/run-check.sh --kubeconfig /path/to/kubeconfig
+```
+
+### What It Checks
+
+**Cluster-level** (run from your machine via kubectl):
+- Security DaemonSets — CrowdStrike Falcon, Microsoft Defender, Falco, Sysdig, Twistlock/Prisma, Aqua, NeuVector
+- Whether security agents are active on the same node as the agent pod
+- Kubernetes version (flags end-of-life versions)
+- Pod Security Standards on the agent namespace
+- Agent pod status and restart count
+- **Image & release track** — detects `current` vs `stable` track, reports registry (ECR/ACR), checks for image drift between spec and running digest
+- **ServiceAccount & cloud identity** — validates AWS IRSA or Azure Workload Identity annotations
+- **Secret availability** — verifies all referenced secrets exist with data keys
+- **NetworkPolicy egress** — checks for DNS (port 53) and HTTPS (port 443) egress rules
+
+**In-pod critical checks** (FAIL = blocks deployment):
+- Python3 availability, inline execution, and file-based execution
+- Inline vs file-based mismatch detection (the exact CrowdStrike drift pattern)
+- `/tmp` writability and working directory access
+- Java availability
+
+**In-pod warnings** (non-blocking):
+- `/dev/shm` size (>= 40MB), `/tmp` free space (>= 256MB)
+- `restricteduser` user/group existence (informational — PRIVILEGED mode is expected default)
+- `sudo` availability, `noexec` mount flags
+- OOM kill history, memory and PID usage vs limits
+
+**Environment info** (diagnostic data):
+- Seccomp status, memory configuration, ulimits
+- Environment variables (masked), Java/Python versions
+- DNS resolution **and HTTPS connectivity** for Matillion platform endpoints (keycloak, OpenTelemetry)
+- JVM heap settings, GC algorithm, and full JVM flags
+- Disk space and mount flags
+
+### Agent Release Tracks
+
+The check script automatically detects which release track the agent is running:
+
+| Track | Tag | Cadence | Best For |
+|-------|-----|---------|----------|
+| **Current** | `:current` | ~Twice/week (Tue & Thu) | Dev/test — latest features, early access |
+| **Stable** | `:stable` | Monthly (1st of month) | Production — vetted, predictable upgrades |
+
+- **Support window**: Only the latest release and the one immediately before it are supported for each track
+- **Full SaaS agents** always run on the Current track
+- You select the track when creating the agent and can change it via the [Update an Agent API](https://docs.matillion.com/data-productivity-cloud/agent/docs/agent-updates/)
+- The image URI in your cloud deployment must match the track configured in Matillion
+
+**Image URIs by cloud provider:**
+
+| Cloud | Current | Stable |
+|-------|---------|--------|
+| AWS | `public.ecr.aws/matillion/etl-agent:current` | `public.ecr.aws/matillion/etl-agent:stable` |
+| Azure | `matillion.azurecr.io/cloud-agent:current` | `matillion.azurecr.io/cloud-agent:stable` |
+
+For more details see:
+- [Agent updates](https://docs.matillion.com/data-productivity-cloud/agent/docs/agent-updates/)
+- [Agent overview & migration](https://docs.matillion.com/data-productivity-cloud/agent/docs/agent-overview/#migrating-from-full-saas-to-hybrid-saas)
+
+### Understanding the Output
+
+The scripts produce color-coded output with a remediation summary:
+
+- **[PASS]** — check passed, no action needed
+- **[WARN]** — potential issue, review recommended
+- **[FAIL]** — critical issue, must be resolved before deployment
+- **[INFO]** — diagnostic data for reference
+
+Any FAIL or WARN results include numbered remediation steps at the end with specific fix instructions.
+
+**Exit code**: `0` = all critical checks passed, `1` = one or more critical failures.
+
+### Running the In-Pod Script Standalone
+
+If you already have a shell in the pod, you can run the validation script directly:
+
+```bash
+# Copy and run manually
+kubectl cp checks/pre-deployment-check.sh <namespace>/<pod>:/tmp/check.sh
+kubectl exec -n <namespace> <pod> -- bash /tmp/check.sh
+```
+
 ## Troubleshooting
 
 ### Common Issues
