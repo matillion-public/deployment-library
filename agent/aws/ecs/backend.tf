@@ -1,17 +1,17 @@
 # S3 Backend Configuration for ECS Deployment
 terraform {
-  # backend "s3" {
-  #   # Bucket will be dynamically configured during deployment
-  #   # bucket = "${account_id}-terraform-states"
-  #   # key    = "ecs/${region}/${cluster_name}/terraform.tfstate"
-  #   # region = "${region}"
+  backend "s3" {
+    # Bucket will be dynamically configured during deployment
+    # bucket = "${account_id}-terraform-states"
+    # key    = "ecs/${region}/${cluster_name}/terraform.tfstate"
+    # region = "${region}"
     
-  #   # Enable encryption
-  #   encrypt        = true
+    # Enable encryption
+    encrypt        = true
     
-  #   # DynamoDB table for state locking
-  #   # dynamodb_table = "terraform-state-locks"
-  # }
+    # DynamoDB table for state locking
+    # dynamodb_table = "terraform-state-locks"
+  }
   
   required_providers {
     aws = {
