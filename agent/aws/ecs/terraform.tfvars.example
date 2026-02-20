@@ -1,59 +1,34 @@
 # Name for the ECS Fargate cluster
-name = "data-insights"
+name = "my-agent"
 
-# AWS region where resources will be deployed
-region = "us-east-1"
-
-# Matillion agent container image URL
-image_url = "public.ecr.aws/matillion/etl-agent:current"
-
-# Matillion account ID from Matillion HUB
-account_id = "your-matillion-account-id"
-
-# Matillion Agent ID from Matillion HUB
-agent_id = "your-agent-id"
-
-# Matillion designer region
+# Matillion DPC
+account_id       = "your-matillion-account-id"
+agent_id         = "your-agent-id"
 matillion_region = "eu1"
+client_id        = "your-client-id"
+client_secret    = "your-client-secret"
 
-# Matillion environment (Internal use only)
-matillion_environment = ""
-
-# Optional: Location for additional Python libraries
-extension_library_location = ""
-
-# Optional: Protocol for extension library location
-extension_library_protocol = ""
-
-# Client ID from Agent credentials (sensitive)
-client_id = "your-client-id"
-
-# Client secret from Agent credentials (sensitive)
-client_secret = "your-client-secret"
-
-# VPC ID where ECS service will be deployed
-vpc_id = "vpc-xxxxxxxxx"
-
-# Subnet IDs for ECS service deployment
-subnet_ids = ["subnet-xxxxxxxxx", "subnet-yyyyyyyyy"]
-
-# Security group IDs for ECS tasks
-security_group_ids = ["sg-xxxxxxxxx"]
-
-# Whether to create a new S3 bucket
-create_bucket = true
-
-# Desired number of running tasks
+# Agent resources
 desired_count = 2
+agent_cpu     = 1024
+agent_memory  = 4096
 
-# Memory allocation for agent (in MiB)
-agent_memory = 4096
-
-# CPU allocation for agent (in CPU units)
-agent_cpu = 1024
+# AWS
+region                      = "eu-west-1"
+use_existing_vpc            = true
+use_existing_subnet         = false
+use_existing_security_group = false
+vpc_id                      = "vpc-xxxxxxxxx"
+subnet_ids                  = []
+security_group_ids          = []
+assign_public_ip            = true
 
 # Optional ephemeral storage size in GiB
-ephemeral_storage_size = null
+ephemeral_storage_size = 40
 
-# Optional: Assign a public IP address to the ECS tasks
-assign_public_ip = false
+# Optional: Resource tags
+tags = {
+  "Category" = "Development"
+  "SBU"      = "Support"
+  "Owner"    = "user@example.com"
+}
