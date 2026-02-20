@@ -102,10 +102,29 @@ Navigate to the appropriate subdirectory:
 
 ```bash
 # For ECS Fargate deployment
-cd aws/ecs/
+# Clone the repository
+cd deployment-library/agent/aws/ecs
+
+# Create your terraform.tfvars file
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your values
+
+# Deploy the infrastructure
+terraform init
+terraform plan
+terraform apply
 
 # For EKS deployment  
-cd aws/eks/
+cd deployment-library/agent/aws/eks
+
+# Create your terraform.tfvars file
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your values
+
+# Deploy the infrastructure
+terraform init
+terraform plan
+terraform apply
 ```
 
 ### 2. Follow Platform-Specific Instructions
