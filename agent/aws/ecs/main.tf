@@ -67,10 +67,20 @@ resource "aws_subnet" "ecs_subnet" {
   })
 }
 
+data "aws_route_table" "existing" {
+  count  = var.use_existing_vpc && !var.use_existing_subnet ? 1 : 0
+  vpc_id = var.vpc_id
+
+  filter {
+    name   = "association.main"
+    values = ["true"]
+  }
+}
+
 resource "aws_route_table_association" "ecs_subnet_association" {
   count          = var.use_existing_subnet ? 0 : 2
   subnet_id      = element(aws_subnet.ecs_subnet[*].id, count.index)
-  route_table_id = aws_route_table.public[0].id
+  route_table_id = var.use_existing_vpc ? data.aws_route_table.existing[0].id : aws_route_table.public[0].id
 }
 
 resource "aws_security_group" "ecs_security_group" {
