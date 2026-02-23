@@ -107,10 +107,20 @@ resource "aws_route_table" "private" {
   })
 }
 
+data "aws_route_table" "existing" {
+  count  = var.use_existing_vpc && !var.use_existing_subnet ? 1 : 0
+  vpc_id = var.existing_vpc_id
+
+  filter {
+    name   = "association.main"
+    values = ["true"]
+  }
+}
+
 resource "aws_route_table_association" "public_subnet_association" {
   count = var.use_existing_subnet ? 0 : 2
   subnet_id      = aws_subnet.public_subnet[count.index].id
-  route_table_id = aws_route_table.public[0].id
+  route_table_id = var.use_existing_vpc ? data.aws_route_table.existing[0].id : aws_route_table.public[0].id
 }
 
 resource "aws_route_table_association" "private_subnet_association" {

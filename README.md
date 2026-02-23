@@ -122,14 +122,16 @@ helm install matillion-agent agent/helm/agent/ \
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd agent-deployment
+cd deployment-library/agent/aws/ecs
 
 # Create your terraform.tfvars file
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with your values
 
 # Deploy the infrastructure
-./deploy.sh
+terraform init
+terraform plan
+terraform apply
 ```
 
 ### AWS EKS Deployment

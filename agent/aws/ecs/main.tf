@@ -67,10 +67,20 @@ resource "aws_subnet" "ecs_subnet" {
   })
 }
 
+data "aws_route_table" "existing" {
+  count  = var.use_existing_vpc && !var.use_existing_subnet ? 1 : 0
+  vpc_id = var.vpc_id
+
+  filter {
+    name   = "association.main"
+    values = ["true"]
+  }
+}
+
 resource "aws_route_table_association" "ecs_subnet_association" {
   count          = var.use_existing_subnet ? 0 : 2
   subnet_id      = element(aws_subnet.ecs_subnet[*].id, count.index)
-  route_table_id = aws_route_table.public[0].id
+  route_table_id = var.use_existing_vpc ? data.aws_route_table.existing[0].id : aws_route_table.public[0].id
 }
 
 resource "aws_security_group" "ecs_security_group" {
@@ -95,7 +105,8 @@ resource "aws_security_group" "ecs_security_group" {
 module "secert_manager" {
   source = "../../../modules/aws/secerts-manager"
 
-  name = join("-", [var.name, random_string.salt.result])
+  name        = join("-", [var.name, random_string.salt.result])
+  secret_name = var.secret_name
 
   client_id     = var.client_id
   client_secret = var.client_secret
@@ -124,7 +135,12 @@ module "agent" {
   create_bucket      = var.create_bucket
 
   extension_library_location = var.extension_library_location
-  extension_library_protocol = var.extension_library_protocol
+  proxy_http                 = var.proxy_http
+  proxy_https                = var.proxy_https
+  proxy_excludes             = var.proxy_excludes
+  custom_cert_location       = var.custom_cert_location
+  external_driver_location   = var.external_driver_location
+  export_logs                = var.export_logs
 
   agent_task_role_arn           = module.iam_roles.ecs_task_role_arn
   agent_task_role_execution_arn = module.iam_roles.ecs_task_execution_role

@@ -31,17 +31,20 @@
                 "value": "${matillion_region}"
             },
             {
-                "name": "MATILLION_ENV",
-                "value": "${matillion_environment}"
+                "name": "CLOUD_PROVIDER",
+                "value": "AWS"
             },
             {
-                "name": "EXTENSION_LIBRARY_LOCATION",
-                "value": "${extension_library_location}"
-            },
-            {
-                "name": "EXTENSION_LIBRARY_PROTOCOL",
-                "value": "${extension_library_protocol}"
+                "name": "EXPORT_LOGS",
+                "value": "${export_logs}"
             }
+            %{ if matillion_environment != "" },{ "name": "MATILLION_ENV", "value": "${matillion_environment}" }%{ endif }
+            %{ if proxy_http != "" },{ "name": "PROXY_HTTP", "value": "${proxy_http}" }%{ endif }
+            %{ if proxy_https != "" },{ "name": "PROXY_HTTPS", "value": "${proxy_https}" }%{ endif }
+            %{ if proxy_excludes != "" },{ "name": "PROXY_EXCLUDES", "value": "${proxy_excludes}" }%{ endif }
+            %{ if custom_cert_location != "" },{ "name": "CUSTOM_CERT_LOCATION", "value": "${custom_cert_location}" }%{ endif }
+            %{ if extension_library_location != "" },{ "name": "EXTENSION_LIBRARY_LOCATION", "value": "${extension_library_location}" }%{ endif }
+            %{ if external_driver_location != "" },{ "name": "EXTERNAL_DRIVER_LOCATION", "value": "${external_driver_location}" }%{ endif }
         ],
         "secrets":[
             {
