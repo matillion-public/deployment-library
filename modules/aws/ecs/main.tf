@@ -77,7 +77,12 @@ resource "aws_ecs_task_definition" "matillion_dpc_agent" {
     matillion_region            = var.matillion_region
     matillion_environment       = var.matillion_environment
     extension_library_location  = var.extension_library_location
-    extension_library_protocol  = var.extension_library_protocol
+    proxy_http                  = var.proxy_http
+    proxy_https                 = var.proxy_https
+    proxy_excludes              = var.proxy_excludes
+    custom_cert_location        = var.custom_cert_location
+    external_driver_location    = var.external_driver_location
+    export_logs                 = var.export_logs
     agent_secret_arn            = var.agent_secret_arn
     region                      = var.region
     version_consistency         = "disabled"

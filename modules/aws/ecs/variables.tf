@@ -49,10 +49,40 @@ variable "extension_library_location" {
   default = ""
 }
 
-variable "extension_library_protocol" {
-  description = "Optional: Used in conjunction with ExtensionLibraryLocation"
+variable "proxy_http" {
+  description = "Optional: HTTP proxy URL for the agent"
   type        = string
-  default = ""
+  default     = ""
+}
+
+variable "proxy_https" {
+  description = "Optional: HTTPS proxy URL for the agent"
+  type        = string
+  default     = ""
+}
+
+variable "proxy_excludes" {
+  description = "Optional: Comma-separated list of hosts to exclude from proxying"
+  type        = string
+  default     = ""
+}
+
+variable "custom_cert_location" {
+  description = "Optional: S3 location of custom certificates"
+  type        = string
+  default     = ""
+}
+
+variable "external_driver_location" {
+  description = "Optional: S3 location of external JDBC drivers"
+  type        = string
+  default     = ""
+}
+
+variable "export_logs" {
+  description = "Whether to export agent logs (default: true)"
+  type        = string
+  default     = "true"
 }
 
 variable "vpc_id" {
