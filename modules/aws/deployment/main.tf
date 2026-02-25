@@ -18,6 +18,44 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+# Look up existing subnets to avoid CIDR conflicts when creating subnets in an existing VPC
+data "aws_subnets" "existing_in_vpc" {
+  count = var.use_existing_vpc && !var.use_existing_subnet ? 1 : 0
+
+  filter {
+    name   = "vpc-id"
+    values = [var.existing_vpc_id]
+  }
+}
+
+data "aws_subnet" "existing_details" {
+  for_each = var.use_existing_vpc && !var.use_existing_subnet ? toset(try(data.aws_subnets.existing_in_vpc[0].ids, [])) : toset([])
+  id       = each.value
+}
+
+locals {
+  existing_subnet_cidrs = [for s in data.aws_subnet.existing_details : s.cidr_block]
+
+  # Find netnums (for cidrsubnet with newbits=8) that don't overlap with existing subnets
+  # Note: newbits=8 requires VPC CIDR with sufficient host bits (e.g., /16 VPC -> /24 subnets)
+  available_netnums = [
+    for n in range(0, 256) : n
+    if alltrue([
+      for existing_cidr in local.existing_subnet_cidrs :
+      !cidrcontains(existing_cidr, cidrhost(cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, n), 0)) &&
+      !cidrcontains(cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, n), cidrhost(existing_cidr, 0))
+    ])
+  ]
+
+  public_netnums  = var.use_existing_vpc && !var.use_existing_subnet ? slice(local.available_netnums, 0, 2) : [0, 1]
+  public_netnums  = var.use_existing_vpc && !var.use_existing_subnet ? (
+    length(local.available_netnums) >= 4 ? slice(local.available_netnums, 0, 2) : error("Insufficient available CIDR blocks in VPC. Found ${length(local.available_netnums)} available netnums, need at least 4.")
+  ) : [0, 1]
+  private_netnums = var.use_existing_vpc && !var.use_existing_subnet ? (
+    length(local.available_netnums) >= 4 ? slice(local.available_netnums, 2, 4) : error("Insufficient available CIDR blocks in VPC. Found ${length(local.available_netnums)} available netnums, need at least 4.")
+  ) : [2, 3]
+}
+
 resource "random_shuffle" "aws_availability_zone_names" {
   input        = data.aws_availability_zones.available.names
   result_count = 2
@@ -50,7 +88,7 @@ resource "aws_subnet" "public_subnet" {
   count = var.use_existing_subnet ? 0 : 2
 
   vpc_id     = data.aws_vpc.vpc.id
-  cidr_block = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, 0 + count.index)
+  cidr_block = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.public_netnums[count.index])
   availability_zone = element(random_shuffle.aws_availability_zone_names.result, count.index)
   map_public_ip_on_launch = true
   tags = merge(var.tags, {
@@ -62,7 +100,7 @@ resource "aws_subnet" "private_subnet" {
   count = var.use_existing_subnet ? 0 : 2
 
   vpc_id     = data.aws_vpc.vpc.id
-  cidr_block = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, 2 + count.index)
+  cidr_block = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.private_netnums[count.index])
   availability_zone = element(random_shuffle.aws_availability_zone_names.result, count.index)
   map_public_ip_on_launch = false
   tags = merge(var.tags, {
