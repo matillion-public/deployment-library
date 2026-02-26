@@ -76,3 +76,15 @@ variable "service_principal_secret" {
   sensitive   = true
   default     = ""
 }
+
+variable "enable_nat_gateway" {
+  type        = bool
+  description = "Enable NAT Gateway for controlled outbound egress with static IP"
+  default     = false
+}
+
+variable "nat_gateway_idle_timeout" {
+  type        = number
+  description = "NAT Gateway idle timeout in minutes (between 4 and 120)"
+  default     = 10
+}

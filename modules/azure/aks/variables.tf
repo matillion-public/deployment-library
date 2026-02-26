@@ -75,3 +75,9 @@ variable "service_principal_secret" {
   sensitive   = true
   default     = ""
 }
+
+variable "enable_nat_gateway" {
+  type        = bool
+  description = "Enable NAT Gateway for AKS outbound traffic"
+  default     = false
+}
