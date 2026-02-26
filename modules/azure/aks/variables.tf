@@ -75,3 +75,8 @@ variable "service_principal_secret" {
   sensitive   = true
   default     = ""
 }
+
+variable "enable_nat_gateway" {
+  type    = bool
+  default = false
+}

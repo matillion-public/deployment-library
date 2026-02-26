@@ -76,3 +76,13 @@ variable "service_principal_secret" {
   sensitive   = true
   default     = ""
 }
+
+variable "enable_nat_gateway" {
+  type    = bool
+  default = false
+}
+
+variable "nat_gateway_idle_timeout" {
+  type    = number
+  default = 10
+}

@@ -34,3 +34,7 @@ output "agent_sp_client_secret" {
 output "agent_sp_tenant_id" {
   value = module.aks.agent_sp_tenant_id
 }
+
+output "nat_gateway_public_ip" {
+  value = module.networking.nat_gateway_public_ip
+}

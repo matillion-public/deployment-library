@@ -46,6 +46,7 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
     load_balancer_sku = "standard"
     service_cidr      = "10.2.0.0/16"
     dns_service_ip    = "10.2.0.10"
+    outbound_type     = var.enable_nat_gateway ? "userAssignedNATGateway" : "loadBalancer"
   }
   
   private_cluster_enabled = var.is_private_cluster

@@ -10,8 +10,10 @@ module "networking" {
     location = var.location
     resource_group_name = var.resource_group_name
     random_string_salt = random_string.salt.result
+    enable_nat_gateway = var.enable_nat_gateway
+    nat_gateway_idle_timeout = var.nat_gateway_idle_timeout
     tags = var.tags
-  
+
 }
 
 module "aks" {
@@ -36,6 +38,8 @@ module "aks" {
     service_principal_enabled = var.service_principal_enabled
     service_principal_client_id = var.service_principal_client_id
     service_principal_secret = var.service_principal_secret
+
+    enable_nat_gateway = var.enable_nat_gateway
 
     tags = var.tags
     

@@ -9,3 +9,11 @@ output "vnet_id" {
 output "subnet_ids" {
   value = azurerm_subnet.aks_subnets[*].id
 }
+
+output "nat_gateway_id" {
+  value = var.enable_nat_gateway ? azurerm_nat_gateway.main[0].id : null
+}
+
+output "nat_gateway_public_ip" {
+  value = var.enable_nat_gateway ? azurerm_public_ip.nat_gateway_ip[0].ip_address : null
+}
