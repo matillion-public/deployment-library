@@ -43,3 +43,42 @@ resource "azurerm_subnet_network_security_group_association" "subnet_nsg" {
   subnet_id                 = each.value.id
   network_security_group_id = azurerm_network_security_group.aks_security_group.id
 }
+
+# --- NAT Gateway for controlled outbound egress ---
+
+resource "azurerm_public_ip" "nat_gateway_ip" {
+  count               = var.enable_nat_gateway ? 1 : 0
+  name                = join("-", [var.name, "nat-pip", var.random_string_salt])
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+
+  tags = var.tags
+}
+
+resource "azurerm_nat_gateway" "main" {
+  count                   = var.enable_nat_gateway ? 1 : 0
+  name                    = join("-", [var.name, "nat-gw", var.random_string_salt])
+  location                = var.location
+  resource_group_name     = var.resource_group_name
+  sku_name                = "Standard"
+  idle_timeout_in_minutes = var.nat_gateway_idle_timeout
+
+  tags = var.tags
+}
+
+resource "azurerm_nat_gateway_public_ip_association" "main" {
+  count                = var.enable_nat_gateway ? 1 : 0
+  nat_gateway_id       = azurerm_nat_gateway.main[0].id
+  public_ip_address_id = azurerm_public_ip.nat_gateway_ip[0].id
+}
+
+resource "azurerm_subnet_nat_gateway_association" "aks_subnets" {
+  for_each = var.enable_nat_gateway ? {
+    for idx, subnet in azurerm_subnet.aks_subnets : idx => subnet
+  } : {}
+
+  subnet_id      = each.value.id
+  nat_gateway_id = azurerm_nat_gateway.main[0].id
+}
