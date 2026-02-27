@@ -36,18 +36,39 @@ data "aws_subnet" "existing_details" {
 locals {
   existing_subnet_cidrs = [for s in data.aws_subnet.existing_details : s.cidr_block]
 
-  # Find netnums (for cidrsubnet with newbits=8) that don't overlap with existing subnets
-  # Note: newbits=8 requires VPC CIDR with sufficient host bits (e.g., /16 VPC -> /24 subnets)
+  # CIDR overlap detection using IP-to-integer arithmetic (Terraform-compatible, no cidrcontains)
+  vpc_prefix_len = tonumber(split("/", data.aws_vpc.vpc.cidr_block)[1])
+  candidate_size = pow(2, 32 - local.vpc_prefix_len - 8)
+
+  vpc_start_int = (
+    tonumber(element(split(".", cidrhost(data.aws_vpc.vpc.cidr_block, 0)), 0)) * pow(2, 24) +
+    tonumber(element(split(".", cidrhost(data.aws_vpc.vpc.cidr_block, 0)), 1)) * pow(2, 16) +
+    tonumber(element(split(".", cidrhost(data.aws_vpc.vpc.cidr_block, 0)), 2)) * pow(2, 8) +
+    tonumber(element(split(".", cidrhost(data.aws_vpc.vpc.cidr_block, 0)), 3))
+  )
+
+  existing_subnet_ranges = [
+    for cidr in local.existing_subnet_cidrs : {
+      start = (
+        tonumber(element(split(".", cidrhost(cidr, 0)), 0)) * pow(2, 24) +
+        tonumber(element(split(".", cidrhost(cidr, 0)), 1)) * pow(2, 16) +
+        tonumber(element(split(".", cidrhost(cidr, 0)), 2)) * pow(2, 8) +
+        tonumber(element(split(".", cidrhost(cidr, 0)), 3))
+      )
+      size = pow(2, 32 - tonumber(split("/", cidr)[1]))
+    }
+  ]
+
+  # Find netnums that don't overlap with any existing subnet (handles different prefix lengths)
   available_netnums = [
     for n in range(0, 256) : n
-    if alltrue([
-      for existing_cidr in local.existing_subnet_cidrs :
-      !cidrcontains(existing_cidr, cidrhost(cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, n), 0)) &&
-      !cidrcontains(cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, n), cidrhost(existing_cidr, 0))
+    if !anytrue([
+      for existing in local.existing_subnet_ranges :
+      (local.vpc_start_int + n * local.candidate_size) < (existing.start + existing.size) &&
+      existing.start < (local.vpc_start_int + n * local.candidate_size + local.candidate_size)
     ])
   ]
 
-  public_netnums  = var.use_existing_vpc && !var.use_existing_subnet ? slice(local.available_netnums, 0, 2) : [0, 1]
   public_netnums  = var.use_existing_vpc && !var.use_existing_subnet ? (
     length(local.available_netnums) >= 4 ? slice(local.available_netnums, 0, 2) : error("Insufficient available CIDR blocks in VPC. Found ${length(local.available_netnums)} available netnums, need at least 4.")
   ) : [0, 1]

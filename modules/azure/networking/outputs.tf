@@ -7,7 +7,8 @@ output "vnet_id" {
 }
 
 output "subnet_ids" {
-  value = azurerm_subnet.aks_subnets[*].id
+  value      = azurerm_subnet.aks_subnets[*].id
+  depends_on = [azurerm_subnet_nat_gateway_association.aks_subnets]
 }
 
 output "nat_gateway_id" {
