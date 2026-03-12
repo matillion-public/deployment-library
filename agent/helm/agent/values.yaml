@@ -63,6 +63,13 @@ hpa:
       averageValue: <ScaleUpAverageValue>
       type: AverageValue
 
+# GCP-specific configuration
+gcp:
+  workloadIdentity:
+    enabled: true   # Set to true to use GKE Workload Identity (recommended)
+    serviceAccountEmail: ""  # GCP SA email, e.g. my-sa@my-project.iam.gserviceaccount.com
+                             # Get this from Terraform output: agent_workload_sa_email
+
 # AWS-specific configuration for local deployments
 aws:
   local:

@@ -28,7 +28,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" (include "matillion-agent.fullname" .)) }}
-      {{- if and (eq (include "matillion-agent.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+      {{- if or (and (eq (include "matillion-agent.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled) (and (eq (include "matillion-agent.cloudProvider" .) "gcp") .Values.gcp.workloadIdentity.enabled) }}
       automountServiceAccountToken: true
       {{- else }}
       automountServiceAccountToken: false
