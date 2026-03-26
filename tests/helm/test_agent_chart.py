@@ -21,7 +21,7 @@ class TestAgentChart:
                     'env': {
                         'accountId': '12345',
                         'agentId': 'test-agent-id',
-                        'matillionRegion': 'us-east-1'
+                        'matillionRegion': 'us1'
                     },
                     'image': {
                         'repository': 'nginx',
@@ -111,7 +111,7 @@ class TestAgentChart:
 
         assert env_vars['ACCOUNT_ID'] == '12345'
         assert env_vars['AGENT_ID'] == 'test-agent-id'
-        assert env_vars['MATILLION_REGION'] == 'us-east-1'
+        assert env_vars['MATILLION_REGION'] == 'us1'
 
     def test_replica_count(self, base_values):
         """Test replica count is configurable"""

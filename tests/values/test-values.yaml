@@ -10,7 +10,7 @@ dpcAgent:
     env:
       accountId: "12345"
       agentId: "test-agent-id"
-      matillionRegion: "us-east-1"
+      matillionRegion: "us1"
     image:
       repository: "nginx"  # Use nginx for testing
       tag: "latest"
