@@ -34,7 +34,6 @@ This repository provides multiple deployment methods for the Matillion Data Prod
 - Infrastructure as Code with Terraform modules
 - Serverless container deployment on Azure
 - Managed Identity integration
-- Auto-scaling and pay-per-use pricing model
 
 ## Prerequisites
 
