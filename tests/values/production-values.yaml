@@ -10,7 +10,7 @@ dpcAgent:
     env:
       accountId: "123456789012"
       agentId: "prod-agent-123"
-      matillionRegion: "us-east-1"
+      matillionRegion: "us1"
     image:
       repository: "matillion/etl-agent"
       tag: "latest"

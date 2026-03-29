@@ -153,7 +153,7 @@ helm install prometheus ./prometheus --namespace prometheus \
 |-----------|-------------|---------|
 | `dpcAgent.dpcAgent.env.accountId` | Your Matillion account ID | `"12345"` |
 | `dpcAgent.dpcAgent.env.agentId` | Unique agent identifier | `"agent-prod-01"` |
-| `dpcAgent.dpcAgent.env.matillionRegion` | Matillion region | `"us-east-1"` |
+| `dpcAgent.dpcAgent.env.matillionRegion` | Matillion region | `"us1"` |
 | `config.oauthClientId` | OAuth client ID | `"client-123"` |
 | `config.oauthClientSecret` | OAuth client secret | `"secret-456"` |
 | `serviceAccount.roleArn` | AWS IAM role ARN (required for EKS) | `"arn:aws:iam::..."` |
@@ -515,7 +515,7 @@ dpcAgent:
     env:
       accountId: "12345"
       agentId: "prod-agent-01"
-      matillionRegion: "us-east-1"
+      matillionRegion: "us1"
     image:
       repository: "your-registry/matillion-agent"
       tag: "v2.1.0"
@@ -579,7 +579,7 @@ dpcAgent:
     env:
       accountId: "54321"
       agentId: "minikube-dev-agent"
-      matillionRegion: "us-east-1"
+      matillionRegion: "us1"
     image:
       repository: "matillion-agent"
       tag: "latest"
