@@ -2,47 +2,78 @@
 
 This directory contains Terraform configurations for deploying the Matillion DPC Agent using Azure Container Apps - a fully managed serverless container service.
 
-## 🎯 Overview
+## Overview
 
 Azure Container Apps deployment provides:
 - **Serverless Containers**: Fully managed container hosting
-- **Auto-scaling**: Built-in scaling based on HTTP traffic and custom metrics
-- **Microservices Ready**: Service discovery and distributed application patterns
-- **Integrated Security**: Managed Identity and Key Vault integration
+- **Fixed Replica Count**: Consistent container count (no auto-scaling - that is a K8s/AKS feature)
+- **Integrated Security**: Managed Identity, Key Vault, and network isolation
 - **Cost Effective**: Pay-per-use pricing model
+- **Full Prerequisite Creation**: VNet, subnets, identity, Key Vault, and storage are all created automatically
 
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────────┐
-│         Azure Resource Group        │
-│  ┌─────────────────────────────────┐ │
-│  │    Container Apps Environment   │ │
-│  │  ┌─────────────────────────────┐ │ │
-│  │  │      Container App          │ │ │
-│  │  │  ┌─────────────────────────┐ │ │ │
-│  │  │  │   Matillion Agent       │ │ │ │
-│  │  │  │     (Single Container)  │ │ │ │
-│  │  │  └─────────────────────────┘ │ │ │
-│  │  └─────────────────────────────┘ │ │
-│  └─────────────────────────────────┘ │
-│  ┌─────────────────────────────────┐ │
-│  │         Key Vault               │ │
-│  │    (OAuth Credentials)          │ │
-│  └─────────────────────────────────┘ │
-│  ┌─────────────────────────────────┐ │
-│  │    Log Analytics Workspace     │ │
-│  │       (Monitoring & Logs)       │ │
-│  └─────────────────────────────────┘ │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                  Azure Resource Group                    │
+│                                                         │
+│  ┌─────────────────────────────────────────────────────┐│
+│  │  Virtual Network (10.0.0.0/16)                      ││
+│  │  ┌────────────────────────┐ ┌─────────────────────┐ ││
+│  │  │ Subnet 0 (10.0.0.0/23)│ │Subnet 1 (10.0.2.0/24│ ││
+│  │  │ Delegated to           │ │ Service endpoints    │ ││
+│  │  │ Microsoft.App/         │ │ (Storage, KeyVault)  │ ││
+│  │  │ environments           │ │                      │ ││
+│  │  └──────────┬─────────────┘ └─────────────────────┘ ││
+│  └─────────────┼───────────────────────────────────────┘│
+│                │                                         │
+│  ┌─────────────▼───────────────────────────────────────┐│
+│  │    Container Apps Environment                        ││
+│  │  ┌───────────────────────────────────────┐          ││
+│  │  │  Container App (Matillion Agent)      │          ││
+│  │  │  - UserAssigned Managed Identity      │          ││
+│  │  │  - Workload Profile: agentpool (D4)   │          ││
+│  │  │  - Replicas: 2 (fixed)               │          ││
+│  │  └───────────────────────────────────────┘          ││
+│  └─────────────────────────────────────────────────────┘│
+│                                                         │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────┐│
+│  │  Key Vault   │ │   Storage    │ │  Log Analytics   ││
+│  │  (Secrets)   │ │  Account     │ │  Workspace       ││
+│  └──────────────┘ └──────────────┘ └──────────────────┘│
+└─────────────────────────────────────────────────────────┘
 ```
 
-## 📋 Prerequisites
+## Module Structure
+
+This deployment follows the same modular pattern as the AKS deployment:
+
+```
+agent/azure/container_apps/     # Root configuration
+├── main.tf                     # Calls networking + container-apps modules
+├── variables.tf                # Input variables
+├── outputs.tf                  # Output values
+├── provider.tf                 # Azure provider config
+├── backend.tf                  # State backend config
+└── terraform.example.tfvars    # Example variable values
+
+modules/azure/networking/       # Shared networking module
+├── main.tf                     # VNet, subnets, NSG, NAT Gateway
+├── variables.tf
+└── outputs.tf
+
+modules/azure/container-apps/   # Container Apps module
+├── main.tf                     # CA env, app, KV, storage, identity, roles
+├── variables.tf
+└── outputs.tf
+```
+
+## Prerequisites
 
 - [Terraform 1.0+](https://www.terraform.io/downloads.html)
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Azure subscription with Container Apps enabled
-- Virtual network with dedicated subnet for Container Apps
+- A pre-existing resource group
 
 ### Required Azure Permissions
 
@@ -53,457 +84,203 @@ az login
 # Set subscription
 az account set --subscription "your-subscription-id"
 
-# Register Container Apps provider
-az provider register --namespace Microsoft.ContainerService
+# Register required providers
+az provider register --namespace Microsoft.App
 az provider register --namespace Microsoft.OperationalInsights
 ```
 
-## 🚀 Quick Start
+## Networking Requirements
 
-### 1. Clone and Navigate
+### Container Apps Subnet Restrictions
 
-```bash
-git clone <repository-url>
-cd agent-deployment/agent/azure/container_apps
+Azure Container Apps has specific subnet requirements that differ from AKS. This deployment handles them automatically via `cidrsubnet()`, but they are important to understand:
+
+| Requirement | Detail |
+|---|---|
+| **Minimum subnet size** | `/23` (512 addresses). Azure reserves addresses for internal Container Apps infrastructure. A `/24` or smaller **will fail deployment**. |
+| **Recommended subnet size** | `/23` for most workloads. Use `/21` if you expect many Container App environments or revisions. |
+| **Subnet delegation** | The subnet **must** be delegated to `Microsoft.App/environments`. No other resources can share this delegated subnet. |
+| **Dedicated subnet** | The Container Apps Environment subnet cannot be shared with other services (e.g. VMs, AKS, Application Gateway). |
+| **Service endpoints** | `Microsoft.Storage` and `Microsoft.KeyVault` are configured for Key Vault and storage access. |
+| **NSG** | An NSG allowing HTTPS (443) inbound is attached to all subnets. |
+
+> **Why /23 and not /24?** Azure Container Apps uses the infrastructure subnet to provision internal load balancers, envoy proxies, and platform components. A `/24` (256 addresses) does not provide enough addresses and Azure will reject the deployment with an error.
+
+### How Subnets Are Calculated
+
+Subnets are dynamically calculated using Terraform's `cidrsubnet()` function to avoid CIDR clashes (same pattern as the AWS deployments):
+
+```hcl
+# From main.tf — subnet_configs passed to the networking module
+subnet_configs = [
+  {
+    newbits = 7    # cidrsubnet("10.0.0.0/16", 7, 0) = 10.0.0.0/23  (CA environment)
+    netnum  = 0
+    delegation = { ... Microsoft.App/environments ... }
+  },
+  {
+    newbits = 8    # cidrsubnet("10.0.0.0/16", 8, 2) = 10.0.2.0/24  (services)
+    netnum  = 2
+    delegation = null
+  }
+]
 ```
 
-### 2. Configure Variables
+The VNet address space defaults to `10.0.0.0/16`. To customize, override `vnet_address_space` in the networking module call and adjust `newbits`/`netnum` accordingly. **Subnet 0 must remain /23 or larger** and **must retain the `Microsoft.App/environments` delegation**.
+
+## Quick Start
+
+### 1. Configure Variables
 
 Create `terraform.tfvars` from the example:
 
 ```hcl
 # Azure Configuration
-subscription_id      = "12345678-1234-1234-1234-123456789012"
-resource_group_name  = "matillion-agent-rg"
-location            = "East US"
-resource_name       = "matillion-agent"
+azure_subscription_id = "12345678-1234-1234-1234-123456789abc"
+azure_tenant_id       = "12345678-1234-1234-1234-123456789abc"
+resource_group_name   = "matillion-agent-rg"
+location              = "eastus"
 
-# Networking
-subnet_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/.../subnets/container-apps-subnet"
+# Resource Naming
+name = "matillion-agent"
 
 # Matillion Configuration
-account_id               = "your-matillion-account-id"
-agent_id                = "your-unique-agent-id"
-matillion_cloud_region  = "us-east-1"
+matillion_cloud_region = "eu1"
+account_id             = "your-matillion-account-id"
+agent_id               = "your-unique-agent-id"
 client_id              = "your-oauth-client-id"
 client_secret          = "your-oauth-client-secret"
 
-# Container Configuration
+# Optional
 container_image_url = "matillion.azurecr.io/cloud-agent:current"
-
-# Resource Names
-key_vault_name                 = "matillion-agent-kv"
-managed_identity_name          = "matillion-agent-identity"
-log_analytics_workspace_name   = "matillion-agent-logs"
-
-# Resource Creation Options
-create_key_vault        = true
-create_managed_identity = true
-
-# Optional: Tags
 tags = {
   Environment = "production"
   Project     = "matillion-agent"
-  Owner       = "data-team"
 }
 ```
 
-### 3. Deploy Infrastructure
+### 2. Deploy Infrastructure
 
 ```bash
-# Initialize Terraform
 terraform init
-
-# Review deployment plan
 terraform plan
-
-# Deploy infrastructure
 terraform apply
 ```
 
-### 4. Verify Deployment
+### 3. Verify Deployment
 
 ```bash
 # Check Container App status
-az containerapp show --name matillion-agent-app --resource-group matillion-agent-rg
+az containerapp show \
+  --name <container_app_name from output> \
+  --resource-group matillion-agent-rg
 
 # View logs
-az containerapp logs show --name matillion-agent-app --resource-group matillion-agent-rg
+az containerapp logs show \
+  --name <container_app_name from output> \
+  --resource-group matillion-agent-rg
 ```
 
-## ⚙️ Configuration Options
-
-### Resource Creation Options
-
-#### Create All Resources (Default)
-```hcl
-create_key_vault        = true
-create_managed_identity = true
-```
-
-#### Use Existing Resources
-```hcl
-create_key_vault        = false
-create_managed_identity = false
-# Ensure existing resources are specified in variables
-```
+## Configuration Options
 
 ### Container Configuration
 
-#### Standard Configuration
-```hcl
-# Default container specs
-template {
-  min_replicas = 2
-  max_replicas = 2
-  container {
-    cpu    = "1.0"
-    memory = "4Gi"
-  }
-}
-```
-
-#### High-Performance Configuration
-```hcl
-# Edit main.tf for custom specs
-template {
-  min_replicas = 3
-  max_replicas = 10
-  container {
-    cpu    = "2.0"
-    memory = "8Gi"
-  }
-}
-```
+| Variable | Default | Description |
+|---|---|---|
+| `container_cpu` | `"1.0"` | CPU allocation per container |
+| `container_memory` | `"4Gi"` | Memory allocation per container |
+| `replica_count` | `2` | Fixed number of running replicas (no auto-scaling) |
+| `container_image_url` | `matillion.azurecr.io/cloud-agent:current` | Agent container image |
 
 ### Workload Profiles
 
-Container Apps supports different workload profiles:
+| Variable | Default | Description |
+|---|---|---|
+| `workload_profile_type` | `"D4"` | VM type (D4=4vCPU/16GB, D8=8vCPU/32GB, D16=16vCPU/64GB) |
+| `workload_profile_max_count` | `1` | Max instances in the workload profile |
+| `zone_redundancy_enabled` | `true` | Zone redundancy for the environment |
 
-| Profile Type | vCPU | Memory | Use Case |
-|-------------|------|--------|----------|
-| `D4` | 4 | 16GB | Standard workload |
-| `D8` | 8 | 32GB | High-performance |
-| `D16` | 16 | 64GB | Memory-intensive |
+### Networking
 
-## 📊 Monitoring and Logging
+| Variable | Default | Description |
+|---|---|---|
+| `enable_nat_gateway` | `false` | Enable NAT Gateway for controlled outbound egress |
+| `nat_gateway_idle_timeout` | `10` | NAT Gateway idle timeout in minutes (4-120) |
 
-### Built-in Monitoring
+### Environment-Specific Examples
 
-Container Apps includes comprehensive monitoring:
+**Development:**
+```hcl
+replica_count              = 1
+workload_profile_type      = "D4"
+zone_redundancy_enabled    = false
+```
 
-- **Application Insights**: Automatic telemetry collection
-- **Log Analytics**: Centralized log aggregation
-- **Metrics**: CPU, Memory, Request count, Response time
-- **Health Probes**: Liveness and readiness checks
+**Production:**
+```hcl
+replica_count              = 2
+workload_profile_type      = "D8"
+zone_redundancy_enabled    = true
+enable_nat_gateway         = true
+```
+
+## Security
+
+### Resources Created Automatically
+
+- **User Assigned Managed Identity** with roles:
+  - `AcrPull` (subscription scope) - pull container images
+  - `Storage Account Contributor` - manage storage
+  - `Storage Blob Data Contributor` - read/write blobs
+  - `Key Vault Secrets Officer` - manage secrets
+  - `Key Vault Secrets User` - read secrets
+  - `Reader` on Key Vault - metadata access
+- **Key Vault** - RBAC-enabled, network-restricted to VNet subnets, 7-day soft delete
+- **Storage Account** - Standard LRS, no public access
+- **Key Vault Administrator** role assigned to the deployer for management
+
+### Network Security
+
+- Key Vault network ACLs restrict access to VNet subnets only (default deny, Azure Services bypass)
+- NSG on all subnets allows only HTTPS (443) inbound
+
+## Monitoring
 
 ### Log Analytics Queries
 
 ```kusto
 // Container logs
 ContainerAppConsoleLogs_CL
-| where ContainerAppName_s == "matillion-agent-app"
+| where ContainerAppName_s contains "matillion"
 | order by TimeGenerated desc
 
-// Resource usage
+// Resource usage warnings
 ContainerAppSystemLogs_CL
-| where ContainerAppName_s == "matillion-agent-app"
 | where EventType_s == "Warning"
 ```
 
-### Application Insights Integration
+## Limitations
+
+- **No Auto-scaling**: Container Apps in this deployment uses a fixed replica count. Auto-scaling is a Kubernetes/AKS feature.
+- **Single Container**: No sidecar support (unlike AKS). Metrics sidecar not available.
+- **Subnet Restrictions**: Infrastructure subnet must be /23 or larger, delegated to `Microsoft.App/environments`, and dedicated (not shared).
+
+For auto-scaling, sidecar support, and advanced networking, consider the [AKS deployment](../aks/) instead.
+
+## Cleanup
 
 ```bash
-# Enable Application Insights (optional)
-az monitor app-insights component create \
-  --app matillion-agent-insights \
-  --location "East US" \
-  --resource-group matillion-agent-rg
-```
-
-## 🔒 Security Configuration
-
-### Managed Identity
-
-The deployment creates a User Assigned Managed Identity with:
-
-- **AcrPull**: Access to Azure Container Registry
-- **Storage Account Contributor**: Access to storage accounts
-- **Storage Blob Data Contributor**: Read/write blob storage
-- **Storage Blob Data Reader**: Read blob storage
-- **Key Vault Secrets Officer**: Manage Key Vault secrets
-
-### Key Vault Integration
-
-```hcl
-# Automatic secret management
-secret {
-  name  = "matillion-client-id"
-  value = var.client_id
-}
-
-secret {
-  name  = "matillion-client-secret"
-  value = var.client_secret
-}
-```
-
-### Network Security
-
-```hcl
-# Key Vault network restrictions
-network_acls {
-  default_action             = "Deny"
-  bypass                     = "AzureServices"
-  virtual_network_subnet_ids = [var.subnet_id]
-}
-```
-
-## 🔧 Operations
-
-### Scaling Operations
-
-#### Manual Scaling
-```bash
-# Update container app with new replica count
-az containerapp update --name matillion-agent-app \
-  --resource-group matillion-agent-rg \
-  --min-replicas 1 --max-replicas 5
-```
-
-#### Auto-scaling Rules
-```bash
-# Add HTTP scaling rule
-az containerapp revision copy --name matillion-agent-app \
-  --resource-group matillion-agent-rg \
-  --scale-rule-name http-requests \
-  --scale-rule-type http \
-  --scale-rule-http-concurrent-requests 100
-```
-
-### Updates and Maintenance
-
-#### Application Updates
-```bash
-# Update container image
-az containerapp update --name matillion-agent-app \
-  --resource-group matillion-agent-rg \
-  --image "matillion.azurecr.io/cloud-agent:v2.0.0"
-```
-
-#### Configuration Updates
-```bash
-# Update environment variables
-az containerapp update --name matillion-agent-app \
-  --resource-group matillion-agent-rg \
-  --set-env-vars "NEW_ENV_VAR=value"
-```
-
-### Troubleshooting
-
-#### Container Issues
-```bash
-# Check container app status
-az containerapp show --name matillion-agent-app \
-  --resource-group matillion-agent-rg \
-  --query "properties.provisioningState"
-
-# View recent logs
-az containerapp logs show --name matillion-agent-app \
-  --resource-group matillion-agent-rg \
-  --tail 100
-
-# Check revisions
-az containerapp revision list --name matillion-agent-app \
-  --resource-group matillion-agent-rg
-```
-
-#### Authentication Issues
-```bash
-# Check managed identity
-az identity show --name matillion-agent-identity \
-  --resource-group matillion-agent-rg
-
-# Verify Key Vault access
-az keyvault secret list --vault-name matillion-agent-kv
-```
-
-#### Network Issues
-```bash
-# Check subnet configuration
-az network vnet subnet show --ids "/subscriptions/.../subnets/container-apps-subnet"
-
-# Test connectivity
-az containerapp exec --name matillion-agent-app \
-  --resource-group matillion-agent-rg \
-  --command "/bin/sh"
-```
-
-## 💰 Cost Optimization
-
-### Pricing Model
-
-Container Apps charges for:
-- **vCPU seconds**: Actual CPU consumption
-- **Memory GB-seconds**: Actual memory usage
-- **HTTP requests**: Ingress traffic (if enabled)
-
-### Optimization Strategies
-
-#### Right-sizing Resources
-```bash
-# Monitor resource usage
-az monitor metrics list --resource /subscriptions/.../containerApps/matillion-agent-app \
-  --metric "CpuPercentage,MemoryPercentage"
-```
-
-#### Efficient Scaling
-```hcl
-# Optimize min/max replicas
-template {
-  min_replicas = 1  # Reduce idle costs
-  max_replicas = 5  # Limit maximum costs
-}
-```
-
-#### Reserved Capacity
-Consider Azure Reserved Instances for predictable workloads.
-
-## 🚨 Limitations
-
-### Container Apps Constraints
-
-- **Single Container**: No sidecar support (unlike AKS)
-- **Limited Networking**: No custom networking features
-- **Scaling Limits**: Maximum 300 replicas per app
-- **Storage**: Temporary storage only
-
-### Metrics Considerations
-
-⚠️ **Important**: This deployment **does not include** the metrics sidecar container available in the Kubernetes deployments (AKS/EKS). Container Apps supports only single-container deployments.
-
-For comprehensive metrics collection, consider:
-- Using the AKS deployment instead
-- Implementing metrics collection within the agent container
-- Using Azure Application Insights for monitoring
-
-## 🔄 Migration Paths
-
-### From Container Apps to AKS
-
-If you need advanced features like metrics sidecars:
-
-```bash
-# Deploy AKS version
-cd ../aks
-terraform init
-terraform apply
-```
-
-### From ECS to Container Apps
-
-Migration considerations:
-- Single container limitation
-- Different environment variable handling
-- Azure-specific managed identity vs IAM roles
-
-## 🧹 Cleanup
-
-### Destroy Infrastructure
-
-```bash
-# Destroy all resources
 terraform destroy
-
-# Verify cleanup
-az group show --name matillion-agent-rg
 ```
 
-### Manual Cleanup (if needed)
+## Comparison with AKS Deployment
 
-```bash
-# Delete resource group (removes all resources)
-az group delete --name matillion-agent-rg --yes --no-wait
-
-# Clean up Terraform state
-rm -rf .terraform*
-rm terraform.tfstate*
-```
-
-## 📈 Performance Considerations
-
-### Resource Allocation
-
-```hcl
-# Optimized for different workloads
-container {
-  # Light workload
-  cpu = "0.5"
-  memory = "1Gi"
-  
-  # Standard workload (recommended)
-  cpu = "1.0"
-  memory = "4Gi"
-  
-  # Heavy workload
-  cpu = "2.0"
-  memory = "8Gi"
-}
-```
-
-### Environment-Specific Configurations
-
-#### Development
-```hcl
-template {
-  min_replicas = 0  # Scale to zero
-  max_replicas = 2
-}
-```
-
-#### Production
-```hcl
-template {
-  min_replicas = 2  # Always available
-  max_replicas = 10
-}
-```
-
-## 🤝 Support
-
-For Container Apps specific issues:
-
-1. **Azure Status**: [Azure Status Page](https://status.azure.com/)
-2. **Container Apps Docs**: [Azure Container Apps Documentation](https://docs.microsoft.com/en-us/azure/container-apps/)
-3. **Azure Support**: Create support case for platform issues
-4. **GitHub Issues**: Report deployment configuration problems
-
-## 📚 Additional Resources
-
-- [Azure Container Apps Documentation](https://docs.microsoft.com/en-us/azure/container-apps/)
-- [Container Apps Pricing](https://azure.microsoft.com/en-us/pricing/details/container-apps/)
-- [Terraform AzureRM Provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs)
-- [Azure Container Apps Best Practices](https://docs.microsoft.com/en-us/azure/container-apps/compare-options)
-
-## ⚖️ Comparison with Other Deployment Methods
-
-| Feature | Container Apps | AKS | ECS |
-|---------|----------------|-----|-----|
-| **Management** | Fully Managed | Managed Control Plane | Fully Managed |
-| **Scaling** | Auto (0-300) | Manual/HPA | Manual/Auto |
-| **Networking** | Basic | Advanced | Basic |
-| **Sidecar Support** | ❌ | ✅ | ❌ |
-| **Cost** | Pay-per-use | Node-based | Task-based |
-| **Complexity** | Low | High | Medium |
-
-Choose Container Apps for:
-- Simple containerized applications
-- Cost-effective serverless deployment
-- Minimal operational overhead
-- Auto-scaling requirements
-
-Choose AKS for:
-- Complex microservices architectures
-- Advanced networking needs
-- Sidecar container requirements (metrics)
-- Full Kubernetes ecosystem access
+| Feature | Container Apps | AKS |
+|---|---|---|
+| **Management** | Fully Managed | Managed Control Plane |
+| **Scaling** | Fixed replica count | Auto-scaling (HPA) |
+| **Networking** | Dedicated /23 subnet required | /24 subnets sufficient |
+| **Sidecar Support** | No | Yes |
+| **Cost** | Pay-per-use | Node-based |
+| **Complexity** | Low | High |
+| **Prerequisites** | Created automatically | Created automatically |

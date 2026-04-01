@@ -1,19 +1,22 @@
-# Azure Blob Storage Backend Configuration for Container Apps Deployment
 terraform {
-  backend "azurerm" {
-    # Storage account will be dynamically configured during deployment
-    # resource_group_name  = "${resource_group_name}"
-    # storage_account_name = "${storage_account_name}"
-    # container_name       = "terraform-states"
-    # key                  = "container_apps/${region}/${cluster_name}/terraform.tfstate"
-  }
-  
+  # Uncomment the backend block below to use Azure Blob Storage for remote state
+  # backend "azurerm" {
+  #   resource_group_name  = "your-terraform-state-rg"
+  #   storage_account_name = "yourterraformstatesa"
+  #   container_name       = "terraform-states"
+  #   key                  = "container-apps/terraform.tfstate"
+  # }
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
+      version = "~> 4.0"
+    }
+    azuread = {
+      source  = "hashicorp/azuread"
       version = "~> 3.0"
     }
   }
-  
+
   required_version = ">= 1.0"
 }
