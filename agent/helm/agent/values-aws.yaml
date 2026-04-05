@@ -18,7 +18,7 @@ dpcAgent:
     env:
       accountId: ""
       agentId: ""
-      matillionRegion: "eu1"  # Options: us, eu, ap
+      matillionRegion: "eu1"  # Options: us1, eu1
       proxyHttp: ""
       proxyHttps: ""
       proxyExclude: ""
@@ -29,7 +29,7 @@ dpcAgent:
       repository: "public.ecr.aws/matillion/etl-agent"
       tag: "current"
       # digest: "sha256:abc123..."  # Optional: use digest for immutable deployments
-    imagePullPolicy: IfNotPresent
+    imagePullPolicy: Always  # Required: 'current' is a rolling tag; Always ensures latest image is pulled
     gracePeriodSeconds: 43200
     resources:
       limits:

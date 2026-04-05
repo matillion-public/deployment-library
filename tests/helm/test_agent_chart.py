@@ -21,7 +21,7 @@ class TestAgentChart:
                     'env': {
                         'accountId': '12345',
                         'agentId': 'test-agent-id',
-                        'matillionRegion': 'us-east-1'
+                        'matillionRegion': 'us1'
                     },
                     'image': {
                         'repository': 'nginx',
@@ -111,7 +111,7 @@ class TestAgentChart:
 
         assert env_vars['ACCOUNT_ID'] == '12345'
         assert env_vars['AGENT_ID'] == 'test-agent-id'
-        assert env_vars['MATILLION_REGION'] == 'us-east-1'
+        assert env_vars['MATILLION_REGION'] == 'us1'
 
     def test_replica_count(self, base_values):
         """Test replica count is configurable"""
@@ -234,6 +234,28 @@ class TestAgentChart:
         annotations = service_account.get('metadata', {}).get('annotations', {})
         assert 'eks.amazonaws.com/role-arn' in annotations
         assert annotations['eks.amazonaws.com/role-arn'] == 'arn:aws:iam::123456789012:role/test-role'
+
+    def test_termination_grace_period(self, base_values):
+        """Test that terminationGracePeriodSeconds is set from values"""
+        base_values['dpcAgent']['dpcAgent']['gracePeriodSeconds'] = 43200
+
+        documents = self.helm_template(base_values)
+        deployment = self.find_document_by_kind(documents, 'Deployment')
+
+        pod_spec = deployment['spec']['template']['spec']
+        assert 'terminationGracePeriodSeconds' in pod_spec, \
+            "terminationGracePeriodSeconds must be set in the pod spec"
+        assert pod_spec['terminationGracePeriodSeconds'] == 43200
+
+    def test_termination_grace_period_custom_value(self, base_values):
+        """Test that terminationGracePeriodSeconds respects custom values"""
+        base_values['dpcAgent']['dpcAgent']['gracePeriodSeconds'] = 3600
+
+        documents = self.helm_template(base_values)
+        deployment = self.find_document_by_kind(documents, 'Deployment')
+
+        pod_spec = deployment['spec']['template']['spec']
+        assert pod_spec['terminationGracePeriodSeconds'] == 3600
 
     def test_aws_local_credentials_no_role_arn(self, base_values):
         """Test that service account has no role ARN when using local credentials"""

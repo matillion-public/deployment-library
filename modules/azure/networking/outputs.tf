@@ -1,14 +1,14 @@
 output "vnet_name" {
-  value = azurerm_virtual_network.aks_vnet.name
+  value = azurerm_virtual_network.vnet.name
 }
 
 output "vnet_id" {
-  value = azurerm_virtual_network.aks_vnet.id
+  value = azurerm_virtual_network.vnet.id
 }
 
 output "subnet_ids" {
-  value      = azurerm_subnet.aks_subnets[*].id
-  depends_on = [azurerm_subnet_nat_gateway_association.aks_subnets]
+  value      = azurerm_subnet.subnets[*].id
+  depends_on = [azurerm_subnet_nat_gateway_association.subnets]
 }
 
 output "nat_gateway_id" {
