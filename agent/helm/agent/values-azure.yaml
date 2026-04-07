@@ -19,7 +19,7 @@ dpcAgent:
     env:
       accountId: "your-matillion-account-id"
       agentId: "your-matillion-agent-id"
-      matillionRegion: "us"  # Options: us, eu, ap
+      matillionRegion: "us1"  # Options: us1, eu1
       proxyHttp: ""
       proxyHttps: ""
       proxyExclude: ""
@@ -29,10 +29,10 @@ dpcAgent:
       # Azure Key Vault name for storing secrets
       defaultKeyvault: "matillion-agent-kv"
     image:
-      repository: "yourregistry.azurecr.io/matillion-agent"
-      tag: "latest"
+      repository: "matillion.azurecr.io/cloud-agent"
+      tag: "current"
       # digest: "sha256:abc123..."  # Optional: use digest for immutable deployments
-    imagePullPolicy: IfNotPresent
+    imagePullPolicy: Always  # Required: 'current' is a rolling tag; Always ensures latest image is pulled
     gracePeriodSeconds: 43200
     resources:
       limits:
