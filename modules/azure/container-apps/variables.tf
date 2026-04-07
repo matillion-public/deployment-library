@@ -1,16 +1,6 @@
 variable "name" {
   type        = string
-  description = "Name prefix for all resources deployed by this template"
-}
-
-variable "azure_subscription_id" {
-  type        = string
-  description = "The Azure subscription ID"
-}
-
-variable "azure_tenant_id" {
-  type        = string
-  description = "The Azure tenant ID"
+  description = "Resource name prefix for all resources"
 }
 
 variable "location" {
@@ -23,14 +13,35 @@ variable "resource_group_name" {
   description = "Name of the resource group to deploy into"
 }
 
+variable "random_string_salt" {
+  type        = string
+  description = "Random string for unique resource naming"
+}
+
+variable "subnet_ids" {
+  type        = list(string)
+  description = "List of subnet IDs. Index 0 is used for the Container App Environment infrastructure subnet."
+
+  validation {
+    condition     = length(var.subnet_ids) >= 1
+    error_message = "At least one subnet ID must be provided."
+  }
+}
+
+variable "tags" {
+  type        = map(string)
+  description = "Tags to apply to all resources"
+  default     = {}
+}
+
 variable "account_id" {
   type        = string
-  description = "Matillion Account ID from Agent details"
+  description = "Matillion Account ID"
 }
 
 variable "agent_id" {
   type        = string
-  description = "Matillion Agent ID from Agent details"
+  description = "Matillion Agent ID"
 }
 
 variable "client_id" {
@@ -90,22 +101,4 @@ variable "zone_redundancy_enabled" {
   type        = bool
   description = "Enable zone redundancy for the Container App Environment"
   default     = true
-}
-
-variable "enable_nat_gateway" {
-  type        = bool
-  description = "Enable NAT Gateway for controlled outbound egress"
-  default     = false
-}
-
-variable "nat_gateway_idle_timeout" {
-  type        = number
-  description = "NAT Gateway idle timeout in minutes"
-  default     = 10
-}
-
-variable "tags" {
-  type        = map(string)
-  description = "Tags to apply to all resources"
-  default     = {}
 }

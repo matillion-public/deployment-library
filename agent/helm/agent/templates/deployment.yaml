@@ -42,6 +42,7 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.dpcAgent.dpcAgent.gracePeriodSeconds }}
       containers:
       - envFrom:
         - secretRef:

@@ -3,22 +3,44 @@ variable "name" {
 }
 
 variable "random_string_salt" {
-  type = string 
-  
+  type = string
 }
 
 variable "location" {
   type = string
-  
 }
+
 variable "resource_group_name" {
   type = string
-  
 }
 
 variable "tags" {
   type = map(string)
+}
 
+variable "vnet_address_space" {
+  type        = string
+  description = "Address space for the VNet (e.g. 10.0.0.0/16)"
+  default     = "10.0.0.0/16"
+}
+
+variable "subnet_configs" {
+  type = list(object({
+    newbits = number
+    netnum  = number
+    delegation = optional(object({
+      name = string
+      service_delegation = object({
+        name    = string
+        actions = list(string)
+      })
+    }))
+  }))
+  description = "List of subnet configurations using cidrsubnet(vnet_address_space, newbits, netnum). Defaults to two /24 subnets for AKS."
+  default = [
+    { newbits = 8, netnum = 1, delegation = null },
+    { newbits = 8, netnum = 2, delegation = null }
+  ]
 }
 
 variable "enable_nat_gateway" {
