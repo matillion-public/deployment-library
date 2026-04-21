@@ -24,7 +24,9 @@ dpcAgent:
       customCertLocation: <CustomCertLocation>
       extensionLibraryLocation: <ExtensionLibraryLocation>
       externalDriverLocation: <ExternalDriverLocation>
-      # defaultKeyvault: <KeyVaultName> # Optional: only required for Azure
+      # defaultKeyvault: <KeyVaultName>   # Optional: only required for Azure
+      # defaultGcpProject: <GcpProjectId> # Optional: only required for GCP
+      # matillionEnv: ""                  # Optional: set to "dev" for non-production environments
     image:
       repository: <AgentImageRepository>
       tag: <AgentImageTag>
@@ -43,7 +45,7 @@ kubernetesClusterDomain: cluster.local
 hpa:
   enabled: true
   scaleDown:
-    selctPolicy: Min
+    selectPolicy: Min
     stabilizationWindowSeconds: 180
     policies:
       - periodSeconds: 60
@@ -62,6 +64,13 @@ hpa:
     target:
       averageValue: <ScaleUpAverageValue>
       type: AverageValue
+
+# GCP-specific configuration
+gcp:
+  workloadIdentity:
+    enabled: true   # Set to true to use GKE Workload Identity (recommended)
+    # Get this value from Terraform output: agent_workload_sa_email
+    serviceAccountEmail: ""  # e.g. my-sa@my-project.iam.gserviceaccount.com
 
 # AWS-specific configuration for local deployments
 aws:
