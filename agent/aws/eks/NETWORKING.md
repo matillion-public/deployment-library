@@ -4,6 +4,10 @@
 
 AWS EKS with Fargate has specific networking requirements that must be met for successful deployment. This document outlines these requirements and how to verify your existing infrastructure meets them.
 
+## Image Delivery & Network Requirements
+
+The Runner image is pulled from `public.ecr.aws/matillion/etl-agent`. Worker nodes (or Fargate profiles) must have network access to that registry. The NAT Gateway requirement below is one way to satisfy this; environments with stricter egress requirements should mirror the image into a private ECR registry and pull privately via VPC endpoints. See [Network Requirements for Pulling the Runner Image](../../../blogs/runner-image-pull-network-requirements.md) for full guidance.
+
 ## Critical Requirements
 
 ### For EKS Fargate Deployments
