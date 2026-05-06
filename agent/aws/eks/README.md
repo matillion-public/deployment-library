@@ -68,6 +68,12 @@ AWS EKS deployment provides:
 - Sufficient EC2 service quotas for worker nodes
 - VPC with public/private subnet configuration
 
+### Image Delivery & Network Requirements
+
+The Runner image for this deployment is pulled from `public.ecr.aws/matillion/etl-agent` (via the Helm chart's `values-aws.yaml`). Worker nodes must have network access to that registry — via open egress, a whitelisted egress path, or a private mirror in your deployment region for zero-egress environments. ECR Public's API is hosted only in `us-east-1` / `us-west-2`, so deployments in other regions must reach `us-east-1` over the internet to pull the public image.
+
+See [Network Requirements for Pulling the Runner Image](../../../blogs/runner-image-pull-network-requirements.md) for supported network patterns and configuration steps. For broader EKS networking guidance (NAT Gateway, private subnets, cluster connectivity), see [NETWORKING.md](./NETWORKING.md).
+
 ### Required AWS Permissions
 
 ```bash

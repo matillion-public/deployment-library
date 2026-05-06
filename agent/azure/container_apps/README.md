@@ -75,6 +75,12 @@ modules/azure/container-apps/   # Container Apps module
 - Azure subscription with Container Apps enabled
 - A pre-existing resource group
 
+### Image Delivery & Network Requirements
+
+The Runner image for this deployment is pulled from `matillion.azurecr.io/cloud-agent` — a Matillion-operated public Azure Container Registry with anonymous pull. Your Container Apps environment must have network access to that registry — via open egress, a whitelisted egress path, or a customer-managed private mirror for zero-egress environments.
+
+See [Network Requirements for Pulling the Runner Image](../../../blogs/runner-image-pull-network-requirements.md) for supported network patterns, including the customer-managed ACR + Private Endpoint pattern and ACR Artifact Cache as a managed alternative.
+
 ### Required Azure Permissions
 
 ```bash

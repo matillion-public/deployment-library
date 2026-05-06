@@ -28,7 +28,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" (include "matillion-agent.fullname" .)) }}
-      {{- if and (eq (include "matillion-agent.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+      {{- if or (and (eq (include "matillion-agent.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled) (and (eq (include "matillion-agent.cloudProvider" .) "gcp") .Values.gcp.workloadIdentity.enabled) }}
       automountServiceAccountToken: true
       {{- else }}
       automountServiceAccountToken: false
@@ -74,6 +74,10 @@ spec:
           value: {{ quote .Values.dpcAgent.dpcAgent.env.extensionLibraryLocation }}
         - name: EXTERNAL_DRIVER_LOCATION
           value: {{ quote .Values.dpcAgent.dpcAgent.env.externalDriverLocation }}
+        {{- if .Values.dpcAgent.dpcAgent.env.matillionEnv }}
+        - name: MATILLION_ENV
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.matillionEnv }}
+        {{- end }}
         {{- end }}
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
@@ -132,6 +136,10 @@ spec:
               name: {{ include "matillion-agent.fullname" . }}-azure-sp
               key: tenant-id
         {{- end }}
+        {{- end }}
+        {{- if and (eq (include "matillion-agent.cloudProvider" .) "gcp") .Values.dpcAgent.dpcAgent.env.defaultGcpProject }}
+        - name: DEFAULT_GCP_PROJECT
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.defaultGcpProject }}
         {{- end }}
         {{- end }}
         volumeMounts:
