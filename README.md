@@ -65,6 +65,12 @@ This repository provides multiple deployment methods for the Matillion Data Prod
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Azure subscription with appropriate permissions
 
+### Image Delivery & Network Requirements
+
+The Runner image is pulled from `public.ecr.aws/matillion/etl-agent` (AWS deployments) or `matillion.azurecr.io/cloud-agent` (Azure deployments). Both are public registries. Your environment must have network access to the relevant registry — via open egress, a whitelisted egress path, or a private mirror for zero-egress environments.
+
+See [Network Requirements for Pulling the Runner Image](./blogs/runner-image-pull-network-requirements.md) for the supported network patterns and configuration steps for each.
+
 ## Required Container Images
 
 The solution uses the following Docker images across different deployment methods:
@@ -346,6 +352,7 @@ helm install my-agent matillion/agent
 - [Metrics Exporter Documentation](./agent/helm/image/README.md) 
 - [AWS ECS Terraform Modules](./terraform/README.md)
 - [Azure AKS Documentation](./agent/azure/README.md)
+- [Network Requirements for Pulling the Runner Image](./blogs/runner-image-pull-network-requirements.md)
 - [Contributing Guide](./CONTRIBUTING.md)
 
 ## Support

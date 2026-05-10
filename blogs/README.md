@@ -62,6 +62,20 @@ Transform your agent deployment from a black box into a transparent, manageable 
 
 ---
 
+### 5. [Network Requirements for Pulling the Runner Image](./runner-image-pull-network-requirements.md)
+**Network access requirements for pulling the Runner image in restricted environments**
+
+Operational reference for cloud engineers and solution architects deploying the Matillion Runner in environments with restricted network egress:
+- Where the Runner image lives (AWS ECR Public, Matillion-operated public ACR)
+- Decision tree for open egress, whitelisted egress, and zero-egress postures
+- AWS private mirror pattern with VPC endpoints
+- Azure private mirror pattern with Private Endpoints and ACR Artifact Cache
+- Symptoms reference for ECS Fargate, EKS, Container Apps, and AKS image pull failures
+
+**Target Audience:** Cloud engineers, solution architects, DevOps engineers deploying into regulated or restricted networks
+
+---
+
 ## Choosing the Right Article
 
 ### New to the Repository?
@@ -75,6 +89,9 @@ Read **"Autoscaling Matillion Agents"** to implement intelligent scaling based o
 
 ### Need Better Visibility?
 Explore **"Monitoring and Observability"** for comprehensive monitoring strategies and dashboard examples.
+
+### Deploying into a Restricted Network?
+Read **"Network Requirements for Pulling the Runner Image"** to understand image delivery and network access requirements, including private-mirror patterns for zero-egress environments.
 
 ### Security-Focused?
 Review **"Security Best Practices"** for defense-in-depth security implementation.

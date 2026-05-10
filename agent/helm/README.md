@@ -25,6 +25,17 @@ kubectl create namespace matillion
 kubectl create namespace prometheus
 ```
 
+#### Image Delivery & Network Requirements
+
+The Helm chart's default image source depends on which values file you use:
+
+- `values-aws.yaml` → `public.ecr.aws/matillion/etl-agent` (AWS ECR Public)
+- `values-azure.yaml` → `matillion.azurecr.io/cloud-agent` (Matillion-operated public Azure Container Registry, anonymous pull)
+
+Both are public registries. Your cluster nodes (or workload identity) must have network access to whichever registry you target. For zero-egress environments, mirror the image into a customer-managed private registry and override `image.repository` (and `image.tag`) in your values file to point at the private mirror.
+
+See [Network Requirements for Pulling the Runner Image](../../blogs/runner-image-pull-network-requirements.md) for supported network patterns and configuration steps.
+
 ### Install Agent Chart
 
 > **Security Best Practice**: Always use values files instead of `--set` flags for sensitive data like secrets, API keys, and credentials. Command-line arguments may be visible in process lists and shell history.
