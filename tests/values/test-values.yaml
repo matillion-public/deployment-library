@@ -63,5 +63,5 @@ hpa:
   minReplicas: 1
   metrics:
     target:
-      averageValue: 50
+      averageValue: 16
       type: AverageValue

@@ -9,6 +9,7 @@ Before starting any deployment, ensure you have:
 - **Matillion Account**: Agent ID, Account ID, and region information
 - **Container Registry Access**: Pull permissions for required images
 - **Target Platform Tools**: Depending on your chosen deployment method
+- **Network Egress to the Runner Image Registry**: AWS deployments pull from `public.ecr.aws/matillion/etl-agent`; Azure deployments pull from `matillion.azurecr.io/cloud-agent`. If you are deploying into a restricted-egress environment (zero-egress, firewall whitelisting, or air-gapped), see [Network Requirements for Pulling the Runner Image](./runner-image-pull-network-requirements.md) and the deployment-specific README for your chosen platform.
 
 ## Deployment Method 1: Kubernetes with Helm (Recommended)
 
@@ -403,13 +404,13 @@ spec:
       metric:
         name: app_active_task_count
       target:
-        averageValue: "18"
+        averageValue: "16"  # Target in-flight tasks per pod (hard cap: 20, recommended: 15-17)
         type: AverageValue
   - pods:
       metric:
         name: app_active_request_count
       target:
-        averageValue: "18"
+        averageValue: "16"
         type: AverageValue
 ```
 

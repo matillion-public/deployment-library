@@ -25,6 +25,17 @@ kubectl create namespace matillion
 kubectl create namespace prometheus
 ```
 
+#### Image Delivery & Network Requirements
+
+The Helm chart's default image source depends on which values file you use:
+
+- `values-aws.yaml` → `public.ecr.aws/matillion/etl-agent` (AWS ECR Public)
+- `values-azure.yaml` → `matillion.azurecr.io/cloud-agent` (Matillion-operated public Azure Container Registry, anonymous pull)
+
+Both are public registries. Your cluster nodes (or workload identity) must have network access to whichever registry you target. For zero-egress environments, mirror the image into a customer-managed private registry and override `image.repository` (and `image.tag`) in your values file to point at the private mirror.
+
+See [Network Requirements for Pulling the Runner Image](../../blogs/runner-image-pull-network-requirements.md) for supported network patterns and configuration steps.
+
 ### Install Agent Chart
 
 > **Security Best Practice**: Always use values files instead of `--set` flags for sensitive data like secrets, API keys, and credentials. Command-line arguments may be visible in process lists and shell history.
@@ -202,7 +213,18 @@ helm install prometheus ./prometheus --namespace prometheus \
 |-----------|-------------|---------|
 | `hpa.maxReplicas` | Maximum replicas | `10` |
 | `hpa.minReplicas` | Minimum replicas | `2` |
-| `hpa.metrics.target.averageValue` | Target metric value | `"50"` |
+| `hpa.metrics.target.averageValue` | Target in-flight tasks per agent pod | `"16"` |
+
+#### Sizing the HPA target (`averageValue`)
+
+`hpa.metrics.target.averageValue` is the **target number of in-flight tasks per agent pod** that the HPA uses to decide when to scale. It is **not** a CPU/memory percentage.
+
+- **Hard cap: 20.** Each agent instance can run a maximum of 20 concurrent tasks. Setting `averageValue` above 20 means the HPA can never reach the target — pods will saturate before the HPA reacts, so you'll see queueing rather than scaling.
+- **Recommended range: 15–17**, depending on workload shape:
+  - **`15` — proactive scaling.** Best for spiky or latency-sensitive workloads where you want headroom before pods saturate. Adds more pods, higher cost.
+  - **`16` — balanced (default).** Good fit for most clients.
+  - **`17` — reactive scaling.** Best for steady, predictable workloads where some queueing is acceptable. Fewer pods, lower cost.
+- For **dev/test** clusters where you want to exercise the HPA on small workloads, pick a much lower value (e.g. `5`) so a handful of tasks triggers a scale-up event.
 
 ## Monitoring
 
@@ -532,7 +554,7 @@ hpa:
   minReplicas: 3
   metrics:
     target:
-      averageValue: "60"
+      averageValue: "16"  # Target in-flight tasks per pod (cap: 20)
 networkPolicy:
   enabled: true
   additionalEgressRules:
@@ -596,7 +618,7 @@ hpa:
   minReplicas: 1
   metrics:
     target:
-      averageValue: "70"
+      averageValue: "5"  # Low target so test workloads trigger scale events
 networkPolicy:
   enabled: false  # Simplified for local development
 ```

@@ -76,6 +76,12 @@ Both deployment options require:
 - Valid AWS account with required service quotas
 - Matillion account credentials (OAuth client ID/secret)
 
+### Image Delivery & Network Requirements
+
+Both deployment options pull the Runner image from `public.ecr.aws/matillion/etl-agent`. Your environment must have network access to that registry — via open egress, a whitelisted egress path, or a private mirror in your deployment region for zero-egress environments. Note that ECR Public's API is hosted only in `us-east-1` / `us-west-2`, so deployments outside those regions must reach `us-east-1` over the internet to pull from the public registry.
+
+See [Network Requirements for Pulling the Runner Image](../../blogs/runner-image-pull-network-requirements.md) for supported network patterns and configuration steps.
+
 ### AWS Permissions Required
 
 Both deployments need IAM permissions for:

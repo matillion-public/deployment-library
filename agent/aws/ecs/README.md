@@ -51,6 +51,12 @@ AWS ECS Fargate deployment provides:
 - AWS account with ECS and Fargate enabled
 - VPC with subnets configured for ECS deployment
 
+### Image Delivery & Network Requirements
+
+The Runner image for this deployment is pulled from `public.ecr.aws/matillion/etl-agent`. Your VPC must have network access to that registry — via open egress, a whitelisted egress path, or a private mirror in your deployment region for zero-egress environments. ECR Public's API is hosted only in `us-east-1` / `us-west-2`, so deployments in other regions must reach `us-east-1` over the internet to pull the public image.
+
+See [Network Requirements for Pulling the Runner Image](../../../blogs/runner-image-pull-network-requirements.md) for supported network patterns, the required VPC endpoints for the private-mirror pattern, and configuration steps.
+
 ### Required AWS Permissions
 
 ```bash

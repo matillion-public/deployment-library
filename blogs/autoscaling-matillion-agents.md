@@ -23,6 +23,8 @@ This repository implements **application-aware autoscaling** using custom metric
 
 These metrics provide a true picture of agent workload and enable more accurate scaling decisions.
 
+> **⚠ Sizing the `averageValue` HPA target.** The HPA examples below scale on **in-flight tasks per agent pod** via `app_active_task_count`. Each agent instance has a **hard cap of 20 concurrent tasks**, so `averageValue` must be ≤ 20 — values above the cap mean the HPA can never reach the target and pods will saturate before scaling triggers. We recommend **15–17**: `15` for proactive scaling (spiky / latency-sensitive workloads), `16` as a balanced default, `17` for reactive scaling (steady workloads). For dev/test pick a much lower value (e.g. `5`) so a handful of tasks triggers a scale event. (`app_active_request_count` and `app_queue_depth` are different metrics with different scales — the 20-task cap does not apply to them.)
+
 ## Kubernetes Autoscaling: The Gold Standard
 
 ### Horizontal Pod Autoscaler (HPA) with Custom Metrics
@@ -57,13 +59,13 @@ spec:
       metric:
         name: app_active_task_count
       target:
-        averageValue: "70"
+        averageValue: "16"
         type: AverageValue
   - pods:
       metric:
         name: app_active_request_count
       target:
-        averageValue: "50"
+        averageValue: "16"
         type: AverageValue
 ```
 
@@ -90,7 +92,7 @@ hpa:
   maxReplicas: 10             # Generous headroom for peak loads
   metrics:
     target:
-      averageValue: "70"      # Conservative threshold
+      averageValue: "17"      # Reactive scaling for steady workloads (just under 20-task cap)
   scaleDown:
     stabilizationWindowSeconds: 300  # Stable, predictable scaling
   scaleUp:
@@ -104,7 +106,7 @@ hpa:
   maxReplicas: 5              # Limited resource usage
   metrics:
     target:
-      averageValue: "10"      # Aggressive scaling for testing
+      averageValue: "5"       # Aggressive scaling for testing
   scaleDown:
     stabilizationWindowSeconds: 180  # Faster scale-down for cost savings
   scaleUp:
@@ -249,12 +251,12 @@ metrics:
     metric:
       name: app_active_task_count
     target:
-      averageValue: "70"
+      averageValue: "16"       # Tasks-per-pod (cap: 20)
 - pods:
     metric:
       name: app_queue_depth
     target:
-      averageValue: "100"
+      averageValue: "100"      # Queue depth — different metric, not subject to the 20-task cap
 - resource:
     name: memory
     target:
@@ -294,7 +296,7 @@ hpa:
   maxReplicas: 15             # Generous headroom
   metrics:
     target:
-      averageValue: "80"      # Higher threshold (fewer scale events)
+      averageValue: "17"      # Reactive scaling — fewer scale events (cap: 20)
   scaleDown:
     stabilizationWindowSeconds: 600  # 10-minute stabilization
 ```
@@ -306,7 +308,7 @@ hpa:
   maxReplicas: 20             # Handle sudden spikes
   metrics:
     target:
-      averageValue: "30"      # Lower threshold (more responsive)
+      averageValue: "12"      # Proactive scaling — adds pods before saturation (cap: 20)
   scaleUp:
     stabilizationWindowSeconds: 30   # Fast response to bursts
 ```
@@ -318,7 +320,7 @@ hpa:
   maxReplicas: 3
   metrics:
     target:
-      averageValue: "10"      # Scale early for testing
+      averageValue: "5"       # Scale early for testing
 ```
 
 ### Monitoring and Alerting
@@ -395,7 +397,7 @@ scaleUp:
 # Adjust thresholds
 metrics:
   target:
-    averageValue: "70"  # Add buffer from oscillation point
+    averageValue: "14"  # Add buffer below the 20-task cap to dampen oscillation
 ```
 
 #### Slow Scaling Response
