@@ -12,6 +12,7 @@ module "networking" {
     random_string_salt = random_string.salt.result
     enable_nat_gateway = var.enable_nat_gateway
     nat_gateway_idle_timeout = var.nat_gateway_idle_timeout
+    vnet_address_space = var.vnet_address_space
     tags = var.tags
 
 }
@@ -39,10 +40,11 @@ module "aks" {
     service_principal_client_id = var.service_principal_client_id
     service_principal_secret = var.service_principal_secret
 
-    enable_nat_gateway = var.enable_nat_gateway
+    enable_nat_gateway    = var.enable_nat_gateway
+    nat_gateway_public_ip = module.networking.nat_gateway_public_ip
 
     tags = var.tags
-    
+
 }
 
 

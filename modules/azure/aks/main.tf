@@ -21,7 +21,11 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
   dynamic "api_server_access_profile" {
     for_each = var.is_private_cluster ? [] : [1]
     content {
-      authorized_ip_ranges = concat(var.authorized_ip_ranges, [join("", [trimspace(data.http.terraform_runner_external_ip.response_body), "/32"])])
+      authorized_ip_ranges = concat(
+        var.authorized_ip_ranges,
+        [join("", [trimspace(data.http.terraform_runner_external_ip.response_body), "/32"])],
+        var.nat_gateway_public_ip != null ? [join("", [var.nat_gateway_public_ip, "/32"])] : [],
+      )
     }
   }
 
@@ -79,7 +83,7 @@ resource "azurerm_storage_account" "stagging" {
 
 # Key Vault
 resource "azurerm_key_vault" "keyvault" {
-  name                = join("-", [var.name, var.random_string_salt])
+  name                = substr(join("-", [var.name, var.random_string_salt]), 0, 24)
   location            = var.location
   resource_group_name = var.resource_group_name
   tenant_id           = data.azurerm_client_config.current.tenant_id
