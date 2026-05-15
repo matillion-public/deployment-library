@@ -61,7 +61,7 @@ hpa:
   minReplicas: 2
   metrics:
     target:
-      averageValue: "80"
+      averageValue: "16"
       type: AverageValue
 
 # GCP-specific configuration

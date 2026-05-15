@@ -62,6 +62,10 @@ hpa:
   minReplicas: 2
   metrics:
     target:
+      # Target in-flight tasks per agent pod. Each agent instance can run a
+      # maximum of 20 concurrent tasks, so this value must not exceed 20.
+      # Recommended range: 15-17 (15 = more proactive scaling for spiky
+      # workloads, 17 = more reactive scaling for steadier workloads).
       averageValue: <ScaleUpAverageValue>
       type: AverageValue
 

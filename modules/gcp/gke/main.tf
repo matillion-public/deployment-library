@@ -206,6 +206,27 @@ resource "google_secret_manager_secret_iam_member" "agent_secret_version_manager
   member    = "serviceAccount:${google_service_account.agent_workload_sa.email}"
 }
 
+# Custom IAM role granting only the two permissions needed to create secrets and set secret-level
+# IAM policies when users define OAuth or Cloud Credentials in the Matillion UI. No built-in GCP
+# role grants these without also granting delete/destroy, so a custom role is used.
+resource "google_project_iam_custom_role" "agent_secret_creator" {
+  role_id     = replace("${local.agent_sa_account_id}_secret_creator", "-", "_")
+  title       = "Agent Secret Creator for ${var.name}"
+  description = "Allows the agent SA to create secrets and set secret-level IAM policies in Secret Manager."
+  project     = var.project_id
+
+  permissions = [
+    "secretmanager.secrets.create",
+    "secretmanager.secrets.setIamPolicy",
+  ]
+}
+
+resource "google_project_iam_member" "agent_secret_creator" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.agent_secret_creator.name
+  member  = "serviceAccount:${google_service_account.agent_workload_sa.email}"
+}
+
 # Project-wide Secret Manager access — required for the Matillion UI to list and read secrets
 resource "google_project_iam_member" "agent_secret_accessor" {
   project = var.project_id
