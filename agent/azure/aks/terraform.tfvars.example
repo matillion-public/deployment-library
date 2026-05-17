@@ -1,4 +1,6 @@
-# Name for the AKS cluster
+# Name for the AKS cluster (also used as prefix for KV, storage, identities)
+# Keep <= 17 chars so derived names (e.g. Key Vault: name + "-" + 6-char salt)
+# stay within Azure's 24-char Key Vault name limit.
 name = "matillion-aks-cluster"
 
 # Azure subscription ID
@@ -7,10 +9,10 @@ azure_subscription_id = "your-azure-subscription-id"
 # Azure tenant ID
 azure_tenant_id = "your-azure-tenant-id"
 
-# Azure region for resource deployment
-location = "East US"
+# Azure region for resource deployment (lowercase, no spaces)
+location = "eastus"
 
-# Resource group name
+# Resource group name (must exist — module references it, does not create it)
 resource_group_name = "matillion-rg"
 
 # Tags to apply to resources
@@ -23,12 +25,6 @@ tags = {
 # Desired number of nodes in the cluster
 desired_node_count = 2
 
-# Whether to create a private cluster
-is_private_cluster = true
-
-# Authorized IP ranges for API server access
-authorized_ip_ranges = ["10.0.0.0/8"]
-
 # VM size for AKS node pool
 vm_size = "Standard_D4s_v4"
 
@@ -36,20 +32,48 @@ vm_size = "Standard_D4s_v4"
 node_disk_size = 250
 
 # ========================================
+# API Server Access
+# ========================================
+
+# When true: API server is reachable only from within the VNet.
+# Requires a bastion / VPN / peered VNet for kubectl access.
+# When false: API server is public, restricted by authorized_ip_ranges below.
+is_private_cluster = true
+
+# CIDR ranges allowed to reach the public API server (ignored when
+# is_private_cluster = true). The caller's public IP is auto-appended at apply
+# time, and the NAT Gateway's public IP is auto-appended when NAT is enabled
+# (see below) so node kubelet egress can reach the API server.
+authorized_ip_ranges = ["YOUR_OFFICE_OR_VPN_CIDR/32"]
+
+# ========================================
+# Networking
+# ========================================
+
+# CIDR for the AKS VNet. Set to a non-overlapping range if you plan to peer
+# with another VNet in the same RG / subscription.
+vnet_address_space = "10.0.0.0/16"
+
+# Enable a NAT Gateway in front of the AKS subnets. Gives nodes a single,
+# stable outbound public IP — useful for warehouse / SaaS allowlisting.
+# When true, that IP is automatically added to authorized_ip_ranges so nodes
+# can reach the API server through their own NAT egress.
+enable_nat_gateway       = false
+nat_gateway_idle_timeout = 10
+
+# ========================================
 # Authentication Configuration
 # ========================================
-# Choose ONE of the following authentication methods:
+# Choose ONE of the following authentication methods.
 
-# Option 1: Azure Workload Identity (Recommended - No credentials needed!)
-# Uncomment these lines to use Workload Identity:
+# Option 1: Azure Workload Identity (recommended — no long-lived credentials)
 workload_identity_enabled = true
 service_principal_enabled = false
 # service_principal_client_id = ""  # Not needed for Workload Identity
-# service_principal_secret = ""     # Not needed for Workload Identity
+# service_principal_secret     = ""  # Not needed for Workload Identity
 
-# Option 2: Service Principal (Legacy - Requires managing credentials)
-# Uncomment these lines to use Service Principal instead:
-# workload_identity_enabled = false
-# service_principal_enabled = true
+# Option 2: Service Principal (legacy — requires managing credentials)
+# workload_identity_enabled   = false
+# service_principal_enabled   = true
 # service_principal_client_id = "your-service-principal-client-id"
-# service_principal_secret = "your-service-principal-secret"
+# service_principal_secret    = "your-service-principal-secret"
