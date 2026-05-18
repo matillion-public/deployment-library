@@ -107,8 +107,8 @@ security_group_ids = ["sg-12345678"]
 # Container Configuration
 image_url     = "public.ecr.aws/matillion/etl-agent:current"
 desired_count = 2
-agent_memory  = 4096  # MB
-agent_cpu     = 1024  # CPU units (1024 = 1 vCPU)
+agent_size    = "small"  # small | medium | large | xlarge — see Resource Sizing below
+# agent_cpu / agent_memory may still be set as Fargate-valid overrides (see below)
 
 # Optional: Ephemeral Storage
 ephemeral_storage_size = 30  # GiB
@@ -151,20 +151,33 @@ aws ecs list-tasks --cluster <cluster-name> --service-name <service-name>
 
 ### Resource Sizing
 
-#### Development Environment
-```hcl
-desired_count = 1
-agent_memory  = 2048  # 2GB
-agent_cpu     = 512   # 0.5 vCPU
-```
+Pick a t-shirt size with `agent_size`. Each size maps to a Fargate-valid `cpu`/`memory` pair so you don't have to remember the matrix.
 
-#### Production Environment
+| `agent_size` | vCPU | Memory | `agent_cpu` | `agent_memory` | Notes |
+|---|---|---|---|---|---|
+| `small` *(default)* | 1 | 4 GiB | 1024 | 4096 | Light/dev workloads, single-pipeline tenants |
+| `medium` | 2 | 8 GiB | 2048 | 8192 | Most production deployments |
+| `large` | 4 | 16 GiB | 4096 | 16384 | Heavy ELT, large staged datasets |
+| `xlarge` | 8 | 32 GiB | 8192 | 32768 | Linux-only on Fargate |
+
 ```hcl
+# Most deployments
+agent_size = "medium"
 desired_count = 3
-agent_memory  = 8192  # 8GB
-agent_cpu     = 2048  # 2 vCPU
 ephemeral_storage_size = 50
 ```
+
+#### Overrides
+
+If you need a specific Fargate-valid combination outside the t-shirt sizes, set both `agent_cpu` and `agent_memory`. They take precedence over `agent_size`:
+
+```hcl
+agent_size   = "small"  # ignored when both overrides are set
+agent_cpu    = 2048
+agent_memory = 4096
+```
+
+The pair must be a valid Fargate combination — see the table in [CPU and Memory Combinations](#cpu-and-memory-combinations) below.
 
 ### Networking Configuration
 
@@ -422,7 +435,7 @@ aws application-autoscaling put-scheduled-action \
 - **Single Container per Task**: No sidecar support
 - **Limited Networking**: Basic VPC networking only
 - **Storage**: Ephemeral storage only (max 200GB)
-- **Task Size Limits**: Max 4 vCPU, 30GB memory
+- **Task Size Limits**: Max 16 vCPU / 120 GiB on Linux Fargate (8 vCPU / 60 GiB on Windows). The `xlarge` t-shirt size is Linux-only.
 
 ### Metrics
 
@@ -485,28 +498,14 @@ aws logs delete-log-group \
 
 ### Resource Allocation
 
+Use `agent_size` (see [Resource Sizing](#resource-sizing)) to pick the cpu/memory pair. The internal map is:
+
 ```hcl
-# Task resource allocation
-variable "performance_configs" {
-  type = map(object({
-    cpu    = number
-    memory = number
-  }))
-  
-  default = {
-    small = {
-      cpu    = 512
-      memory = 1024
-    }
-    medium = {
-      cpu    = 1024
-      memory = 4096
-    }
-    large = {
-      cpu    = 2048
-      memory = 8192
-    }
-  }
+{
+  small  = { cpu = 1024, memory = 4096  }   # 1 vCPU / 4 GiB
+  medium = { cpu = 2048, memory = 8192  }   # 2 vCPU / 8 GiB
+  large  = { cpu = 4096, memory = 16384 }   # 4 vCPU / 16 GiB
+  xlarge = { cpu = 8192, memory = 32768 }   # 8 vCPU / 32 GiB
 }
 ```
 

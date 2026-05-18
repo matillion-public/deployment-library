@@ -59,3 +59,11 @@ terraform.tfstate.d
 **/kubeconfig
 
 **/set-credentials.sh
+
+# Environment files (may contain secrets)
+.env
+**/.env
+
+# Per-user Helm values overlays (e.g. values-azure.local.yaml)
+**/*.local.yaml
+**/*.local.yml

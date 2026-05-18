@@ -4,6 +4,12 @@
 
 cloudProvider: "azure"
 
+# Agent t-shirt size — small | medium | large | xlarge. See values.yaml for the size map.
+# Recommended AKS node sizing: small/medium → Standard_D2s_v5 or larger,
+# large → Standard_D8s_v5, xlarge → Standard_D16s_v5. Always size the node above the
+# request to leave room for kubelet/system pods.
+agentSize: small
+
 config:
   oauthClientId: "your-oauth-client-id"
   oauthClientSecret: "your-oauth-client-secret"
@@ -34,13 +40,8 @@ dpcAgent:
       # digest: "sha256:abc123..."  # Optional: use digest for immutable deployments
     imagePullPolicy: Always  # Required: 'current' is a rolling tag; Always ensures latest image is pulled
     gracePeriodSeconds: 43200
-    resources:
-      limits:
-        cpu: "2"
-        memory: 4Gi
-      requests:
-        cpu: "1"
-        memory: 4Gi
+    # Resources derived from .Values.agentSize. Set this map to override.
+    resources: {}
   replicas: 2
 
 kubernetesClusterDomain: cluster.local

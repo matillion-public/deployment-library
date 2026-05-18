@@ -16,7 +16,7 @@ Before starting any deployment, ensure you have:
 ### Prerequisites
 - Helm 3.x installed
 - kubectl configured for your cluster
-- Kubernetes cluster with at least 2 CPU cores and 4GB RAM available
+- Kubernetes cluster sized for the t-shirt size you plan to deploy (small needs ≥ 2 vCPU / 8 GiB nodes; see [Right-sizing Matillion agents](right-sizing-matillion-agents.md))
 - For AWS: Either IAM roles (EKS) or AWS credentials (local/minikube)
 - For Azure: Either Workload Identity or Service Principal credentials
 
@@ -116,13 +116,10 @@ dpcAgent:
     image:
       repository: "public.ecr.aws/matillion/etl-agent"
       tag: "current"
-    resources:
-      requests:
-        memory: "2Gi"
-        cpu: "1000m"
-      limits:
-        memory: "4Gi"
-        cpu: "2000m"
+
+# Pick a t-shirt size — drives requests/limits via the chart's agentSizes map.
+# small | medium | large | xlarge. See blogs/right-sizing-matillion-agents.md
+agentSize: small
 
 # Autoscaling
 hpa:
@@ -161,8 +158,7 @@ matillion_region = "YOUR_REGION"
 
 # ECS Configuration
 desired_count = 2
-cpu           = 2048
-memory        = 4096
+agent_size    = "medium"  # small | medium | large | xlarge — see blogs/right-sizing-matillion-agents.md
 ```
 
 ### Step 3: Deploy Infrastructure
@@ -276,11 +272,9 @@ max_size = 10
 min_size = 1
 
 # Agent Configuration
+# EKS terraform only stands up the cluster — agent resources are set on the helm
+# chart via agentSize when you `helm install`. See blogs/right-sizing-matillion-agents.md.
 agent_replicas = 2
-cpu_request = "1000m"
-memory_request = "2Gi"
-cpu_limit = "2000m"
-memory_limit = "4Gi"
 ```
 
 ### Step 3: Deploy EKS Cluster and Agent
@@ -331,11 +325,9 @@ agent_id            = "your-agent-id"
 account_id          = "your-account-id"
 matillion_region    = "us-east-1"
 
-# ACI Configuration
-container_group_name = "matillion-agent-aci"
-cpu_cores           = 2
-memory_gb           = 4
-replica_count       = 2
+# Container Apps Configuration
+agent_size       = "medium"  # small | medium | large | xlarge — see blogs/right-sizing-matillion-agents.md
+replica_count    = 2
 
 # Container Configuration
 container_image = "your-registry/cloud-agent:latest"

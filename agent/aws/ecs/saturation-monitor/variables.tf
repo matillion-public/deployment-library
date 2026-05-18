@@ -35,7 +35,7 @@ variable "create_dashboard" {
 variable "create_alarms" {
   description = "Whether to create CloudWatch alarms"
   type        = bool
-  default     = false  # Default to false for testing
+  default     = false # Default to false for testing
 }
 
 variable "high_task_count_threshold" {

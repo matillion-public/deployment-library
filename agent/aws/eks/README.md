@@ -313,6 +313,11 @@ config:
 serviceAccount:
   roleArn: "<service-account-role-arn>"
 
+# Pick a t-shirt size — drives the agent container's requests/limits via the
+# agentSizes map in values.yaml. Override individual values with
+# dpcAgent.dpcAgent.resources if needed.
+agentSize: medium  # small | medium | large | xlarge
+
 dpcAgent:
   replicas: 3
   dpcAgent:
@@ -323,13 +328,7 @@ dpcAgent:
     image:
       repository: public.ecr.aws/matillion/etl-agent
       tag: "current"
-    resources:
-      requests:
-        cpu: "1"
-        memory: 4Gi
-      limits:
-        cpu: "2"
-        memory: 4Gi
+    # resources: {} → derived from agentSize. Set to override the size map whole.
   metricsExporter:
     image:
       repository: public.ecr.aws/matillion/metrics-exporter
@@ -655,16 +654,17 @@ kubectl create cronjob scale-up --image=bitnami/kubectl \
 ```
 
 #### Resource Optimization
-```yaml
-# Optimize resource requests and limits
-resources:
-  requests:
-    cpu: "500m"    # Start conservatively
-    memory: "2Gi"  # Monitor actual usage
-  limits:
-    cpu: "2"       # Allow bursting
-    memory: "4Gi"  # Prevent OOM kills
-```
+
+The chart's `agentSize` selects from a curated map (see `agent/helm/README.md`):
+
+| `agentSize` | Requests | Limits | Recommended EKS node |
+|---|---|---|---|
+| `small` | 1 vCPU / 4 GiB | 2 vCPU / 4 GiB | `m5.large` |
+| `medium` | 2 vCPU / 8 GiB | 4 vCPU / 8 GiB | `m5.xlarge` |
+| `large` | 4 vCPU / 16 GiB | 8 vCPU / 16 GiB | `m5.2xlarge` |
+| `xlarge` | 8 vCPU / 32 GiB | 16 vCPU / 32 GiB | `m5.4xlarge` |
+
+Pick the smallest size that fits your peak working set. To bypass the map, set `dpcAgent.dpcAgent.resources` directly — it replaces the size-derived block whole.
 
 ## Limitations and Considerations
 
@@ -691,13 +691,21 @@ spec:
 ```
 
 #### Resource Limits
+
+Use `agentSize` for the standard sizes (see [Resource Optimization](#resource-optimization)). For ephemeral-storage limits or non-standard combinations, override `dpcAgent.dpcAgent.resources`:
+
 ```yaml
-# Ensure proper resource limits to prevent noisy neighbors
-resources:
-  limits:
-    cpu: "2"
-    memory: 4Gi
-    ephemeral-storage: 10Gi
+agentSize: small  # ignored when resources is non-empty
+dpcAgent:
+  dpcAgent:
+    resources:
+      requests:
+        cpu: "1"
+        memory: "4Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+        ephemeral-storage: "10Gi"
 ```
 
 ## Migration and Upgrades

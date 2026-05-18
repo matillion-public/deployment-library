@@ -178,8 +178,33 @@ helm install prometheus ./prometheus --namespace prometheus \
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `dpcAgent.replicas` | Number of agent replicas | `2` |
-| `dpcAgent.dpcAgent.resources.limits.cpu` | CPU limit for agent | `"2"` |
-| `dpcAgent.dpcAgent.resources.limits.memory` | Memory limit for agent | `4Gi` |
+| `agentSize` | T-shirt size driving requests/limits — `small` \| `medium` \| `large` \| `xlarge` | `small` |
+| `agentSizes` | Map of size → `{requests, limits}`. Override to add custom sizes. | see `values.yaml` |
+| `dpcAgent.dpcAgent.resources` | Optional override; if non-empty, replaces the `agentSize`-derived resources whole | `{}` |
+
+#### Agent t-shirt sizes
+
+`agentSize` selects the resource block applied to the agent container. Each size maps to a `requests` / `limits` pair via the `agentSizes` map in `values.yaml`:
+
+| `agentSize` | Requests (cpu / mem) | Limits (cpu / mem) | Suggested node SKU |
+|---|---|---|---|
+| `small` *(default)* | 1 / 4 GiB | 2 / 4 GiB | EKS `m5.large`, AKS `Standard_D2s_v5`, GKE `e2-standard-2` (or larger) |
+| `medium` | 2 / 8 GiB | 4 / 8 GiB | EKS `m5.xlarge`, AKS `Standard_D4s_v5`, GKE `e2-standard-4` |
+| `large` | 4 / 16 GiB | 8 / 16 GiB | EKS `m5.2xlarge`, AKS `Standard_D8s_v5`, GKE `e2-standard-8` |
+| `xlarge` | 8 / 32 GiB | 16 / 32 GiB | EKS `m5.4xlarge`, AKS `Standard_D16s_v5`, GKE `e2-standard-16` |
+
+Always size the node above the request to leave headroom for kubelet, system pods and the metrics sidecar. Pods will go `Pending` if no node satisfies the request — confirm node capacity (`kubectl describe nodes`) before scaling up.
+
+To override a single size set entirely, populate `dpcAgent.dpcAgent.resources` (it replaces the size-derived block whole — set both `requests` and `limits`):
+
+```yaml
+agentSize: small  # ignored when resources is non-empty
+dpcAgent:
+  dpcAgent:
+    resources:
+      requests: { cpu: "1500m", memory: "6Gi" }
+      limits:   { cpu: "3",     memory: "6Gi" }
+```
 ## Prometheus Chart Configuration
 
 ### Module Control Parameters
@@ -262,16 +287,20 @@ dpcAgent:
 
 ### Resource Limits
 
+Prefer `agentSize` (see [Agent t-shirt sizes](#agent-t-shirt-sizes)) over hand-rolling resources:
+
+```yaml
+agentSize: medium  # 2 vCPU / 8 GiB requests, 4 vCPU / 8 GiB limits
+```
+
+For arbitrary values, override the size map by setting `dpcAgent.dpcAgent.resources` directly:
+
 ```yaml
 dpcAgent:
   dpcAgent:
     resources:
-      limits:
-        cpu: "4"
-        memory: 8Gi
-      requests:
-        cpu: "2"
-        memory: 4Gi
+      limits:   { cpu: "4", memory: "8Gi" }
+      requests: { cpu: "2", memory: "4Gi" }
 ```
 
 ### Cloud Provider Specific

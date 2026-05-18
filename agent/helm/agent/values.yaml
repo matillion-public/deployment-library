@@ -3,6 +3,30 @@
 # Useful for CI/CD pipelines: helm upgrade --set applicationImageTag=v1.2.3
 applicationImageTag: ""
 
+# Agent t-shirt size. Drives dpcAgent.dpcAgent.resources via the agentSizes map below.
+# Override on the CLI: helm upgrade --set agentSize=medium
+# small  = 1 vCPU req / 4 GiB,  2 vCPU limit / 4 GiB   (current/legacy default)
+# medium = 2 vCPU req / 8 GiB,  4 vCPU limit / 8 GiB
+# large  = 4 vCPU req / 16 GiB, 8 vCPU limit / 16 GiB
+# xlarge = 8 vCPU req / 32 GiB, 16 vCPU limit / 32 GiB
+# Each size requires a node large enough to schedule the requests; see agent/helm/README.md
+# for recommended node SKUs per cloud.
+agentSize: small
+
+agentSizes:
+  small:
+    requests: { cpu: "1", memory: "4Gi" }
+    limits: { cpu: "2", memory: "4Gi" }
+  medium:
+    requests: { cpu: "2", memory: "8Gi" }
+    limits: { cpu: "4", memory: "8Gi" }
+  large:
+    requests: { cpu: "4", memory: "16Gi" }
+    limits: { cpu: "8", memory: "16Gi" }
+  xlarge:
+    requests: { cpu: "8", memory: "32Gi" }
+    limits: { cpu: "16", memory: "32Gi" }
+
 cloudProvider: "<CloudProvider>"
 config:
   oauthClientId: "<AgentClientId>"
@@ -33,13 +57,9 @@ dpcAgent:
       # digest: <AgentImageDigest>  # Optional: use digest instead of tag for immutable deployments
     imagePullPolicy: IfNotPresent
     gracePeriodSeconds: 43200
-    resources:
-      limits:
-        cpu: "2"
-        memory: 4Gi
-      requests:
-        cpu: "1"
-        memory: 4Gi
+    # Optional override. Leave empty to derive from agentSize. Setting any keys here
+    # replaces the agentSize-derived resources whole — set both requests and limits.
+    resources: {}
   replicas: 2
 kubernetesClusterDomain: cluster.local
 hpa:

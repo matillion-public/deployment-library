@@ -204,6 +204,7 @@ module "agent" {
   agent_secret_arn = module.secert_manager.agent_secret_arn
   desired_count    = var.desired_count
 
+  agent_size   = var.agent_size
   agent_cpu    = var.agent_cpu
   agent_memory = var.agent_memory
 

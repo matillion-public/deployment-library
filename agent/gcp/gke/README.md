@@ -180,12 +180,25 @@ kubectl get hpa -n matillion-agent
 
 ## Configuration Options
 
+### Agent Sizing
+
+The agent's container resources are set on the helm chart via `agentSize` (see `agent/helm/README.md`). The Terraform here only stands up the cluster — pick a `machine_type` large enough to host the t-shirt size you plan to install:
+
+| Helm `agentSize` | Pod requests | Recommended GKE `machine_type` |
+|---|---|---|
+| `small` | 1 vCPU / 4 GiB | `e2-standard-2` (2 vCPU / 8 GiB) |
+| `medium` | 2 vCPU / 8 GiB | `e2-standard-4` (4 vCPU / 16 GiB) |
+| `large` | 4 vCPU / 16 GiB | `e2-standard-8` (8 vCPU / 32 GiB) |
+| `xlarge` | 8 vCPU / 32 GiB | `e2-standard-16` (16 vCPU / 64 GiB) |
+
+Always pick a node one tier above the request — kubelet, system daemons and the metrics sidecar each need headroom or the pod stays `Pending`.
+
 ### GKE Cluster Configuration
 
 #### Development Environment
 ```hcl
 desired_node_count   = 2
-machine_type         = "e2-standard-4"
+machine_type         = "e2-standard-4"   # supports agentSize=small or medium
 is_private_cluster   = false
 enable_cloud_nat     = false
 authorized_ip_ranges = ["<your-office-ip>/32"]
@@ -194,7 +207,7 @@ authorized_ip_ranges = ["<your-office-ip>/32"]
 #### Production Environment
 ```hcl
 desired_node_count     = 3
-machine_type           = "n2-standard-4"
+machine_type           = "e2-standard-8" # supports agentSize=large
 is_private_cluster     = true
 enable_cloud_nat       = true          # Required for private nodes
 authorized_ip_ranges   = ["10.0.0.0/8", "203.0.113.0/24"]

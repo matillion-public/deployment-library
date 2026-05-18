@@ -83,6 +83,12 @@ variable "enable_nat_gateway" {
   default     = false
 }
 
+variable "vnet_address_space" {
+  type        = string
+  description = "CIDR for the AKS VNet. Default 10.0.0.0/16 — set to a non-overlapping range if peering with another VNet in the same RG/subscription."
+  default     = "10.0.0.0/16"
+}
+
 variable "nat_gateway_idle_timeout" {
   type        = number
   description = "NAT Gateway idle timeout in minutes (between 4 and 120)"

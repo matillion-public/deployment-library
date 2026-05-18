@@ -3,7 +3,7 @@ output "ECSCluster" {
 }
 
 output "AgentSecert" {
-    value = var.agent_secret_arn
+  value = var.agent_secret_arn
 }
 
 output "ECSService" {
