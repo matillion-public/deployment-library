@@ -176,6 +176,8 @@ helm install matillion-agent . \
   --set dpcAgent.metricsExporter.image.tag="current"
 ```
 
+> **Handling credentials safely:** The `--set` flags above place the OAuth client secret in your shell history. For real deployments, prefer a values file (e.g., `helm-values.yaml`) passed via `--values helm-values.yaml`. **That file must never be committed.** Either keep it outside the repo, name it to match an existing `.gitignore` pattern (e.g., place secrets in a `.env` file referenced by your CI), or add your specific override filename to `.gitignore` before creating it. For production, consider AWS Secrets Manager + the AWS Secrets Store CSI Driver, or sealed-secrets, instead of any local file.
+
 ### 6. Verify Deployment
 
 ```bash
@@ -191,6 +193,8 @@ kubectl get services
 # View HPA status (if enabled)
 kubectl get hpa
 ```
+
+> **Note on initial HPA state:** Immediately after deployment, `kubectl get hpa` may report `TARGETS: <unknown>/<threshold>` for 1–2 minutes. This is expected — Prometheus has to complete its first scrape cycle and the custom-metrics adapter has to relist the new pods before the HPA can read the metric. The state resolves on its own; no action required. If it persists past 5 minutes, check `kubectl exec -n prometheus deploy/prometheus -- wget -qO- http://localhost:9090/api/v1/targets` for scrape errors.
 
 ## Configuration Options
 
@@ -313,6 +317,11 @@ config:
 serviceAccount:
   roleArn: "<service-account-role-arn>"
 
+# Pick a t-shirt size — drives the agent container's requests/limits via the
+# agentSizes map in values.yaml. Override individual values with
+# dpcAgent.dpcAgent.resources if needed.
+agentSize: medium  # small | medium | large | xlarge
+
 dpcAgent:
   replicas: 3
   dpcAgent:
@@ -323,13 +332,7 @@ dpcAgent:
     image:
       repository: public.ecr.aws/matillion/etl-agent
       tag: "current"
-    resources:
-      requests:
-        cpu: "1"
-        memory: 4Gi
-      limits:
-        cpu: "2"
-        memory: 4Gi
+    # resources: {} → derived from agentSize. Set to override the size map whole.
   metricsExporter:
     image:
       repository: public.ecr.aws/matillion/metrics-exporter
@@ -655,16 +658,17 @@ kubectl create cronjob scale-up --image=bitnami/kubectl \
 ```
 
 #### Resource Optimization
-```yaml
-# Optimize resource requests and limits
-resources:
-  requests:
-    cpu: "500m"    # Start conservatively
-    memory: "2Gi"  # Monitor actual usage
-  limits:
-    cpu: "2"       # Allow bursting
-    memory: "4Gi"  # Prevent OOM kills
-```
+
+The chart's `agentSize` selects from a curated map (see `agent/helm/README.md`):
+
+| `agentSize` | Requests | Limits | Recommended EKS node |
+|---|---|---|---|
+| `small` | 1 vCPU / 4 GiB | 2 vCPU / 4 GiB | `m5.large` |
+| `medium` | 2 vCPU / 8 GiB | 4 vCPU / 8 GiB | `m5.xlarge` |
+| `large` | 4 vCPU / 16 GiB | 8 vCPU / 16 GiB | `m5.2xlarge` |
+| `xlarge` | 8 vCPU / 32 GiB | 16 vCPU / 32 GiB | `m5.4xlarge` |
+
+Pick the smallest size that fits your peak working set. To bypass the map, set `dpcAgent.dpcAgent.resources` directly — it replaces the size-derived block whole.
 
 ## Limitations and Considerations
 
@@ -691,13 +695,21 @@ spec:
 ```
 
 #### Resource Limits
+
+Use `agentSize` for the standard sizes (see [Resource Optimization](#resource-optimization)). For ephemeral-storage limits or non-standard combinations, override `dpcAgent.dpcAgent.resources`:
+
 ```yaml
-# Ensure proper resource limits to prevent noisy neighbors
-resources:
-  limits:
-    cpu: "2"
-    memory: 4Gi
-    ephemeral-storage: 10Gi
+agentSize: small  # ignored when resources is non-empty
+dpcAgent:
+  dpcAgent:
+    resources:
+      requests:
+        cpu: "1"
+        memory: "4Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+        ephemeral-storage: "10Gi"
 ```
 
 ## Migration and Upgrades
@@ -751,6 +763,13 @@ terraform destroy
 aws eks list-clusters
 aws ec2 describe-instances --filters "Name=tag:kubernetes.io/cluster/<cluster-name>,Values=owned"
 ```
+
+> **Re-deploying after `terraform destroy`:** The module uses a `random_string` resource to suffix every resource name (cluster, IAM roles, S3 bucket, KMS key, etc.). After a `destroy` + `apply` cycle, a **new salt is generated** and all resource ARNs change. You must re-fetch outputs and update anything that referenced the old ARNs:
+> ```bash
+> terraform output service_account_role_arn   # paste into your Helm values
+> terraform output auth_config_command        # re-run to refresh kubeconfig
+> ```
+> Helm releases will need to be re-installed (or `helm upgrade --reuse-values --set serviceAccount.roleArn=<new-arn>`). This is expected behavior — the salt prevents name collisions when multiple environments share an account.
 
 ### Manual Cleanup (if needed)
 ```bash

@@ -157,7 +157,8 @@ spec:
         - containerPort: 8080
           name: metrics
         securityContext: {}
-        resources: {{- toYaml .Values.dpcAgent.dpcAgent.resources | nindent 10 }}
+        resources:
+          {{- include "matillion-agent.resources" . | nindent 10 }}
       volumes:
       - name: config-volume
         secret:

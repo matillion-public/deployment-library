@@ -5,20 +5,20 @@ terraform {
   #   # bucket = "${account_id}-terraform-states"
   #   # key    = "ecs/${region}/${cluster_name}/terraform.tfstate"
   #   # region = "${region}"
-    
+
   #   # Enable encryption
   #   encrypt        = true
-    
+
   #   # DynamoDB table for state locking
   #   # dynamodb_table = "terraform-state-locks"
   # }
-  
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
   }
-  
+
   required_version = ">= 1.0"
 }

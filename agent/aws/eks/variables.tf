@@ -50,5 +50,5 @@ variable "is_private_cluster" {
 
 variable "authorized_ip_ranges" {
   type    = list(string)
-  default = [""]
+  default = ["0.0.0.0/0"]
 }

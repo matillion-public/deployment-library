@@ -392,19 +392,20 @@ max_pods = 110  # Per node
 
 ### Agent Optimization
 
-```hcl
-# Optimized agent resources (in deployment module)
-resources = {
-  limits = {
-    cpu    = "4"
-    memory = "8Gi"
-  }
-  requests = {
-    cpu    = "2"
-    memory = "4Gi"
-  }
-}
+**AKS** — agent resources are set on the helm chart via `agentSize` (see `agent/helm/README.md`). Pick the smallest size that fits your peak working set:
+
+| `agentSize` | Requests | Limits | Recommended AKS node |
+|---|---|---|---|
+| `small` | 1 vCPU / 4 GiB | 2 vCPU / 4 GiB | `Standard_D2s_v5` |
+| `medium` | 2 vCPU / 8 GiB | 4 vCPU / 8 GiB | `Standard_D4s_v5` |
+| `large` | 4 vCPU / 16 GiB | 8 vCPU / 16 GiB | `Standard_D8s_v5` |
+| `xlarge` | 8 vCPU / 32 GiB | 16 vCPU / 32 GiB | `Standard_D16s_v5` |
+
+```bash
+helm install matillion-agent ./agent --set agentSize=medium -f values-azure.yaml
 ```
+
+**Container Apps** — Container Apps sets `agent_size` on the Terraform template (see [`container_apps/README.md`](container_apps/README.md)). The size also drives `workload_profile_type` because the Consumption profile won't accept the 1:4 cpu:memory ratio.
 
 ## Support
 

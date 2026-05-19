@@ -6,7 +6,7 @@ variable "name" {
 
 variable "region" {
   type = string
-  
+
 }
 
 variable "image_url" {
@@ -34,13 +34,13 @@ variable "matillion_region" {
 variable "matillion_environment" {
   description = "Matillion environment - Internal use only"
   type        = string
-  default = ""
+  default     = ""
 }
 
 variable "extension_library_location" {
   description = "Optional: The location for your additional Python libraries."
   type        = string
-  default = ""
+  default     = ""
 }
 
 variable "proxy_http" {
@@ -88,13 +88,13 @@ variable "secret_name" {
 variable "client_id" {
   description = "The client_id value from the Credentials section of the Agent details"
   type        = string
-  sensitive = true
+  sensitive   = true
 }
 
 variable "client_secret" {
   description = "The client_secret value from the Credentials section of the Agent details"
   type        = string
-  sensitive = true
+  sensitive   = true
 }
 
 variable "use_existing_vpc" {
@@ -146,18 +146,30 @@ variable "create_bucket" {
 }
 
 variable "desired_count" {
-  type = number
+  type    = number
   default = 2
 }
 
+variable "agent_size" {
+  description = "T-shirt size for the agent task: small=1vCPU/4GiB, medium=2vCPU/8GiB, large=4vCPU/16GiB, xlarge=8vCPU/32GiB. Each maps to a Fargate-valid cpu/memory pair."
+  type        = string
+  default     = "small"
+  validation {
+    condition     = contains(["small", "medium", "large", "xlarge"], var.agent_size)
+    error_message = "agent_size must be one of: small, medium, large, xlarge."
+  }
+}
+
 variable "agent_memory" {
-  type = number  
-  default = 4096
+  description = "Override the memory (MiB) derived from agent_size. Leave null to use the size map."
+  type        = number
+  default     = null
 }
 
 variable "agent_cpu" {
-  type = number  
-  default = 1024
+  description = "Override the CPU units (1024 = 1 vCPU) derived from agent_size. Leave null to use the size map."
+  type        = number
+  default     = null
 }
 
 variable "ephemeral_storage_size" {

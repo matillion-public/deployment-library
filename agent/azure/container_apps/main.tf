@@ -55,6 +55,7 @@ module "container_apps" {
   matillion_cloud_region = var.matillion_cloud_region
 
   container_image_url        = var.container_image_url
+  agent_size                 = var.agent_size
   workload_profile_type      = var.workload_profile_type
   workload_profile_max_count = var.workload_profile_max_count
   replica_count              = var.replica_count

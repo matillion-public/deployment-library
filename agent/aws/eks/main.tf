@@ -22,7 +22,6 @@ module "eks" {
   fargate_subnet_ids      = var.use_existing_subnet ? var.existing_subnet_ids : module.deployment.private_subnet_ids
   security_group_ids      = [module.deployment.k8s_security_group_id]
   tags                    = var.tags
-  endpoint_private_access = var.is_private_cluster
-  endpoint_public_access  = !var.is_private_cluster
-  public_access_cidrs     = var.authorized_ip_ranges
+  endpoint_public_access = !var.is_private_cluster
+  public_access_cidrs    = var.authorized_ip_ranges
 }

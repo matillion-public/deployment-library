@@ -32,7 +32,9 @@ Azure Container Apps deployment provides:
 │  │  ┌───────────────────────────────────────┐          ││
 │  │  │  Container App (Matillion Agent)      │          ││
 │  │  │  - UserAssigned Managed Identity      │          ││
-│  │  │  - Workload Profile: agentpool (D4)   │          ││
+│  │  │  - Workload Profile: agentpool         │          ││
+│  │  │    (D4 for small/medium/large; D8 for   │          ││
+│  │  │    xlarge — driven by agent_size)       │          ││
 │  │  │  - Replicas: 2 (fixed)               │          ││
 │  │  └───────────────────────────────────────┘          ││
 │  └─────────────────────────────────────────────────────┘│
@@ -189,21 +191,39 @@ az containerapp logs show \
 
 ## Configuration Options
 
-### Container Configuration
+### Container Sizing
+
+Pick a t-shirt size with `agent_size`. Container Apps' Consumption profile enforces a 1:2 vCPU:GiB ratio, so all sizes assume a Dedicated workload profile and the size also drives `workload_profile_type`:
+
+| `agent_size` | vCPU | Memory | `workload_profile_type` | Notes |
+|---|---|---|---|---|
+| `small` *(default)* | 1 | 4 GiB | `D4` | Light/dev workloads |
+| `medium` | 2 | 8 GiB | `D4` | Most production deployments |
+| `large` | 4 | 16 GiB | `D4` | Whole D4 profile per replica |
+| `xlarge` | 8 | 32 GiB | `D8` | Whole D8 profile per replica |
+
+```hcl
+agent_size = "medium"
+```
+
+To override individual values (e.g. you want to run on E-series memory-optimized profiles), set any of `container_cpu`, `container_memory`, `workload_profile_type` and they take precedence over the size map:
+
+```hcl
+agent_size            = "small"  # ignored where overridden
+workload_profile_type = "E4"
+container_cpu         = "1.0"
+container_memory      = "8Gi"
+```
 
 | Variable | Default | Description |
 |---|---|---|
-| `container_cpu` | `"1.0"` | CPU allocation per container |
-| `container_memory` | `"4Gi"` | Memory allocation per container |
+| `agent_size` | `"small"` | T-shirt size: `small` \| `medium` \| `large` \| `xlarge` |
+| `container_cpu` | derived from `agent_size` | Override the per-container vCPU allocation |
+| `container_memory` | derived from `agent_size` | Override the per-container memory allocation |
+| `workload_profile_type` | derived from `agent_size` | Override the workload profile (D4, D8, D16, E-series) |
+| `workload_profile_max_count` | `1` | Max instances in the workload profile |
 | `replica_count` | `2` | Fixed number of running replicas (no auto-scaling) |
 | `container_image_url` | `matillion.azurecr.io/cloud-agent:current` | Agent container image |
-
-### Workload Profiles
-
-| Variable | Default | Description |
-|---|---|---|
-| `workload_profile_type` | `"D4"` | VM type (D4=4vCPU/16GB, D8=8vCPU/32GB, D16=16vCPU/64GB) |
-| `workload_profile_max_count` | `1` | Max instances in the workload profile |
 | `zone_redundancy_enabled` | `true` | Zone redundancy for the environment |
 
 ### Networking
@@ -217,17 +237,17 @@ az containerapp logs show \
 
 **Development:**
 ```hcl
-replica_count              = 1
-workload_profile_type      = "D4"
-zone_redundancy_enabled    = false
+agent_size              = "small"   # 1 vCPU / 4 GiB on D4
+replica_count           = 1
+zone_redundancy_enabled = false
 ```
 
 **Production:**
 ```hcl
-replica_count              = 2
-workload_profile_type      = "D8"
-zone_redundancy_enabled    = true
-enable_nat_gateway         = true
+agent_size              = "large"   # 4 vCPU / 16 GiB on D4
+replica_count           = 2
+zone_redundancy_enabled = true
+enable_nat_gateway      = true
 ```
 
 ## Security

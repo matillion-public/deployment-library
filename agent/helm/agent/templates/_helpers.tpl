@@ -67,3 +67,26 @@ Normalize cloudProvider to lowercase for consistent comparisons
 {{- define "matillion-agent.cloudProvider" -}}
 {{- .Values.cloudProvider | lower }}
 {{- end }}
+
+{{/*
+Resolve the container resources block.
+
+Precedence:
+  1. .Values.dpcAgent.dpcAgent.resources, if non-empty (full override)
+  2. .Values.agentSizes[.Values.agentSize] from the size map
+
+agentSize must be one of: small, medium, large, xlarge.
+*/}}
+{{- define "matillion-agent.resources" -}}
+{{- $size := .Values.agentSize | default "small" -}}
+{{- $sizeMap := index .Values.agentSizes $size -}}
+{{- if not $sizeMap -}}
+{{- fail (printf "agentSize %q is not defined in .Values.agentSizes — must be one of: small, medium, large, xlarge" $size) -}}
+{{- end -}}
+{{- $override := .Values.dpcAgent.dpcAgent.resources | default dict -}}
+{{- if and (kindIs "map" $override) (gt (len $override) 0) -}}
+{{- toYaml $override -}}
+{{- else -}}
+{{- toYaml $sizeMap -}}
+{{- end -}}
+{{- end }}

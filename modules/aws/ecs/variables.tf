@@ -12,7 +12,7 @@ variable "name" {
 }
 
 variable "region" {
-  type = string  
+  type = string
 }
 
 variable "image_url" {
@@ -40,13 +40,13 @@ variable "matillion_region" {
 variable "matillion_environment" {
   description = "Matillion environment - Internal use only"
   type        = string
-  default = ""
+  default     = ""
 }
 
 variable "extension_library_location" {
   description = "Optional: The location for your additional Python libraries."
   type        = string
-  default = ""
+  default     = ""
 }
 
 variable "proxy_http" {
@@ -91,9 +91,9 @@ variable "vpc_id" {
 }
 
 variable "subnet_ids" {
-  type = list(string)
+  type        = list(string)
   description = "Subnets deployed to by ECS Service"
-  
+
 }
 
 variable "secret_arns" {
@@ -121,9 +121,9 @@ variable "task_and_service_definitions" {
 }
 
 variable "desired_count" {
-  type = number
+  type    = number
   default = 2
-  
+
 }
 
 variable "create_bucket" {
@@ -142,15 +142,29 @@ variable "agent_task_role_arn" {
 
 variable "agent_secret_arn" {
   type = string
-  
+
+}
+
+variable "agent_size" {
+  description = "T-shirt size for the agent task. Maps to a Fargate-valid cpu/memory pair: small=1vCPU/4GiB, medium=2vCPU/8GiB, large=4vCPU/16GiB, xlarge=8vCPU/32GiB."
+  type        = string
+  default     = "small"
+  validation {
+    condition     = contains(["small", "medium", "large", "xlarge"], var.agent_size)
+    error_message = "agent_size must be one of: small, medium, large, xlarge."
+  }
 }
 
 variable "agent_memory" {
-  type = number  
+  description = "Override the memory (MiB) derived from agent_size. Leave null to use the size map. Must be a Fargate-valid combination with agent_cpu."
+  type        = number
+  default     = null
 }
 
 variable "agent_cpu" {
-  type = number  
+  description = "Override the CPU units (1024 = 1 vCPU) derived from agent_size. Leave null to use the size map. Must be a Fargate-valid combination with agent_memory."
+  type        = number
+  default     = null
 }
 
 variable "ephemeral_storage_size" {

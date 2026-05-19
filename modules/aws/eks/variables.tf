@@ -26,14 +26,8 @@ variable "security_group_ids" {
   type        = list(string)  
 }
 
-variable "endpoint_private_access" {
-  description = "Indicates whether or not the API server endpoint is private"
-  type        = bool
-  
-}
-
 variable "endpoint_public_access" {
-  description = "Indicates whether or not the API server endpoint is private"
+  description = "Indicates whether or not the API server endpoint is public. The private endpoint is always enabled; see agent/aws/eks/NETWORKING.md."
   type        = bool
 }
 

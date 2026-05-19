@@ -11,8 +11,18 @@ client_secret    = "your-client-secret"
 
 # Agent resources
 desired_count = 2
-agent_cpu     = 1024
-agent_memory  = 4096
+
+# T-shirt size — small (default) | medium | large | xlarge
+# small  = 1 vCPU / 4 GiB    (current/legacy default)
+# medium = 2 vCPU / 8 GiB    (recommended for moderate concurrent pipelines)
+# large  = 4 vCPU / 16 GiB   (heavy ELT workloads)
+# xlarge = 8 vCPU / 32 GiB   (Linux-only on Fargate)
+agent_size = "small"
+
+# Optional overrides — leave commented to use the agent_size map.
+# Both must be set together, and the pair must be a Fargate-valid combination.
+# agent_cpu    = 1024
+# agent_memory = 4096
 
 # AWS
 region                      = "eu-west-1"

@@ -357,6 +357,7 @@ helm install my-agent matillion/agent
 - [AWS ECS Terraform Modules](./terraform/README.md)
 - [Azure AKS Documentation](./agent/azure/README.md)
 - [Network Requirements for Pulling the Runner Image](./blogs/runner-image-pull-network-requirements.md)
+- [Right-sizing Matillion Agents](./blogs/right-sizing-matillion-agents.md) — pick `small` / `medium` / `large` / `xlarge` and what each one means on Fargate, Container Apps and Kubernetes
 - [Contributing Guide](./CONTRIBUTING.md)
 
 ## Support

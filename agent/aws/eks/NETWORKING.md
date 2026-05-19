@@ -26,6 +26,27 @@ InvalidParameterException: Subnet subnet-xxxxx provided in Fargate Profile is no
 - [ ] Subnets are in the same VPC as the EKS cluster
 - [ ] Route table has `0.0.0.0/0` pointing to NAT Gateway (not Internet Gateway)
 
+## EKS API Endpoint Access
+
+Fargate pods bootstrap by calling the EKS API server during scheduling. The Terraform module always enables the **private** API endpoint to ensure this works regardless of how the public endpoint is configured.
+
+### Why the private endpoint is required
+
+When only the public endpoint is enabled (`is_private_cluster = false`) and `authorized_ip_ranges` is restricted to specific CIDR blocks (recommended for production), Fargate pods cannot reach the API server. The reason:
+
+1. Fargate pods run in your private subnets and egress to the internet via the NAT Gateway.
+2. From the EKS public endpoint's perspective, the source IP is the NAT Gateway's Elastic IP — **not** an IP in your `authorized_ip_ranges`.
+3. The API server rejects the connection, and Fargate scheduling fails with `Pod provisioning timed out (will retry)`.
+
+Enabling the private endpoint lets pods reach the API server through the VPC's internal DNS resolution, bypassing the public-endpoint allowlist entirely. The private endpoint has no additional cost.
+
+### What this means for your configuration
+
+- `is_private_cluster = true` → private only (no kubectl access from outside the VPC; use a bastion or VPN)
+- `is_private_cluster = false` → **both** private and public endpoints enabled; restrict the public endpoint with `authorized_ip_ranges` for kubectl access from your office/laptop
+
+If you previously hit `Pod provisioning timed out` errors and worked around them by widening `authorized_ip_ranges` to include your NAT EIPs, you can now revert that workaround — the private endpoint handles intra-VPC traffic.
+
 ## What Makes a Subnet "Private"?
 
 A private subnet has these characteristics:
@@ -157,6 +178,12 @@ Destination      Target
 1. Check NAT Gateway is healthy: `aws ec2 describe-nat-gateways`
 2. Verify subnet has available IPs: `aws ec2 describe-subnets --subnet-ids subnet-xxxxx --query 'Subnets[0].AvailableIpAddressCount'`
 3. Check Fargate profile status: `aws eks describe-fargate-profile --cluster-name <name> --fargate-profile-name <name>`
+
+### Issue: Pods stuck Pending with `Pod provisioning timed out (will retry)`
+
+**Cause**: Fargate cannot bootstrap the pod because it cannot reach the EKS API server. Most common when the cluster's public endpoint is enabled with a restricted `authorized_ip_ranges` list that does not include the NAT Gateway's Elastic IP.
+
+**Solution**: This module now enables the **private** API endpoint by default, which eliminates this failure mode. If you are seeing this error against a cluster created by an older version of this module, upgrade and `terraform apply` — the cluster will be reconciled to also enable the private endpoint. See [EKS API Endpoint Access](#eks-api-endpoint-access) above.
 
 ### Issue: Pods can't reach internet
 

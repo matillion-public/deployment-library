@@ -46,8 +46,12 @@ tags = {
 # -----------------------------------------------------------------------------
 
 # Cluster access configuration
-is_private_cluster   = false          # true = private API endpoint, false = public
-authorized_ip_ranges = ["0.0.0.0/0"]  # CIDR blocks allowed to access EKS API
+# NOTE: The private API endpoint is always enabled (required for Fargate pod
+# bootstrapping — see NETWORKING.md). The flag below only controls the public
+# endpoint, and restricting its CIDR range does NOT affect Fargate pods.
+is_private_cluster   = false          # true = private endpoint only (no kubectl from outside VPC)
+                                      # false = public endpoint also enabled (in addition to private)
+authorized_ip_ranges = ["0.0.0.0/0"]  # CIDR blocks allowed to access the public endpoint
                                       # IMPORTANT: Restrict this in production!
                                       # Example: ["10.0.0.0/8", "203.0.113.0/24"]
 

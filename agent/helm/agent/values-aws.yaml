@@ -4,6 +4,11 @@
 
 cloudProvider: "aws"
 
+# Agent t-shirt size — small | medium | large | xlarge. See values.yaml for the size map.
+# Recommended EKS node sizing: small/medium → m5.large or larger, large → m5.2xlarge,
+# xlarge → m5.4xlarge. Always size the node above the request to leave room for kubelet/system pods.
+agentSize: small
+
 config:
   oauthClientId: ""
   oauthClientSecret: ""
@@ -31,13 +36,8 @@ dpcAgent:
       # digest: "sha256:abc123..."  # Optional: use digest for immutable deployments
     imagePullPolicy: Always  # Required: 'current' is a rolling tag; Always ensures latest image is pulled
     gracePeriodSeconds: 43200
-    resources:
-      limits:
-        cpu: "2"
-        memory: 4Gi
-      requests:
-        cpu: "1"
-        memory: 4Gi
+    # Resources derived from .Values.agentSize. Set this map to override.
+    resources: {}
   replicas: 2
 
 kubernetesClusterDomain: cluster.local

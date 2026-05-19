@@ -35,8 +35,7 @@ variable "is_private_cluster" {
 
 variable "authorized_ip_ranges" {
   type    = list(string)
-  default = [""]
-
+  default = ["0.0.0.0/0"]
 }
 
 variable "vm_size" {
@@ -81,6 +80,12 @@ variable "enable_nat_gateway" {
   type        = bool
   description = "Enable NAT Gateway for controlled outbound egress with static IP"
   default     = false
+}
+
+variable "vnet_address_space" {
+  type        = string
+  description = "CIDR for the AKS VNet. Default 10.0.0.0/16 — set to a non-overlapping range if peering with another VNet in the same RG/subscription."
+  default     = "10.0.0.0/16"
 }
 
 variable "nat_gateway_idle_timeout" {

@@ -76,6 +76,19 @@ Operational reference for cloud engineers and solution architects deploying the 
 
 ---
 
+### 6. [Right-sizing Matillion Agents: T-Shirt Sizing Across Orchestrators](./right-sizing-matillion-agents.md)
+**Pick the right CPU/memory for your agent on any cloud, without re-reading every orchestrator's matrix**
+
+A practical guide to the new `agent_size` / `agentSize` variable that replaces hand-rolled `cpu`/`memory` values across every deployment template:
+- The four t-shirt sizes (small / medium / large / xlarge) and what each one costs
+- Per-orchestrator constraints — Fargate's valid combinations, Container Apps' workload-profile gotcha, Kubernetes node-headroom rules
+- When to override the size map and what's safe to set
+- A repeatable approach for picking the right size from existing telemetry
+
+**Target Audience:** Cloud engineers, platform leads, anyone deploying agents into a new environment
+
+---
+
 ## Choosing the Right Article
 
 ### New to the Repository?
@@ -92,6 +105,9 @@ Explore **"Monitoring and Observability"** for comprehensive monitoring strategi
 
 ### Deploying into a Restricted Network?
 Read **"Network Requirements for Pulling the Runner Image"** to understand image delivery and network access requirements, including private-mirror patterns for zero-egress environments.
+
+### Picking the Right Resources?
+Read **"Right-sizing Matillion Agents"** before your first deploy or when you suspect throttling/OOMs. Covers the small/medium/large/xlarge sizes, per-orchestrator constraints, and how to validate the choice from telemetry.
 
 ### Security-Focused?
 Review **"Security Best Practices"** for defense-in-depth security implementation.
@@ -133,11 +149,14 @@ account_id: "YOUR_MATILLION_ACCOUNT_ID"
 agent_id: "YOUR_AGENT_ID"
 matillion_region: "us-east-1"  # or your preferred region
 
-# Resource recommendations
-cpu_request: "1000m"
-memory_request: "2Gi"
-cpu_limit: "2000m"
-memory_limit: "4Gi"
+# Resource sizing — one variable, every orchestrator
+# small  = 1 vCPU / 4 GiB    (default; light/dev workloads)
+# medium = 2 vCPU / 8 GiB    (recommended for most production)
+# large  = 4 vCPU / 16 GiB   (heavy ELT, large staged datasets)
+# xlarge = 8 vCPU / 32 GiB   (Linux-only on ECS Fargate)
+# Helm charts use `agentSize`; ECS/Container Apps Terraform use `agent_size`.
+# See ./right-sizing-matillion-agents.md for the full per-orchestrator picture.
+agent_size: "small"
 
 # Scaling defaults
 min_replicas: 2
