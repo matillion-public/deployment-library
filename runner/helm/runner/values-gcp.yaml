@@ -1,0 +1,104 @@
+---
+# GCP GKE Deployment Example
+# This example shows configuration for deploying the runner on GKE using Workload Identity
+
+cloudProvider: "gcp"
+
+# Agent t-shirt size — small | medium | large | xlarge. See values.yaml for the size map.
+# Recommended GKE node sizing: small/medium → e2-standard-2 or larger,
+# large → e2-standard-8, xlarge → e2-standard-16. Always size the node above the
+# request to leave room for kubelet/system pods.
+runnerSize: small
+
+config:
+  oauthClientId: "your-oauth-client-id"
+  oauthClientSecret: "your-oauth-client-secret"
+
+serviceAccount:
+  # Optional: Override the default service account name
+  name: ""
+
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: "your-matillion-account-id"
+      agentId: "your-matillion-agent-id"
+      matillionRegion: "us1"  # Options: us1, eu1, ap1
+      defaultGcpProject: "your-gcp-project-id"
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: ""
+      customCertLocation: ""
+      extensionLibraryLocation: ""
+      externalDriverLocation: ""
+    image:
+      repository: "europe-docker.pkg.dev/maia-492711/maia-runners/maia-runner"
+      tag: "current"
+    imagePullPolicy: IfNotPresent
+    gracePeriodSeconds: 43200
+    # Resources derived from .Values.runnerSize. Set this map to override.
+    resources: {}
+  replicas: 2
+
+kubernetesClusterDomain: cluster.local
+
+hpa:
+  enabled: true
+  scaleDown:
+    selectPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+  maxReplicas: 10
+  minReplicas: 2
+  metrics:
+    target:
+      averageValue: "16"
+      type: AverageValue
+
+# GCP-specific configuration
+gcp:
+  workloadIdentity:
+    enabled: true
+    # GCP Service Account email for Workload Identity
+    # Get this value from Terraform output: runner_workload_sa_email
+    serviceAccountEmail: "your-runner-sa@your-project.iam.gserviceaccount.com"
+
+# AWS configuration - disabled for GCP
+aws:
+  local:
+    enabled: false
+
+# Azure configuration - disabled for GCP
+azure:
+  workloadIdentity:
+    enabled: false
+  servicePrincipal:
+    enabled: false
+
+# Network security configuration
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []
+
+# Pod security configuration
+podSecurityContext:
+  sysctls:
+    - name: "net.ipv4.tcp_keepalive_time"
+      value: "30"
+
+# Node selector configuration
+# Example: Schedule pods on specific node pools
+nodeSelector: {}
+#   cloud.google.com/gke-nodepool: default-pool

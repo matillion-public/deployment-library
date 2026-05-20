@@ -19,23 +19,23 @@ variable "tags" {
 }
 
 variable "desired_node_count" {
-  type = number
-  default = 2  
+  type    = number
+  default = 2
 }
 
 variable "random_string_salt" {
-  type = string  
+  type = string
 }
 
 variable "is_private_cluster" {
-  type = bool
+  type    = bool
   default = false
 }
 
 variable "authorized_ip_ranges" {
-  type = list(string)
+  type    = list(string)
   default = [""]
-  
+
 }
 
 variable "vm_size" {
@@ -52,7 +52,7 @@ variable "node_disk_size" {
 
 variable "workload_identity_enabled" {
   type        = bool
-  description = "Enable Azure Workload Identity for the agent workload (requires OIDC issuer)"
+  description = "Enable Azure Workload Identity for the runner workload (requires OIDC issuer)"
   default     = true
 }
 
@@ -80,4 +80,10 @@ variable "enable_nat_gateway" {
   type        = bool
   description = "Enable NAT Gateway for AKS outbound traffic"
   default     = false
+}
+
+variable "nat_gateway_public_ip" {
+  type        = string
+  description = "Public IP of the NAT Gateway. When set with a public cluster, it is appended to authorized_ip_ranges so node kubelet traffic egressing through the NAT can reach the API server."
+  default     = null
 }

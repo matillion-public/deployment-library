@@ -1,0 +1,138 @@
+---
+# Optional: Override image tags. These take precedence over nested values.
+# Useful for CI/CD pipelines: helm upgrade --set applicationImageTag=v1.2.3
+applicationImageTag: ""
+
+# Agent t-shirt size. Drives dpcAgent.dpcAgent.resources via the runnerSizes map below.
+# Override on the CLI: helm upgrade --set runnerSize=medium
+# small  = 1 vCPU req / 4 GiB,  2 vCPU limit / 4 GiB   (current/legacy default)
+# medium = 2 vCPU req / 8 GiB,  4 vCPU limit / 8 GiB
+# large  = 4 vCPU req / 16 GiB, 8 vCPU limit / 16 GiB
+# xlarge = 8 vCPU req / 32 GiB, 16 vCPU limit / 32 GiB
+# Each size requires a node large enough to schedule the requests; see agent/helm/README.md
+# for recommended node SKUs per cloud.
+runnerSize: small
+
+runnerSizes:
+  small:
+    requests: { cpu: "1", memory: "4Gi" }
+    limits: { cpu: "2", memory: "4Gi" }
+  medium:
+    requests: { cpu: "2", memory: "8Gi" }
+    limits: { cpu: "4", memory: "8Gi" }
+  large:
+    requests: { cpu: "4", memory: "16Gi" }
+    limits: { cpu: "8", memory: "16Gi" }
+  xlarge:
+    requests: { cpu: "8", memory: "32Gi" }
+    limits: { cpu: "16", memory: "32Gi" }
+
+cloudProvider: "<CloudProvider>"
+config:
+  oauthClientId: "<AgentClientId>"
+  oauthClientSecret: "<AgentClientSecret>"
+serviceAccount:
+  # Optional: Override the default service account name.
+  # If empty, uses the generated name based on release name
+  name: ""
+  roleArn: "<ServiceAccountRoleArn>"
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: <MatillionAccountId>
+      agentId: <MatillionAgentId>
+      matillionRegion: <MatillionRegion>
+      proxyHttp: <ProxyHttp>
+      proxyHttps: <ProxyHttps>
+      proxyExclude: <ProxyExclude>
+      customCertLocation: <CustomCertLocation>
+      extensionLibraryLocation: <ExtensionLibraryLocation>
+      externalDriverLocation: <ExternalDriverLocation>
+      # defaultKeyvault: <KeyVaultName>   # Optional: only required for Azure
+      # defaultGcpProject: <GcpProjectId> # Optional: only required for GCP
+      # matillionEnv: ""                  # Optional: set to "dev" for non-production environments
+    image:
+      repository: <AgentImageRepository>
+      tag: <AgentImageTag>
+      # digest: <AgentImageDigest>  # Optional: use digest instead of tag for immutable deployments
+    imagePullPolicy: IfNotPresent
+    gracePeriodSeconds: 43200
+    # Optional override. Leave empty to derive from runnerSize. Setting any keys here
+    # replaces the runnerSize-derived resources whole — set both requests and limits.
+    resources: {}
+  replicas: 2
+kubernetesClusterDomain: cluster.local
+hpa:
+  enabled: true
+  scaleDown:
+    selectPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+  maxReplicas: <MaxReplicas>
+  minReplicas: 2
+  metrics:
+    target:
+      # Target in-flight tasks per agent pod. Each agent instance can run a
+      # maximum of 20 concurrent tasks, so this value must not exceed 20.
+      # Recommended range: 15-17 (15 = more proactive scaling for spiky
+      # workloads, 17 = more reactive scaling for steadier workloads).
+      averageValue: <ScaleUpAverageValue>
+      type: AverageValue
+
+# GCP-specific configuration
+gcp:
+  workloadIdentity:
+    enabled: true   # Set to true to use GKE Workload Identity (recommended)
+    # Get this value from Terraform output: agent_workload_sa_email
+    serviceAccountEmail: ""  # e.g. my-sa@my-project.iam.gserviceaccount.com
+
+# AWS-specific configuration for local deployments
+aws:
+  local:
+    enabled: false  # Set to true to use direct AWS credentials instead of role-based authentication
+    region: ""      # AWS Region (required when local.enabled is true)
+    accessKeyId: "" # AWS Access Key ID (required when local.enabled is true)
+    secretAccessKey: "" # AWS Secret Access Key (required when local.enabled is true)
+
+# Azure-specific configuration
+azure:
+  workloadIdentity:
+    enabled: true   # Set to true to use Azure Workload Identity (requires AKS with OIDC issuer)
+    clientId: ""    # Azure Workload Identity Client ID (User Assigned Managed Identity)
+    tokenExpiration: 3600  # Service account token expiration in seconds (3600-86400, default: 3600)
+  servicePrincipal:
+    enabled: false  # Set to true to use Service Principal instead of Workload Identity
+    clientId: ""    # Azure Service Principal Client ID
+    clientSecret: "" # Azure Service Principal Client Secret
+    tenantId: ""    # Azure Tenant ID
+
+# Network security configuration
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []
+
+# Pod security configuration
+podSecurityContext:
+  sysctls:
+    - name: "net.ipv4.tcp_keepalive_time"
+      value: "30"
+
+# Node selector configuration
+# Optional: specify node labels to schedule pods on specific nodes
+# Example:
+#   nodeSelector:
+#     kubernetes.io/os: linux
+#     node.kubernetes.io/instance-type: m5.large
+nodeSelector: {}

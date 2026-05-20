@@ -22,6 +22,6 @@ variable "random_string_salt" {
 }
 
 variable "use_existing_subnet" {
-  type = bool
+  type    = bool
   default = false
 }

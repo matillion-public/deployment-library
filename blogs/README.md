@@ -1,13 +1,13 @@
-# Matillion Agent Deployment Blog Series
+# Matillion Runner Deployment Blog Series
 
-Welcome to the comprehensive blog series covering the Matillion Agent Deployment repository. These articles provide in-depth insights into deploying, scaling, monitoring, and securing Matillion Data Productivity Cloud (DPC) agents in production environments.
+Welcome to the comprehensive blog series covering the Matillion Runner Deployment repository. These articles provide in-depth insights into deploying, scaling, monitoring, and securing Matillion Data Productivity Cloud (DPC) runners in production environments.
 
 ## Blog Articles
 
-### 1. [Why Use the Matillion Agent Deployment Repository?](./why-use-matillion-agent-deployment.md)
+### 1. [Why Use the Matillion Runner Deployment Repository?](./why-use-matillion-agent-deployment.md)
 **Essential reading for decision makers and architects**
 
-Discover why this repository is the ideal solution for production Matillion agent deployments. Learn about:
+Discover why this repository is the ideal solution for production Matillion runner deployments. Learn about:
 - Multi-cloud flexibility and vendor lock-in avoidance
 - Built-in observability and monitoring capabilities
 - Security-first architecture principles
@@ -18,7 +18,7 @@ Discover why this repository is the ideal solution for production Matillion agen
 
 ---
 
-### 2. [How to Deploy the Matillion Agent: Complete Guide](./how-to-deploy-matillion-agent.md)
+### 2. [How to Deploy the Matillion Runner: Complete Guide](./how-to-deploy-matillion-agent.md)
 **Step-by-step deployment instructions for all platforms**
 
 Comprehensive deployment guide covering all five supported methods:
@@ -34,7 +34,7 @@ Includes configuration examples, troubleshooting tips, and best practices for ea
 
 ---
 
-### 3. [Autoscaling Matillion Agents: Smart Scaling for Data Workloads](./autoscaling-matillion-agents.md)
+### 3. [Autoscaling Matillion Runners: Smart Scaling for Data Workloads](./autoscaling-matillion-agents.md)
 **Advanced scaling strategies for data processing workloads**
 
 Go beyond basic CPU/memory scaling with intelligent, application-aware autoscaling:
@@ -48,10 +48,10 @@ Go beyond basic CPU/memory scaling with intelligent, application-aware autoscali
 
 ---
 
-### 4. [Monitoring and Observability for Matillion Agents](./monitoring-and-observability.md)
+### 4. [Monitoring and Observability for Matillion Runners](./monitoring-and-observability.md)
 **Comprehensive visibility into your data processing infrastructure**
 
-Transform your agent deployment from a black box into a transparent, manageable system:
+Transform your runner deployment from a black box into a transparent, manageable system:
 - Custom metrics sidecar with Prometheus integration
 - Grafana dashboards for data pipeline insights
 - Intelligent alerting for proactive issue detection
@@ -76,22 +76,38 @@ Operational reference for cloud engineers and solution architects deploying the 
 
 ---
 
+### 6. [Right-sizing Matillion Agents: T-Shirt Sizing Across Orchestrators](./right-sizing-matillion-agents.md)
+**Pick the right CPU/memory for your agent on any cloud, without re-reading every orchestrator's matrix**
+
+A practical guide to the new `runner_size` / `runnerSize` variable that replaces hand-rolled `cpu`/`memory` values across every deployment template:
+- The four t-shirt sizes (small / medium / large / xlarge) and what each one costs
+- Per-orchestrator constraints — Fargate's valid combinations, Container Apps' workload-profile gotcha, Kubernetes node-headroom rules
+- When to override the size map and what's safe to set
+- A repeatable approach for picking the right size from existing telemetry
+
+**Target Audience:** Cloud engineers, platform leads, anyone deploying agents into a new environment
+
+---
+
 ## Choosing the Right Article
 
 ### New to the Repository?
-Start with **"Why Use the Matillion Agent Deployment Repository?"** to understand the value proposition and use cases.
+Start with **"Why Use the Matillion Runner Deployment Repository?"** to understand the value proposition and use cases.
 
 ### Ready to Deploy?
-Jump to **"How to Deploy the Matillion Agent"** for step-by-step deployment instructions for your chosen platform.
+Jump to **"How to Deploy the Matillion Runner"** for step-by-step deployment instructions for your chosen platform.
 
 ### Optimizing Performance?
-Read **"Autoscaling Matillion Agents"** to implement intelligent scaling based on actual workload metrics.
+Read **"Autoscaling Matillion Runners"** to implement intelligent scaling based on actual workload metrics.
 
 ### Need Better Visibility?
 Explore **"Monitoring and Observability"** for comprehensive monitoring strategies and dashboard examples.
 
 ### Deploying into a Restricted Network?
 Read **"Network Requirements for Pulling the Runner Image"** to understand image delivery and network access requirements, including private-mirror patterns for zero-egress environments.
+
+### Picking the Right Resources?
+Read **"Right-sizing Matillion Agents"** before your first deploy or when you suspect throttling/OOMs. Covers the small/medium/large/xlarge sizes, per-orchestrator constraints, and how to validate the choice from telemetry.
 
 ### Security-Focused?
 Review **"Security Best Practices"** for defense-in-depth security implementation.
@@ -114,8 +130,8 @@ Review **"Security Best Practices"** for defense-in-depth security implementatio
 
 ### Repository Documentation
 - [Main README](../README.md) - Repository overview and quick start
-- [Helm Chart Documentation](../agent/helm/README.md) - Kubernetes-specific details
-- [AWS ECS Documentation](../agent/aws/ecs/README.md) - AWS deployment specifics
+- [Helm Chart Documentation](../runner/helm/README.md) - Kubernetes-specific details
+- [AWS ECS Documentation](../runner/aws/ecs/README.md) - AWS deployment specifics
 - [Azure AKS Documentation](../modules/azure/aks/readme.md) - Azure deployment details
 
 ### External References
@@ -130,14 +146,17 @@ Review **"Security Best Practices"** for defense-in-depth security implementatio
 ```yaml
 # Essential configuration for all deployments
 account_id: "YOUR_MATILLION_ACCOUNT_ID"
-agent_id: "YOUR_AGENT_ID"
+agent_id: "YOUR_AGENT_ID"   # API contract field — keep "agent" naming
 matillion_region: "us-east-1"  # or your preferred region
 
-# Resource recommendations
-cpu_request: "1000m"
-memory_request: "2Gi"
-cpu_limit: "2000m"
-memory_limit: "4Gi"
+# Resource sizing — one variable, every orchestrator
+# small  = 1 vCPU / 4 GiB    (default; light/dev workloads)
+# medium = 2 vCPU / 8 GiB    (recommended for most production)
+# large  = 4 vCPU / 16 GiB   (heavy ELT, large staged datasets)
+# xlarge = 8 vCPU / 32 GiB   (Linux-only on ECS Fargate)
+# Helm charts use `runnerSize`; ECS/Container Apps Terraform use `runner_size`.
+# See ./right-sizing-matillion-agents.md for the full per-orchestrator picture.
+runner_size: "small"
 
 # Scaling defaults
 min_replicas: 2
@@ -149,26 +168,26 @@ app_active_request_count: 18
 ### Essential Commands
 ```bash
 # Kubernetes deployment
-helm install matillion-agent agent/helm/agent/ -f custom-values.yaml
+helm install matillion-runner runner/helm/runner/ -f custom-values.yaml
 
 # AWS ECS deployment
-cd agent/aws/ecs && terraform init && terraform apply
+cd runner/aws/ecs && terraform init && terraform apply
 
 # AWS EKS deployment
-cd agent/aws/eks && terraform init && terraform apply
+cd runner/aws/eks && terraform init && terraform apply
 
 # Azure AKS deployment
-cd agent/azure/aks && terraform init && terraform apply
+cd runner/azure/aks && terraform init && terraform apply
 
 # Azure ACI deployment
-cd agent/azure/aci && terraform init && terraform apply
+cd runner/azure/aci && terraform init && terraform apply
 
 # Check deployment status
-kubectl get pods -l app.kubernetes.io/name=matillion-agent
-aws ecs describe-services --cluster matillion-agent-cluster
-aws eks describe-cluster --name matillion-agent-eks
+kubectl get pods -l app.kubernetes.io/name=matillion-runner
+aws ecs describe-services --cluster matillion-runner-cluster
+aws eks describe-cluster --name matillion-runner-eks
 az aks show --resource-group matillion-rg --name matillion-aks
-az container show --resource-group matillion-rg --name matillion-agent-aci
+az container show --resource-group matillion-rg --name matillion-runner-aci
 ```
 
 ## Contributing to the Blog Series
@@ -187,4 +206,4 @@ Found errors, have suggestions, or want to contribute additional content? Please
 
 ---
 
-*These blog articles represent production-tested configurations and best practices from deploying Matillion agents in enterprise environments. They are maintained alongside the repository code to ensure accuracy and relevance.*
+*These blog articles represent production-tested configurations and best practices from deploying Matillion runners in enterprise environments. They are maintained alongside the repository code to ensure accuracy and relevance.*

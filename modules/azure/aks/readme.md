@@ -63,14 +63,14 @@ To create the required Service Principal for Key Vault access, follow these step
 
 ```bash
 # Create a Service Principal
-az ad sp create-for-rbac --name "matillion-agent-keyvault-sp" --role "Key Vault Secrets User" --scopes "/subscriptions/{subscription-id}/resourceGroups/{resource-group-name}/providers/Microsoft.KeyVault/vaults/{key-vault-name}"
+az ad sp create-for-rbac --name "matillion-runner-keyvault-sp" --role "Key Vault Secrets User" --scopes "/subscriptions/{subscription-id}/resourceGroups/{resource-group-name}/providers/Microsoft.KeyVault/vaults/{key-vault-name}"
 ```
 
 This command will output:
 ```json
 {
   "appId": "<your-service-principal-app-id>",
-  "displayName": "matillion-agent-keyvault-sp",
+  "displayName": "matillion-runner-keyvault-sp",
   "password": "<your-service-principal-password>",
   "tenant": "<your-tenant-id>"
 }

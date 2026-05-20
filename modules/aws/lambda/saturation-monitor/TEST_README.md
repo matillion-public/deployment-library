@@ -1,11 +1,11 @@
-# Testing the ECS Agent Saturation Monitor Lambda Function
+# Testing the ECS Runner Saturation Monitor Lambda Function
 
 This directory contains comprehensive unit and integration tests for the Lambda function.
 
 ## Test Structure
 
 ### Unit Tests (`test_lambda_function.py`)
-- **Service Discovery**: Tests agent service identification logic
+- **Service Discovery**: Tests runner service identification logic
 - **Agent ID Extraction**: Tests extracting agent IDs from task definitions
 - **Private IP Extraction**: Tests getting private IPs from ECS tasks
 - **Metrics Fetching**: Tests HTTP requests to actuator endpoints
@@ -53,10 +53,10 @@ pytest test_lambda_function.py -v --cov=lambda_function --cov-report=html
 python -m unittest test_lambda_function.py -v
 
 # Run specific test class
-pytest test_lambda_function.py::TestECSAgentSaturationMonitor -v
+pytest test_lambda_function.py::TestECSRunnerSaturationMonitor -v
 
 # Run specific test method
-pytest test_lambda_function.py::TestECSAgentSaturationMonitor::test_is_agent_service_default_indicators -v
+pytest test_lambda_function.py::TestECSRunnerSaturationMonitor::test_is_runner_service_default_indicators -v
 ```
 
 #### 3. Run integration tests
@@ -85,9 +85,9 @@ xdg-open htmlcov/index.html  # Linux
 - [x] Case-insensitive matching
 - [x] Non-matching service names
 
-### ✅ Agent Information Extraction
-- [x] Agent ID from task definition environment variables
-- [x] Agent ID fallback to task ID
+### ✅ Runner Information Extraction
+- [x] Matillion Agent ID (API field) from task definition environment variables
+- [x] Matillion Agent ID fallback to task ID
 - [x] Private IP from ECS task attachments
 - [x] Missing private IP handling
 
@@ -100,13 +100,13 @@ xdg-open htmlcov/index.html  # Linux
 
 ### ✅ CloudWatch Publishing
 - [x] Metric data formatting and dimensions
-- [x] Agent status value conversion (RUNNING=1, other=0)
-- [x] Multiple metrics per agent
+- [x] Runner status value conversion (RUNNING=1, other=0)
+- [x] Multiple metrics per runner
 - [x] CloudWatch API call verification
 
 ### ✅ Complete Workflow
 - [x] End-to-end monitoring process
-- [x] Multiple agent discovery and monitoring
+- [x] Multiple runner discovery and monitoring
 - [x] Error handling and recovery
 - [x] Results aggregation and reporting
 
@@ -126,10 +126,10 @@ xdg-open htmlcov/index.html  # Linux
 ### Environment Variables for Testing
 ```bash
 # Override default service indicators
-export AGENT_SERVICE_INDICATORS="custom-agent,worker,processor"
+export RUNNER_SERVICE_INDICATORS="custom-agent,worker,processor"
 
 # Set test CloudWatch namespace
-export CLOUDWATCH_NAMESPACE="Test/AgentSaturation"
+export CLOUDWATCH_NAMESPACE="Test/RunnerSaturation"
 
 # Enable debug logging
 export LOG_LEVEL="DEBUG"
@@ -156,7 +156,7 @@ The tests use realistic mock data that matches actual AWS API responses:
 
 - **ECS Tasks**: Complete task definitions with network attachments
 - **ECS Services**: Service configurations with proper ARNs
-- **Agent Metrics**: Sample actuator endpoint responses
+- **Runner Metrics**: Sample actuator endpoint responses
 - **CloudWatch**: Metric data with proper dimensions and values
 
 ## Troubleshooting Tests

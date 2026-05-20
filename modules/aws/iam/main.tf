@@ -1,13 +1,13 @@
 resource "aws_iam_role" "ecs_task_role" {
-  name               = join("-", [var.name, "matillion-ecs-task-role"])
+  name = join("-", [var.name, "matillion-ecs-task-role"])
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [{
-      Effect    = "Allow"
+      Effect = "Allow"
       Principal = {
         Service = ["ecs-tasks.amazonaws.com", "ec2.amazonaws.com"]
       }
-      Action    = ["sts:AssumeRole"]
+      Action = ["sts:AssumeRole"]
     }]
   })
 }
@@ -23,27 +23,27 @@ resource "aws_iam_role_policy_attachment" "ecs_task_role_cloudwatch" {
 }
 
 resource "aws_iam_role_policy" "ecs_task_role_policy" {
-  name   = "matillion_etl_agent_role"
+  name   = "matillion_etl_runner_role"
   role   = aws_iam_role.ecs_task_role.id
   policy = file("${path.module}/templates/ecs_task_role_policy.json")
 }
 
 resource "aws_iam_instance_profile" "ecs_task_role_instance_profile" {
-  name  = join("-", [var.name, "matillion-ecs-task-instance-profile"])
-  path  = "/"
+  name = join("-", [var.name, "matillion-ecs-task-instance-profile"])
+  path = "/"
   role = aws_iam_role.ecs_task_role.name
 }
 
 resource "aws_iam_role" "ecs_task_execution_role" {
-  name               = join("-", [var.name, "task-execution-role"])
+  name = join("-", [var.name, "task-execution-role"])
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [{
-      Effect    = "Allow"
+      Effect = "Allow"
       Principal = {
         Service = ["ecs-tasks.amazonaws.com"]
       }
-      Action    = ["sts:AssumeRole"]
+      Action = ["sts:AssumeRole"]
     }]
   })
 }
@@ -54,15 +54,15 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
 }
 
 resource "aws_iam_role_policy" "ecs_task_execution_role_policy" {
-  name = "GetETLAgentSecretValue"
+  name = "GetETLRunnerSecretValue"
   role = aws_iam_role.ecs_task_execution_role.id
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.agent_secret_arn]
+        Resource = [var.runner_secret_arn]
       }
     ]
   })

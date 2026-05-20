@@ -1,10 +1,10 @@
-# Why Use the Matillion Agent Deployment Repository?
+# Why Use the Matillion Runner Deployment Repository?
 
-When it comes to deploying the Matillion Data Productivity Cloud (DPC) Agent in production environments, organizations face numerous challenges around reliability, scalability, security, and observability. The Matillion Agent Deployment repository addresses these critical concerns with a comprehensive, enterprise-ready solution.
+When it comes to deploying the Matillion Data Productivity Cloud (DPC) Runner in production environments, organizations face numerous challenges around reliability, scalability, security, and observability. The Matillion Runner Deployment repository addresses these critical concerns with a comprehensive, enterprise-ready solution.
 
-## The Challenge: Complex Agent Deployment at Scale
+## The Challenge: Complex Runner Deployment at Scale
 
-Deploying data processing agents in modern cloud environments isn't just about getting a container running. Organizations need:
+Deploying data processing runners in modern cloud environments isn't just about getting a container running. Organizations need:
 
 - **Multi-cloud flexibility** to avoid vendor lock-in
 - **Production-grade monitoring** to ensure data pipeline reliability
@@ -29,12 +29,12 @@ This flexibility means no cloud vendor lock-in, support for both production and 
 
 The repository includes a **custom metrics exporter sidecar** that provides Prometheus-compatible metrics out of the box:
 
-- Agent health and status monitoring
+- Runner health and status monitoring
 - Active task and request tracking
 - Database connection monitoring
 - Performance metrics for troubleshooting
 
-This eliminates the guesswork around agent performance and provides the visibility needed for production operations.
+This eliminates the guesswork around runner performance and provides the visibility needed for production operations.
 
 ### 3. **Security-First Architecture**
 
@@ -80,7 +80,7 @@ Built-in testing includes:
 - **Security compliance** built into every deployment
 
 ### For Data Engineering Teams
-- **Reliable agent performance** with comprehensive monitoring
+- **Reliable runner performance** with comprehensive monitoring
 - **Predictable scaling** based on workload demands
 - **Cross-cloud portability** for disaster recovery
 - **Zero-downtime deployments** with rolling updates
@@ -95,7 +95,7 @@ Built-in testing includes:
 
 This repository is ideal if you:
 
-Need to deploy Matillion agents in production environments  
+Need to deploy Matillion runners in production environments  
 Require multi-cloud or hybrid cloud deployments  
 Want comprehensive monitoring and observability  
 Need Infrastructure as Code for consistent deployments  
@@ -116,6 +116,6 @@ Each path includes comprehensive documentation, example configurations, and test
 
 ## Conclusion
 
-The Matillion Agent Deployment repository transforms complex, error-prone manual deployments into automated, monitored, and scalable infrastructure. By choosing this solution, organizations can focus on their data pipelines rather than deployment complexity, while maintaining the flexibility and control needed for enterprise environments.
+The Matillion Runner Deployment repository transforms complex, error-prone manual deployments into automated, monitored, and scalable infrastructure. By choosing this solution, organizations can focus on their data pipelines rather than deployment complexity, while maintaining the flexibility and control needed for enterprise environments.
 
-Ready to get started? Check out our [deployment guide](./how-to-deploy-matillion-agent.md) for step-by-step instructions.
+Ready to get started? Check out our [deployment guide](./how-to-deploy-matillion-runner.md) for step-by-step instructions.

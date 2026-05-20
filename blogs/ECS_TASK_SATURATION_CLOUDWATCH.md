@@ -2,25 +2,25 @@
 
 ## Overview
 
-This document outlines how to surface task saturation metrics from the agent actuator endpoint to CloudWatch for monitoring ECS cluster utilization and saturation levels using a serverless Lambda approach.
+This document outlines how to surface task saturation metrics from the runner actuator endpoint to CloudWatch for monitoring ECS cluster utilization and saturation levels using a serverless Lambda approach.
 
 ## Current Task Saturation Metrics
 
-The agent actuator endpoint provides these key saturation indicators:
+The runner actuator endpoint provides these key saturation indicators:
 
 - **`activeTaskCount`** - Number of active tasks being processed (indicates processing load)
 - **`activeRequestCount`** - Number of active requests queued/processing (indicates queue saturation) 
 - **`openSessionsCount`** - Number of open sessions (indicates connection saturation)
-- **`agentStatus`** - Agent health status (RUNNING/STOPPED)
+- **`runnerStatus`** - Runner health status (RUNNING/STOPPED)
 
-These metrics provide visibility into how busy/saturated each ECS task (agent) is.
+These metrics provide visibility into how busy/saturated each ECS task (runner) is.
 
 ## Lambda-Based Implementation Approach
 
 Instead of running a sidecar container in ECS, we use a Lambda function that:
 
-1. **Discovers ECS Services** - Automatically finds Matillion agent services across all clusters
-2. **Fetches Metrics** - Calls actuator endpoints on each agent task
+1. **Discovers ECS Services** - Automatically finds Matillion runner services across all clusters
+2. **Fetches Metrics** - Calls actuator endpoints on each runner task
 3. **Publishes to CloudWatch** - Sends saturation metrics with proper dimensions
 4. **Runs on Schedule** - EventBridge triggers every minute
 
@@ -37,7 +37,7 @@ Instead of running a sidecar container in ECS, we use a Lambda function that:
                                 ▼
                        ┌─────────────────┐
                        │   ECS Clusters  │
-                       │   (Agent Tasks) │
+                       │   (Runner Tasks) │
                        └─────────────────┘
 ```
 
@@ -45,27 +45,27 @@ Instead of running a sidecar container in ECS, we use a Lambda function that:
 
 The Lambda function is located at `modules/aws/lambda/saturation-monitor/lambda_function.py` and includes:
 
-- **Service Discovery**: Automatically discovers ECS services running Matillion agents
-- **Metric Fetching**: Connects to agent actuator endpoints via private IP
+- **Service Discovery**: Automatically discovers ECS services running Matillion runners
+- **Metric Fetching**: Connects to runner actuator endpoints via private IP
 - **CloudWatch Publishing**: Publishes metrics with proper dimensions
-- **Error Handling**: Resilient to individual agent failures
+- **Error Handling**: Resilient to individual runner failures
 
 ### Key Features
 
-1. **Auto-Discovery**: Finds agent services by name patterns (`matillion`, `agent`, `dpc`)
+1. **Auto-Discovery**: Finds runner services by name patterns (`matillion`, `runner`, `dpc`)
 2. **Private Network Access**: Uses ECS task private IPs to call actuator endpoints
-3. **Dimensional Metrics**: Includes ClusterName, ServiceName, and AgentId dimensions
+3. **Dimensional Metrics**: Includes ClusterName, ServiceName, and RunnerId dimensions
 4. **Batch Publishing**: Efficiently publishes multiple metrics per API call
 
 ## CloudWatch Metrics Structure
 
 ### Namespace
-`ECS/AgentSaturation`
+`ECS/RunnerSaturation`
 
 ### Metrics
 | Metric Name | Unit | Description |
 |------------|------|-------------|
-| `ActiveTaskCount` | Count | Number of tasks actively being processed by the agent |
+| `ActiveTaskCount` | Count | Number of tasks actively being processed by the runner |
 | `ActiveRequestCount` | Count | Number of requests queued or being processed |
 | `OpenSessionsCount` | Count | Number of open sessions/connections |
 
@@ -88,7 +88,7 @@ Create a dashboard to visualize cluster-wide saturation:
             "height": 6,
             "properties": {
                 "metrics": [
-                    ["ECS/AgentSaturation", "ActiveTaskCount", "ClusterName", "your-cluster-name"],
+                    ["ECS/RunnerSaturation", "ActiveTaskCount", "ClusterName", "your-cluster-name"],
                     [".", "ActiveRequestCount", ".", "."],
                     [".", "OpenSessionsCount", ".", "."]
                 ],
@@ -110,7 +110,7 @@ Create a dashboard to visualize cluster-wide saturation:
             "height": 6,
             "properties": {
                 "metrics": [
-                    ["ECS/AgentSaturation", "ActiveTaskCount", "ClusterName", "your-cluster-name"],
+                    ["ECS/RunnerSaturation", "ActiveTaskCount", "ClusterName", "your-cluster-name"],
                     [".", "ActiveRequestCount", ".", "."],
                     [".", "OpenSessionsCount", ".", "."]
                 ],
@@ -132,10 +132,10 @@ Set up alarms to detect high saturation:
 ```bash
 # High average task count per ECS task
 aws cloudwatch put-metric-alarm \
-    --alarm-name "ECS-AgentSaturation-HighTaskCount" \
+    --alarm-name "ECS-RunnerSaturation-HighTaskCount" \
     --alarm-description "Alert when average active task count is high" \
     --metric-name ActiveTaskCount \
-    --namespace ECS/AgentSaturation \
+    --namespace ECS/RunnerSaturation \
     --statistic Average \
     --period 300 \
     --threshold 50 \
@@ -144,10 +144,10 @@ aws cloudwatch put-metric-alarm \
 
 # High request queue buildup
 aws cloudwatch put-metric-alarm \
-    --alarm-name "ECS-AgentSaturation-HighRequestQueue" \
+    --alarm-name "ECS-RunnerSaturation-HighRequestQueue" \
     --alarm-description "Alert when request queue is building up" \
     --metric-name ActiveRequestCount \
-    --namespace ECS/AgentSaturation \
+    --namespace ECS/RunnerSaturation \
     --statistic Average \
     --period 300 \
     --threshold 20 \
@@ -156,10 +156,10 @@ aws cloudwatch put-metric-alarm \
 
 # High session count indicating connection pressure
 aws cloudwatch put-metric-alarm \
-    --alarm-name "ECS-AgentSaturation-HighSessions" \
+    --alarm-name "ECS-RunnerSaturation-HighSessions" \
     --alarm-description "Alert when session count is high" \
     --metric-name OpenSessionsCount \
-    --namespace ECS/AgentSaturation \
+    --namespace ECS/RunnerSaturation \
     --statistic Average \
     --period 300 \
     --threshold 100 \
@@ -192,7 +192,7 @@ resource "aws_appautoscaling_policy" "scale_up_on_tasks" {
   target_tracking_scaling_policy_configuration {
     customized_metric_specification {
       metric_name = "ActiveTaskCount"
-      namespace   = "ECS/AgentSaturation"
+      namespace   = "ECS/RunnerSaturation"
       statistic   = "Average"
       
       dimensions = {
@@ -217,7 +217,7 @@ module "saturation_monitor" {
   source = "./modules/aws/lambda/saturation-monitor"
   
   name                           = var.name
-  cloudwatch_namespace          = "ECS/AgentSaturation"
+  cloudwatch_namespace          = "ECS/RunnerSaturation"
   schedule_expression           = "rate(1 minute)"
   log_level                     = "INFO"
   create_dashboard              = true
@@ -225,7 +225,7 @@ module "saturation_monitor" {
   high_task_count_threshold     = 50
   high_request_count_threshold  = 20
   alarm_actions                 = [] 
-  agent_service_indicators      = "matillion,agent,dpc,my-custom-service" 
+  runner_service_indicators      = "matillion,runner,dpc,my-custom-service" 
 }
 ```
 
@@ -257,7 +257,7 @@ aws events describe-rule --name ${name}-saturation-monitor-schedule
 aws lambda invoke --function-name ${name}-saturation-monitor --payload '{}' response.json
 
 # Check CloudWatch metrics
-aws cloudwatch list-metrics --namespace "ECS/AgentSaturation"
+aws cloudwatch list-metrics --namespace "ECS/RunnerSaturation"
 ```
 
 ## IAM Permissions

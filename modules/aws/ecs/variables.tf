@@ -6,17 +6,17 @@ variable "assign_public_ip" {
 }
 
 variable "name" {
-  description = "Name for the ECS Fargate cluster to be created for hosting your agent(s)"
+  description = "Name for the ECS Fargate cluster to be created for hosting your runner(s)"
   type        = string
   default     = "data-insights"
 }
 
 variable "region" {
-  type = string  
+  type = string
 }
 
 variable "image_url" {
-  description = "The URL of the repository you are pulling the dpc agent image from."
+  description = "The URL of the repository you are pulling the dpc-agent image from."
   type        = string
   default     = "public.ecr.aws/matillion/etl-agent:current"
 }
@@ -27,7 +27,7 @@ variable "account_id" {
 }
 
 variable "agent_id" {
-  description = "Matillion Agent ID - This can be acquired from Matillion HUB during the deployment process"
+  description = "Matillion Agent ID (API contract field name) - This can be acquired from Matillion HUB during the deployment process"
   type        = string
 }
 
@@ -40,23 +40,23 @@ variable "matillion_region" {
 variable "matillion_environment" {
   description = "Matillion environment - Internal use only"
   type        = string
-  default = ""
+  default     = ""
 }
 
 variable "extension_library_location" {
   description = "Optional: The location for your additional Python libraries."
   type        = string
-  default = ""
+  default     = ""
 }
 
 variable "proxy_http" {
-  description = "Optional: HTTP proxy URL for the agent"
+  description = "Optional: HTTP proxy URL for the runner"
   type        = string
   default     = ""
 }
 
 variable "proxy_https" {
-  description = "Optional: HTTPS proxy URL for the agent"
+  description = "Optional: HTTPS proxy URL for the runner"
   type        = string
   default     = ""
 }
@@ -80,7 +80,7 @@ variable "external_driver_location" {
 }
 
 variable "export_logs" {
-  description = "Whether to export agent logs (default: true)"
+  description = "Whether to export runner logs (default: true)"
   type        = string
   default     = "true"
 }
@@ -91,9 +91,9 @@ variable "vpc_id" {
 }
 
 variable "subnet_ids" {
-  type = list(string)
+  type        = list(string)
   description = "Subnets deployed to by ECS Service"
-  
+
 }
 
 variable "secret_arns" {
@@ -109,21 +109,21 @@ variable "security_group_ids" {
 
 
 variable "task_and_service_definitions" {
-  description = "Utilize the same ECS cluster while deploying multiple agents"
+  description = "Utilize the same ECS cluster while deploying multiple runners"
   type        = list(map(string))
   default     = []
   # Example: [
   # {
-  #    agent_name = "",
+  #    runner_name = "",
   #    agent_id = ""
-  # } 
+  # }
   # ]
 }
 
 variable "desired_count" {
-  type = number
+  type    = number
   default = 2
-  
+
 }
 
 variable "create_bucket" {
@@ -132,25 +132,38 @@ variable "create_bucket" {
   default     = true
 }
 
-variable "agent_task_role_execution_arn" {
+variable "runner_task_role_execution_arn" {
   type = string
 }
 
-variable "agent_task_role_arn" {
+variable "runner_task_role_arn" {
   type = string
 }
 
-variable "agent_secret_arn" {
+variable "runner_secret_arn" {
   type = string
-  
 }
 
-variable "agent_memory" {
-  type = number  
+variable "runner_size" {
+  description = "T-shirt size for the runner task. Maps to a Fargate-valid cpu/memory pair: small=1vCPU/4GiB, medium=2vCPU/8GiB, large=4vCPU/16GiB, xlarge=8vCPU/32GiB."
+  type        = string
+  default     = "small"
+  validation {
+    condition     = contains(["small", "medium", "large", "xlarge"], var.runner_size)
+    error_message = "runner_size must be one of: small, medium, large, xlarge."
+  }
 }
 
-variable "agent_cpu" {
-  type = number  
+variable "runner_memory" {
+  description = "Override the memory (MiB) derived from runner_size. Leave null to use the size map. Must be a Fargate-valid combination with runner_cpu."
+  type        = number
+  default     = null
+}
+
+variable "runner_cpu" {
+  description = "Override the CPU units (1024 = 1 vCPU) derived from runner_size. Leave null to use the size map. Must be a Fargate-valid combination with runner_memory."
+  type        = number
+  default     = null
 }
 
 variable "ephemeral_storage_size" {

@@ -1,0 +1,43 @@
+# Azure Configuration
+azure_subscription_id = "12345678-1234-1234-1234-123456789abc"
+azure_tenant_id       = "12345678-1234-1234-1234-123456789abc"
+resource_group_name   = "matillion-agent-rg"
+location              = "eastus"
+
+# Resource Naming
+name = "matillion-agent"
+
+# Matillion Configuration
+matillion_cloud_region = "eu1"
+account_id             = "your-matillion-account-id"
+agent_id               = "your-unique-agent-id"
+client_id              = "your-oauth-client-id"
+client_secret          = "your-oauth-client-secret"
+
+# Agent sizing — small (default) | medium | large | xlarge
+# small  = 1 vCPU / 4 GiB   on D4
+# medium = 2 vCPU / 8 GiB   on D4
+# large  = 4 vCPU / 16 GiB  on D4 (whole profile)
+# xlarge = 8 vCPU / 32 GiB  on D8 (whole profile)
+runner_size = "small"
+
+# Optional overrides (commented out — uncomment to bypass the size map):
+# workload_profile_type = "E4"     # e.g. memory-optimized E-series
+# container_cpu         = "1.0"
+# container_memory      = "8Gi"
+
+replica_count              = 2
+workload_profile_max_count = 1
+zone_redundancy_enabled    = true
+
+# Optional: outbound egress control
+# enable_nat_gateway       = false
+# nat_gateway_idle_timeout = 10
+
+# Optional
+container_image_url = "matillion.azurecr.io/cloud-agent:current"
+
+tags = {
+  Environment = "production"
+  Project     = "matillion-agent"
+}
