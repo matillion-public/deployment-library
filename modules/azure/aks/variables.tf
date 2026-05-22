@@ -81,3 +81,9 @@ variable "enable_nat_gateway" {
   description = "Enable NAT Gateway for AKS outbound traffic"
   default     = false
 }
+
+variable "nat_gateway_public_ip" {
+  type        = string
+  description = "Public IP of the NAT Gateway. When set with a public cluster, it is appended to authorized_ip_ranges so node kubelet traffic egressing through the NAT can reach the API server."
+  default     = null
+}
