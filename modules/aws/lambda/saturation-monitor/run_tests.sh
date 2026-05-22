@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# Run tests for ECS Agent Saturation Monitor Lambda function
+# Run tests for ECS Runner Saturation Monitor Lambda function
 
-echo "=== ECS Agent Saturation Monitor Lambda Tests ==="
+echo "=== ECS Runner Saturation Monitor Lambda Tests ==="
 echo
 
 # Check if we're in the right directory

@@ -69,7 +69,7 @@ def sample_ecs_service():
 
 @pytest.fixture
 def sample_metrics_data():
-    """Sample metrics data from agent actuator endpoint"""
+    """Sample metrics data from runner actuator endpoint"""
     return {
         'activeTaskCount': 15,
         'activeRequestCount': 8,
@@ -88,9 +88,9 @@ def setup_test_environment(mock_aws_credentials):
     """Automatically set up test environment for all tests"""
     # Set test environment variables
     test_env = {
-        'CLOUDWATCH_NAMESPACE': 'Test/AgentSaturation',
+        'CLOUDWATCH_NAMESPACE': 'Test/RunnerSaturation',
         'LOG_LEVEL': 'DEBUG',
-        'AGENT_SERVICE_INDICATORS': 'test-agent,matillion'
+        'RUNNER_SERVICE_INDICATORS': 'test-agent,matillion'
     }
     
     original_env = {}

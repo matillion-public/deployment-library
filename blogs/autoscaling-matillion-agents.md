@@ -1,10 +1,10 @@
-# Autoscaling Matillion Agents: Smart Scaling for Data Workloads
+# Autoscaling Matillion Runners: Smart Scaling for Data Workloads
 
-Modern data processing workloads are inherently unpredictable. Data volumes fluctuate throughout the day, pipeline complexity varies, and business demands change rapidly. Traditional static resource allocation leads to either over-provisioning (wasting money) or under-provisioning (degrading performance). The Matillion Agent Deployment repository solves this with sophisticated autoscaling capabilities that respond intelligently to actual workload demands.
+Modern data processing workloads are inherently unpredictable. Data volumes fluctuate throughout the day, pipeline complexity varies, and business demands change rapidly. Traditional static resource allocation leads to either over-provisioning (wasting money) or under-provisioning (degrading performance). The Matillion Runner Deployment repository solves this with sophisticated autoscaling capabilities that respond intelligently to actual workload demands.
 
-## Why Traditional Metrics Fall Short for Data Agents
+## Why Traditional Metrics Fall Short for Data Runners
 
-Most autoscaling solutions rely on basic CPU and memory metrics. For data processing agents, this approach is problematic:
+Most autoscaling solutions rely on basic CPU and memory metrics. For data processing runners, this approach is problematic:
 
 - **CPU spikes** don't always indicate high workload (could be garbage collection)
 - **Memory usage** varies significantly based on data set sizes, not necessarily workload
@@ -21,7 +21,7 @@ This repository implements **application-aware autoscaling** using custom metric
 2. **`app_active_request_count`** - Number of active API requests being handled
 3. **Task completion rate** - Historical data for predictive scaling
 
-These metrics provide a true picture of agent workload and enable more accurate scaling decisions.
+These metrics provide a true picture of runner workload and enable more accurate scaling decisions.
 
 > **⚠ Sizing the `averageValue` HPA target.** The HPA examples below scale on **in-flight tasks per agent pod** via `app_active_task_count`. Each agent instance has a **hard cap of 20 concurrent tasks**, so `averageValue` must be ≤ 20 — values above the cap mean the HPA can never reach the target and pods will saturate before scaling triggers. We recommend **15–17**: `15` for proactive scaling (spiky / latency-sensitive workloads), `16` as a balanced default, `17` for reactive scaling (steady workloads). For dev/test pick a much lower value (e.g. `5`) so a handful of tasks triggers a scale event. (`app_active_request_count` and `app_queue_depth` are different metrics with different scales — the 20-task cap does not apply to them.)
 
@@ -35,7 +35,7 @@ The Kubernetes deployment includes a sophisticated HPA configuration that scales
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: matillion-agent-hpa
+  name: matillion-runner-hpa
 spec:
   behavior:
     scaleDown:
@@ -137,7 +137,7 @@ adapterConfig:
 
 ### Metrics Collection Flow
 
-1. **Agent Sidecar** exposes metrics on port 8000
+1. **Runner Sidecar** exposes metrics on port 8000
 2. **Prometheus** scrapes metrics every 15 seconds
 3. **Prometheus Adapter** converts metrics to Kubernetes custom metrics API
 4. **HPA Controller** queries custom metrics for scaling decisions
@@ -151,7 +151,7 @@ While the current ECS implementation focuses on simplicity, it can be extended w
 
 ```hcl
 # Scalable Target
-resource "aws_appautoscaling_target" "matillion_agent" {
+resource "aws_appautoscaling_target" "matillion_runner" {
   max_capacity       = 10
   min_capacity       = 2
   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.main.name}"
@@ -161,11 +161,11 @@ resource "aws_appautoscaling_target" "matillion_agent" {
 
 # CPU-based Scaling Policy
 resource "aws_appautoscaling_policy" "cpu_scaling" {
-  name               = "matillion-agent-cpu-scaling"
+  name               = "matillion-runner-cpu-scaling"
   policy_type        = "TargetTrackingScaling"
-  resource_id        = aws_appautoscaling_target.matillion_agent.resource_id
-  scalable_dimension = aws_appautoscaling_target.matillion_agent.scalable_dimension
-  service_namespace  = aws_appautoscaling_target.matillion_agent.service_namespace
+  resource_id        = aws_appautoscaling_target.matillion_runner.resource_id
+  scalable_dimension = aws_appautoscaling_target.matillion_runner.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.matillion_runner.service_namespace
 
   target_tracking_scaling_policy_configuration {
     predefined_metric_specification {
@@ -179,11 +179,11 @@ resource "aws_appautoscaling_policy" "cpu_scaling" {
 
 # Memory-based Scaling Policy
 resource "aws_appautoscaling_policy" "memory_scaling" {
-  name               = "matillion-agent-memory-scaling"
+  name               = "matillion-runner-memory-scaling"
   policy_type        = "TargetTrackingScaling"
-  resource_id        = aws_appautoscaling_target.matillion_agent.resource_id
-  scalable_dimension = aws_appautoscaling_target.matillion_agent.scalable_dimension
-  service_namespace  = aws_appautoscaling_target.matillion_agent.service_namespace
+  resource_id        = aws_appautoscaling_target.matillion_runner.resource_id
+  scalable_dimension = aws_appautoscaling_target.matillion_runner.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.matillion_runner.service_namespace
 
   target_tracking_scaling_policy_configuration {
     predefined_metric_specification {
@@ -209,7 +209,7 @@ Azure AKS provides scaling at multiple levels:
 ### Cluster Auto Scaling
 ```hcl
 default_node_pool {
-  name                 = "agentpool"
+  name                 = "runnerpool"
   vm_size              = "Standard_D4s_v4"
   auto_scaling_enabled = true
   min_count            = 2
@@ -272,10 +272,10 @@ Integration with external events:
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: matillion-agent-scaler
+  name: matillion-runner-scaler
 spec:
   scaleTargetRef:
-    name: matillion-agent
+    name: matillion-runner
   triggers:
   - type: prometheus
     metadata:
@@ -330,23 +330,23 @@ Set up comprehensive monitoring for your scaling events:
 ```yaml
 # Prometheus Alert Rules
 groups:
-- name: matillion-agent-scaling
+- name: matillion-runner-scaling
   rules:
-  - alert: AgentScalingTooFrequent
+  - alert: RunnerScalingTooFrequent
     expr: increase(kube_hpa_status_desired_replicas[5m]) > 3
     for: 2m
     labels:
       severity: warning
     annotations:
-      summary: "Agent scaling happening too frequently"
+      summary: "Runner scaling happening too frequently"
       
-  - alert: AgentMaxReplicasReached
+  - alert: RunnerMaxReplicasReached
     expr: kube_hpa_status_current_replicas == kube_hpa_spec_max_replicas
     for: 5m
     labels:
       severity: critical
     annotations:
-      summary: "Agent has reached maximum replicas - may need capacity planning"
+      summary: "Runner has reached maximum replicas - may need capacity planning"
 ```
 
 ### Cost Optimization Strategies
@@ -376,7 +376,7 @@ kubectl top pods
 kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1"
 
 # Check HPA status
-kubectl describe hpa matillion-agent-hpa
+kubectl describe hpa matillion-runner-hpa
 ```
 
 #### Rapid Scaling Oscillations
@@ -439,13 +439,13 @@ The autoscaling infrastructure is designed to support future enhancements:
 
 ## Conclusion
 
-The Matillion Agent Deployment repository provides enterprise-grade autoscaling that goes beyond basic CPU/memory metrics. By using application-specific metrics like active task count and request count, the system makes intelligent scaling decisions that:
+The Matillion Runner Deployment repository provides enterprise-grade autoscaling that goes beyond basic CPU/memory metrics. By using application-specific metrics like active task count and request count, the system makes intelligent scaling decisions that:
 
 - **Reduce costs** by avoiding over-provisioning
 - **Improve performance** by scaling proactively to demand
 - **Increase reliability** through intelligent stabilization policies
 - **Support growth** with flexible, configurable scaling behaviors
 
-Whether you're processing small datasets or running enterprise-scale data pipelines, the autoscaling capabilities ensure your Matillion agents are right-sized for the workload while optimizing for both performance and cost.
+Whether you're processing small datasets or running enterprise-scale data pipelines, the autoscaling capabilities ensure your Matillion runners are right-sized for the workload while optimizing for both performance and cost.
 
 Ready to implement intelligent autoscaling? Start with the Kubernetes deployment for the most advanced features, or choose AWS ECS or Azure AKS based on your existing infrastructure preferences.

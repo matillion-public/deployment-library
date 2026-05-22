@@ -1,0 +1,117 @@
+---
+# Azure AKS Deployment Example
+# This example shows configuration for deploying the runner on Azure AKS using Workload Identity
+
+cloudProvider: "azure"
+
+# Agent t-shirt size — small | medium | large | xlarge. See values.yaml for the size map.
+# Recommended AKS node sizing: small/medium → Standard_D2s_v5 or larger,
+# large → Standard_D8s_v5, xlarge → Standard_D16s_v5. Always size the node above the
+# request to leave room for kubelet/system pods.
+runnerSize: small
+
+config:
+  oauthClientId: "your-oauth-client-id"
+  oauthClientSecret: "your-oauth-client-secret"
+
+serviceAccount:
+  # Optional: Override the default service account name
+  name: ""
+  # Not used for Azure
+  roleArn: ""
+
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: "your-matillion-account-id"
+      agentId: "your-matillion-runner-id"
+      matillionRegion: "us1"  # Options: us1, eu1
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: ""
+      customCertLocation: ""
+      extensionLibraryLocation: ""
+      externalDriverLocation: ""
+      # Azure Key Vault name for storing secrets
+      defaultKeyvault: "matillion-runner-kv"
+    image:
+      repository: "matillion.azurecr.io/cloud-agent"
+      tag: "current"
+      # digest: "sha256:abc123..."  # Optional: use digest for immutable deployments
+    imagePullPolicy: Always  # Required: 'current' is a rolling tag; Always ensures latest image is pulled
+    gracePeriodSeconds: 43200
+    # Resources derived from .Values.runnerSize. Set this map to override.
+    resources: {}
+  replicas: 2
+
+kubernetesClusterDomain: cluster.local
+
+hpa:
+  enabled: true
+  scaleDown:
+    selectPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+  maxReplicas: 10
+  minReplicas: 2
+  metrics:
+    target:
+      averageValue: "16"
+      type: AverageValue
+
+# AWS configuration - disabled for Azure
+aws:
+  local:
+    enabled: false
+
+# Azure-specific configuration
+azure:
+  # Azure Subscription ID (optional but recommended for workload identity)
+  # Get this from Terraform: terraform output -raw azure_subscription_id
+  subscriptionId: "your-azure-subscription-id"
+
+  # Workload Identity (recommended for AKS)
+  # Requires AKS cluster with OIDC issuer enabled
+  workloadIdentity:
+    enabled: true
+    # Client ID of the Azure Managed Identity for Workload Identity
+    # Get this value from Terraform output: runner_workload_identity_client_id
+    clientId: "your-runner-workload-identity-client-id"
+
+  # Service Principal (alternative to Workload Identity)
+  # Use this if you cannot enable Workload Identity
+  servicePrincipal:
+    enabled: false
+    clientId: ""
+    clientSecret: ""
+    tenantId: ""
+
+# Network security configuration
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []
+
+# Pod security configuration
+podSecurityContext:
+  sysctls:
+    - name: "net.ipv4.tcp_keepalive_time"
+      value: "30"
+
+# Node selector configuration
+# Example: Schedule pods on specific Azure VM sizes
+nodeSelector: {}
+#   kubernetes.io/os: linux
+#   agentpool: userpool
+#   kubernetes.azure.com/agentpool: userpool

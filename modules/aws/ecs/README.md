@@ -2,7 +2,7 @@
 
 ## Overview
 
-This module deploys an AWS ECS cluster with a Fargate task definition and service for running Matillion ETL agents. It handles the configuration of container definitions, networking, security groups, and logging.
+This module deploys an AWS ECS cluster with a Fargate task definition and service for running Matillion ETL runners. It handles the configuration of container definitions, networking, security groups, and logging.
 
 ## Features
 
@@ -18,23 +18,23 @@ This module deploys an AWS ECS cluster with a Fargate task definition and servic
 ```hcl
 module "ecs" {
   source = "../../modules/aws/ecs"
-  
-  name                        = "matillion-agent"
-  account_id                  = var.account_id
-  agent_id                    = var.agent_id
-  matillion_region            = var.matillion_region
-  matillion_environment       = var.matillion_environment
-  region                      = var.region
-  vpc_id                      = var.vpc_id
-  subnet_ids                  = var.subnet_ids
-  security_group_ids          = var.security_group_ids
-  agent_task_role_arn         = var.agent_task_role_arn
-  agent_task_role_execution_arn = var.agent_task_role_execution_arn
-  agnet_secret_arn            = var.agnet_secret_arn
-  desired_count               = var.desired_count
-  agent_memory                = 4096
-  agent_cpu                   = 1024
-  ephemeral_storage_size      = 50  # Optional: Configure 50 GiB of ephemeral storage
+
+  name                            = "matillion-runner"
+  account_id                      = var.account_id
+  agent_id                        = var.agent_id
+  matillion_region                = var.matillion_region
+  matillion_environment           = var.matillion_environment
+  region                          = var.region
+  vpc_id                          = var.vpc_id
+  subnet_ids                      = var.subnet_ids
+  security_group_ids              = var.security_group_ids
+  runner_task_role_arn            = var.runner_task_role_arn
+  runner_task_role_execution_arn  = var.runner_task_role_execution_arn
+  runner_secret_arn               = var.runner_secret_arn
+  desired_count                   = var.desired_count
+  runner_memory                   = 4096
+  runner_cpu                      = 1024
+  ephemeral_storage_size          = 50  # Optional: Configure 50 GiB of ephemeral storage
 }
 ```
 
@@ -44,23 +44,25 @@ module "ecs" {
 |------|-------------|------|---------|----------|
 | name | Name for the ECS Fargate cluster | string | "data-insights" | no |
 | account_id | Matillion account ID | string | n/a | yes |
-| agent_id | Matillion Agent ID | string | n/a | yes |
+| agent_id | Matillion Agent ID (API contract field name) | string | n/a | yes |
 | matillion_region | Matillion designer region | string | "eu1" | no |
 | matillion_environment | Matillion environment | string | "" | no |
 | region | AWS region | string | n/a | yes |
 | vpc_id | VPC ID for the ECS service | string | n/a | yes |
 | subnet_ids | Subnet IDs for the ECS service | list(string) | n/a | yes |
 | security_group_ids | Security group IDs for the ECS service | list(string) | n/a | yes |
-| agent_task_role_arn | ARN of the ECS task role | string | n/a | yes |
-| agent_task_role_execution_arn | ARN of the ECS task execution role | string | n/a | yes |
-| agnet_secret_arn | ARN of the agent's secret | string | n/a | yes |
-| desired_count | Desired count of the agent tasks | number | 2 | no |
+| runner_task_role_arn | ARN of the ECS task role | string | n/a | yes |
+| runner_task_role_execution_arn | ARN of the ECS task execution role | string | n/a | yes |
+| runner_secret_arn | ARN of the runner's secret | string | n/a | yes |
+| desired_count | Desired count of the runner tasks | number | 2 | no |
 | create_bucket | Whether to create an S3 staging bucket | bool | true | no |
 | extension_library_location | Location of the extension library | string | "" | no |
 | extension_library_protocol | Protocol for the extension library | string | "" | no |
-| agent_memory | Memory allocation for the agent task in MiB | number | n/a | yes |
-| agent_cpu | CPU allocation for the agent task in units | number | n/a | yes |
+| runner_memory | Memory allocation for the runner task in MiB | number | n/a | yes |
+| runner_cpu | CPU allocation for the runner task in units | number | n/a | yes |
 | ephemeral_storage_size | Optional ephemeral storage size in GiB for the ECS task | number | null | no |
+
+> **Note**: `agent_id` is preserved as the input name because it maps directly to the `AGENT_ID` env var consumed by the Matillion runner image — it is part of the Matillion API contract.
 
 ## Ephemeral Storage Configuration
 

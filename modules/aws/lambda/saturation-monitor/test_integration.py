@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Integration tests for ECS Agent Saturation Monitor Lambda function
+Integration tests for ECS Runner Saturation Monitor Lambda function
 
 These tests require actual AWS credentials and resources for integration testing.
 Run with: pytest test_integration.py -m integration
@@ -18,7 +18,7 @@ import lambda_function
 
 
 @pytest.mark.integration
-class TestECSAgentSaturationMonitorIntegration:
+class TestECSRunnerSaturationMonitorIntegration:
     """Integration tests using moto for AWS service mocking"""
 
     @mock_ecs
@@ -101,21 +101,21 @@ class TestECSAgentSaturationMonitorIntegration:
             mock_response.read.return_value = json.dumps(mock_metrics_data).encode('utf-8')
             
             # Create monitor instance
-            monitor = lambda_function.ECSAgentSaturationMonitor()
+            monitor = lambda_function.ECSRunnerSaturationMonitor()
             
             # Override AWS clients to use mocked ones
             monitor.ecs = ecs_client
             monitor.cloudwatch = cloudwatch_client
             
             # Run monitoring
-            results = monitor.monitor_all_agents()
+            results = monitor.monitor_all_runners()
             
             # Verify results
-            assert results['agents_discovered'] >= 0  # May be 0 if service discovery logic differs
+            assert results['runners_discovered'] >= 0  # May be 0 if service discovery logic differs
             
-            # If agents were discovered and processed
-            if results['agents_discovered'] > 0:
-                assert results['agents_monitored'] >= 0
+            # If runners were discovered and processed
+            if results['runners_discovered'] > 0:
+                assert results['runners_monitored'] >= 0
                 assert results['metrics_published'] >= 0
                 assert isinstance(results['errors'], list)
 
@@ -181,16 +181,16 @@ class TestECSAgentSaturationMonitorIntegration:
             )
         
         # Test discovery
-        monitor = lambda_function.ECSAgentSaturationMonitor()
+        monitor = lambda_function.ECSRunnerSaturationMonitor()
         monitor.ecs = ecs_client
         
         # Test service identification
         for service_name in test_services:
-            is_agent = monitor._is_agent_service(service_name, {})
+            is_runner = monitor._is_runner_service(service_name, {})
             if any(indicator in service_name.lower() for indicator in ['matillion', 'agent', 'dpc']):
-                assert is_agent, f"Service {service_name} should be identified as agent service"
+                assert is_runner, f"Service {service_name} should be identified as runner service"
             else:
-                assert not is_agent, f"Service {service_name} should NOT be identified as agent service"
+                assert not is_runner, f"Service {service_name} should NOT be identified as runner service"
 
 
 if __name__ == '__main__':

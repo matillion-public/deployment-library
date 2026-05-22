@@ -1,0 +1,120 @@
+---
+# AWS EKS Deployment Example
+# This example shows configuration for deploying the runner on AWS EKS using IAM Roles for Service Accounts (IRSA)
+
+cloudProvider: "aws"
+
+# Runner t-shirt size — small | medium | large | xlarge. See values.yaml for the size map.
+# Recommended EKS node sizing: small/medium → m5.large or larger, large → m5.2xlarge,
+# xlarge → m5.4xlarge. Always size the node above the request to leave room for kubelet/system pods.
+runnerSize: small
+
+# AWS-specific runnerSizes override: layer ephemeral-storage on top of the cpu/memory
+# from the base map (values.yaml) via Helm's deep merge. EKS Fargate gives pods only
+# 20 GiB of ephemeral storage by default — enough to exhaust when pulling the runner
+# image plus working data. Fargate supports up to 175 GiB; anything above 20 GiB is
+# billed separately (~$0.000111/GB-hour). Tune per environment with --set or by editing
+# this map. Non-Fargate EKS (managed nodegroups) does not share this constraint, but
+# the requests still apply.
+runnerSizes:
+  small:
+    requests: { ephemeral-storage: "50Gi" }
+    limits: { ephemeral-storage: "50Gi" }
+  medium:
+    requests: { ephemeral-storage: "75Gi" }
+    limits: { ephemeral-storage: "75Gi" }
+  large:
+    requests: { ephemeral-storage: "100Gi" }
+    limits: { ephemeral-storage: "100Gi" }
+  xlarge:
+    requests: { ephemeral-storage: "150Gi" }
+    limits: { ephemeral-storage: "150Gi" }
+
+config:
+  oauthClientId: ""
+  oauthClientSecret: ""
+
+serviceAccount:
+  # IAM Role ARN for the service account (IRSA)
+  # This role should have permissions to access AWS services (S3, Secrets Manager, etc.)
+  roleArn: "arn:aws:iam::123456789012:role/matillion-runner-role"
+
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: ""
+      agentId: ""
+      matillionRegion: "eu1"  # Options: us1, eu1
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: ""
+      customCertLocation: ""
+      extensionLibraryLocation: ""
+      externalDriverLocation: ""
+    image:
+      repository: "public.ecr.aws/matillion/etl-agent"
+      tag: "current"
+      # digest: "sha256:abc123..."  # Optional: use digest for immutable deployments
+    imagePullPolicy: Always  # Required: 'current' is a rolling tag; Always ensures latest image is pulled
+    gracePeriodSeconds: 43200
+    # Resources derived from .Values.runnerSize. Set this map to override.
+    resources: {}
+  replicas: 2
+
+kubernetesClusterDomain: cluster.local
+
+hpa:
+  enabled: true
+  scaleDown:
+    selectPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+  maxReplicas: 10
+  minReplicas: 2
+  metrics:
+    target:
+      averageValue: "16"
+      type: AverageValue
+
+# AWS-specific configuration
+# For AWS EKS, use IAM Roles for Service Accounts (IRSA) - no need to enable local
+aws:
+  local:
+    enabled: false  # Keep false for EKS IRSA-based authentication
+
+# Azure configuration - disabled for AWS
+azure:
+  workloadIdentity:
+    enabled: false
+  servicePrincipal:
+    enabled: false
+
+# Network security configuration
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []
+
+# Pod security configuration
+podSecurityContext:
+  sysctls:
+    - name: "net.ipv4.tcp_keepalive_time"
+      value: "30"
+
+# Node selector configuration
+# Example: Schedule pods on specific AWS instance types
+nodeSelector: {}
+#   kubernetes.io/os: linux
+#   node.kubernetes.io/instance-type: m5.large
+#   topology.kubernetes.io/zone: us-east-1a

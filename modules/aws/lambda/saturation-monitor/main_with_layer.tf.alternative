@@ -60,7 +60,7 @@ resource "aws_lambda_function" "saturation_monitor" {
     variables = {
       CLOUDWATCH_NAMESPACE      = var.cloudwatch_namespace
       LOG_LEVEL                = var.log_level
-      AGENT_SERVICE_INDICATORS = var.agent_service_indicators
+      RUNNER_SERVICE_INDICATORS = var.runner_service_indicators
     }
   }
 

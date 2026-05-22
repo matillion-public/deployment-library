@@ -31,10 +31,14 @@ resource "aws_iam_role_policy_attachment" "eks_policy_attachment" {
 resource "aws_eks_cluster" "eks_cluster" {
   name     = join("-", [var.name, "eks-cluster", var.random_string_salt])
   role_arn = aws_iam_role.eks_role.arn
-  
+
 
   vpc_config {
-    subnet_ids = var.subnet_ids
+    subnet_ids              = var.subnet_ids
+    endpoint_private_access = true
+    endpoint_public_access  = var.endpoint_public_access
+    public_access_cidrs     = var.public_access_cidrs
+    security_group_ids      = var.security_group_ids
   }
 
   tags = var.tags
@@ -47,7 +51,7 @@ resource "aws_eks_addon" "vpc-cni" {
 
 resource "aws_eks_addon" "kube-proxy" {
   cluster_name = aws_eks_cluster.eks_cluster.name
-  addon_name   = "kube-proxy" 
+  addon_name   = "kube-proxy"
 }
 resource "aws_iam_role" "fargate_pod_execution_role" {
   name = join("-", [var.name, "fargate-pod-execution-role", var.random_string_salt])
@@ -78,11 +82,11 @@ resource "aws_iam_policy" "dpc_policy" {
   description = "Policy for Data Productivity Cloud with S3, Secrets Manager, Redshift, and IAM permissions"
 
   policy = jsonencode({
-    "Version": "2012-10-17",
-    "Statement": [
+    "Version" : "2012-10-17",
+    "Statement" : [
       {
-        "Effect": "Allow",
-        "Action": [
+        "Effect" : "Allow",
+        "Action" : [
           "s3:ListBucket",
           "s3:GetObject",
           "s3:PutObject",
@@ -90,11 +94,11 @@ resource "aws_iam_policy" "dpc_policy" {
           "s3:GetBucketLocation",
           "s3:ListAllMyBuckets"
         ],
-        "Resource": "*"
+        "Resource" : "*"
       },
       {
-        "Effect": "Allow",
-        "Action": [
+        "Effect" : "Allow",
+        "Action" : [
           "secretsmanager:GetSecretValue",
           "secretsmanager:PutSecretValue",
           "secretsmanager:UpdateSecret",
@@ -102,11 +106,11 @@ resource "aws_iam_policy" "dpc_policy" {
           "secretsmanager:CreateSecret",
           "secretsmanager:ListSecrets"
         ],
-        "Resource": "*"
+        "Resource" : "*"
       },
       {
-        "Effect": "Allow",
-        "Action": [
+        "Effect" : "Allow",
+        "Action" : [
           "redshift:CreateUser",
           "redshift:AlterUser",
           "redshift:CreateDatabase",
@@ -114,16 +118,16 @@ resource "aws_iam_policy" "dpc_policy" {
           "redshift:CreateSchema",
           "redshift:ModifyClusterIamRoles"
         ],
-        "Resource": "*"
+        "Resource" : "*"
       },
       {
-        "Effect": "Allow",
-        "Action": [
+        "Effect" : "Allow",
+        "Action" : [
           "iam:CreateRole",
           "iam:AttachRolePolicy",
           "iam:PassRole"
         ],
-        "Resource": "*"
+        "Resource" : "*"
       }
     ]
   })
@@ -150,9 +154,9 @@ data "aws_iam_policy_document" "service_account_assume_role_policy" {
     condition {
       test     = "StringLike"
       variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub"
-      values   = [
-        "system:serviceaccount:matillion:matillion-agent-sa",
-        "system:serviceaccount:*:matillion-agent-sa"
+      values = [
+        "system:serviceaccount:matillion:matillion-runner-sa",
+        "system:serviceaccount:*:matillion-runner-sa"
       ] # Allow the service account in any namespace
     }
 
@@ -218,7 +222,7 @@ resource "terraform_data" "coredns_fargate_patch" {
 
 resource "aws_s3_bucket" "log_bucket" {
   bucket = lower(join("-", [var.name, "log-bucket", var.random_string_salt]))
- 
+
 
   tags = var.tags
 }
@@ -229,8 +233,8 @@ resource "aws_s3_bucket_public_access_block" "log_bucket_block" {
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
-  restrict_public_buckets = true    
-  
+  restrict_public_buckets = true
+
 }
 
 resource "aws_kms_key" "key" {
@@ -239,7 +243,7 @@ resource "aws_kms_key" "key" {
 }
 
 resource "aws_secretsmanager_secret" "eks_secret" {
-  name = join("-", [var.name, "eks-secret", var.random_string_salt])
+  name       = join("-", [var.name, "eks-secret", var.random_string_salt])
   kms_key_id = aws_kms_key.key.id
 
   tags = var.tags

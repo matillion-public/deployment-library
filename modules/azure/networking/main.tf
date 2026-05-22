@@ -27,7 +27,7 @@ resource "azurerm_subnet" "subnets" {
 }
 
 resource "azurerm_network_security_group" "nsg" {
-  name                = join("-", [var.name, "agent-nsg", var.random_string_salt])
+  name                = join("-", [var.name, "runner-nsg", var.random_string_salt])
   location            = var.location
   resource_group_name = var.resource_group_name
 

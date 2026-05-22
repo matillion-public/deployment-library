@@ -1,12 +1,12 @@
-# How to Deploy the Matillion Agent: Complete Guide
+# How to Deploy the Matillion Runner: Complete Guide
 
-This comprehensive guide walks you through deploying the Matillion Data Productivity Cloud (DPC) Agent using the five supported methods: Kubernetes with Helm, AWS ECS with Terraform, Azure AKS with Terraform, AWS EKS with Terraform, and Azure Container Instances (ACI) with Terraform.
+This comprehensive guide walks you through deploying the Matillion Data Productivity Cloud (DPC) Runner using the five supported methods: Kubernetes with Helm, AWS ECS with Terraform, Azure AKS with Terraform, AWS EKS with Terraform, and Azure Container Instances (ACI) with Terraform.
 
 ## Prerequisites
 
 Before starting any deployment, ensure you have:
 
-- **Matillion Account**: Agent ID, Account ID, and region information
+- **Matillion Account**: Runner ID, Account ID, and region information
 - **Container Registry Access**: Pull permissions for required images
 - **Target Platform Tools**: Depending on your chosen deployment method
 - **Network Egress to the Runner Image Registry**: AWS deployments pull from `public.ecr.aws/matillion/etl-agent`; Azure deployments pull from `matillion.azurecr.io/cloud-agent`. If you are deploying into a restricted-egress environment (zero-egress, firewall whitelisting, or air-gapped), see [Network Requirements for Pulling the Runner Image](./runner-image-pull-network-requirements.md) and the deployment-specific README for your chosen platform.
@@ -16,14 +16,14 @@ Before starting any deployment, ensure you have:
 ### Prerequisites
 - Helm 3.x installed
 - kubectl configured for your cluster
-- Kubernetes cluster with at least 2 CPU cores and 4GB RAM available
+- Kubernetes cluster sized for the t-shirt size you plan to deploy (small needs ≥ 2 vCPU / 8 GiB nodes; see [Right-sizing Matillion agents](right-sizing-matillion-agents.md))
 - For AWS: Either IAM roles (EKS) or AWS credentials (local/minikube)
 - For Azure: Either Workload Identity or Service Principal credentials
 
 ### Step 1: Clone the Repository
 ```bash
 git clone <repository_url>
-cd agent-deployment
+cd poc-agent-deployment
 ```
 
 ### Step 2: Create Namespaces
@@ -33,7 +33,7 @@ kubectl create namespace matillion
 kubectl create namespace prometheus
 
 # Install Prometheus monitoring
-helm install prometheus agent/helm/prometheus --namespace prometheus
+helm install prometheus runner/helm/prometheus --namespace prometheus
 ```
 
 ### Step 3: Configure Values
@@ -41,29 +41,29 @@ Choose the appropriate values template based on your deployment:
 
 ```bash
 # For AWS EKS with IAM roles (recommended for production)
-cp agent/helm/agent/test-values.yaml custom-values.yaml
+cp runner/helm/runner/test-values.yaml custom-values.yaml
 # Set environment variables for sensitive data
-export MATILLION_AGENT_CLIENT_ID="your-client-id"
-export MATILLION_AGENT_CLIENT_SECRET="your-client-secret"
-export MATILLION_AGENT_ROLE_ARN="arn:aws:iam::123456789012:role/your-role"
+export MATILLION_RUNNER_CLIENT_ID="your-client-id"
+export MATILLION_RUNNER_CLIENT_SECRET="your-client-secret"
+export MATILLION_RUNNER_ROLE_ARN="arn:aws:iam::123456789012:role/your-role"
 
 # For local/minikube with direct AWS credentials
-cp agent/helm/agent/values.yaml custom-values.yaml
+cp runner/helm/runner/values.yaml custom-values.yaml
 # Edit to enable aws.local.enabled=true and add credentials
 
 # For Azure deployments (example)
-cp agent/helm/agent/local.yaml custom-values.yaml
+cp runner/helm/runner/local.yaml custom-values.yaml
 ```
 
-### Step 4: Install the Agent
+### Step 4: Install the Runner
 ```bash
 # For deployments with environment variables
-envsubst < custom-values.yaml | helm install matillion-agent agent/helm/agent/ \
+envsubst < custom-values.yaml | helm install matillion-runner runner/helm/runner/ \
   --namespace matillion \
   -f -
 
 # For deployments with direct configuration
-helm install matillion-agent agent/helm/agent/ \
+helm install matillion-runner runner/helm/runner/ \
   --namespace matillion \
   -f custom-values.yaml
 ```
@@ -71,10 +71,10 @@ helm install matillion-agent agent/helm/agent/ \
 ### Step 5: Verify Deployment
 ```bash
 # Check pod status
-kubectl get pods -n matillion -l app.kubernetes.io/name=agent
+kubectl get pods -n matillion -l app.kubernetes.io/name=runner
 
 # Check metrics endpoint
-kubectl port-forward -n matillion deployment/matillion-agent 8000:8000
+kubectl port-forward -n matillion deployment/matillion-runner 8000:8000
 curl http://localhost:8000/metrics
 
 # Verify Prometheus is scraping metrics
@@ -88,7 +88,7 @@ kubectl port-forward -n prometheus svc/prometheus 9090:9090
 # Scaling configuration
 replicas: 2
 
-# Agent configuration
+# Runner configuration
 cloudProvider: "aws"  # or "azure"
 config:
   oauthClientId: "YOUR_CLIENT_ID"
@@ -96,7 +96,7 @@ config:
 
 # For AWS EKS with IAM roles
 serviceAccount:
-  roleArn: "arn:aws:iam::123456789012:role/matillion-agent"
+  roleArn: "arn:aws:iam::123456789012:role/matillion-runner"
 
 # For AWS local/minikube with direct credentials
 aws:
@@ -106,7 +106,7 @@ aws:
     accessKeyId: "YOUR_ACCESS_KEY_ID"
     secretAccessKey: "YOUR_SECRET_ACCESS_KEY"
 
-# Agent configuration
+# Runner configuration
 dpcAgent:
   dpcAgent:
     env:
@@ -116,13 +116,10 @@ dpcAgent:
     image:
       repository: "public.ecr.aws/matillion/etl-agent"
       tag: "current"
-    resources:
-      requests:
-        memory: "2Gi"
-        cpu: "1000m"
-      limits:
-        memory: "4Gi"
-        cpu: "2000m"
+
+# Pick a t-shirt size — drives requests/limits via the chart's runnerSizes map.
+# small | medium | large | xlarge. See blogs/right-sizing-matillion-agents.md
+runnerSize: small
 
 # Autoscaling
 hpa:
@@ -141,7 +138,7 @@ hpa:
 
 ### Step 1: Setup Terraform Configuration
 ```bash
-cd agent/aws/ecs
+cd runner/aws/ecs
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -161,8 +158,7 @@ matillion_region = "YOUR_REGION"
 
 # ECS Configuration
 desired_count = 2
-cpu           = 2048
-memory        = 4096
+runner_size    = "medium"  # small | medium | large | xlarge — see blogs/right-sizing-matillion-agents.md
 ```
 
 ### Step 3: Deploy Infrastructure
@@ -175,10 +171,10 @@ terraform apply
 ### Step 4: Verify Deployment
 ```bash
 # Check ECS service status
-aws ecs describe-services --cluster matillion-agent-cluster --services matillion-agent-service
+aws ecs describe-services --cluster matillion-runner-cluster --services matillion-runner-service
 
 # Check CloudWatch logs
-aws logs describe-log-groups --log-group-name-prefix "/ecs/matillion-agent"
+aws logs describe-log-groups --log-group-name-prefix "/ecs/matillion-runner"
 ```
 
 ## Deployment Method 3: Azure AKS with Terraform
@@ -196,14 +192,14 @@ az account set --subscription "your-subscription-id"
 
 ### Step 2: Create Service Principal for Key Vault
 ```bash
-az ad sp create-for-rbac --name "matillion-agent-keyvault-sp" \
+az ad sp create-for-rbac --name "matillion-runner-keyvault-sp" \
   --role "Key Vault Secrets User" \
   --scopes "/subscriptions/{subscription-id}/resourceGroups/{resource-group-name}"
 ```
 
 ### Step 3: Configure Terraform Variables
 ```bash
-cd agent/azure/aks
+cd runner/azure/aks
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -211,7 +207,7 @@ Edit `terraform.tfvars`:
 ```hcl
 # Azure Configuration
 azure_subscription_id = "your-subscription-id"
-resource_group_name   = "matillion-agent-rg"
+resource_group_name   = "matillion-runner-rg"
 location             = "East US"
 
 # Matillion Configuration
@@ -226,10 +222,10 @@ service_principal_secret    = "sp-secret-from-step-2"
 # AKS Configuration
 vm_size            = "Standard_D4s_v4"
 desired_node_count = 3
-agent_replicas     = 2
+runner_replicas     = 2
 ```
 
-### Step 4: Deploy AKS and Agent
+### Step 4: Deploy AKS and Runner
 ```bash
 terraform init
 terraform plan
@@ -238,7 +234,7 @@ terraform apply
 
 ### Step 5: Configure kubectl
 ```bash
-az aks get-credentials --resource-group matillion-agent-rg --name matillion-agent-aks
+az aks get-credentials --resource-group matillion-runner-rg --name matillion-runner-aks
 kubectl get pods -n default
 ```
 
@@ -251,7 +247,7 @@ kubectl get pods -n default
 
 ### Step 1: Setup Terraform Configuration
 ```bash
-cd agent/aws/eks
+cd runner/aws/eks
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -261,7 +257,7 @@ Edit `terraform.tfvars`:
 ```hcl
 # AWS Configuration
 aws_region = "YOUR_REGION"
-cluster_name = "matillion-agent-eks"
+cluster_name = "matillion-runner-eks"
 
 # Matillion Configuration
 agent_id         = "YOUR_AGENT_ID"
@@ -275,15 +271,13 @@ desired_size = 2
 max_size = 10
 min_size = 1
 
-# Agent Configuration
-agent_replicas = 2
-cpu_request = "1000m"
-memory_request = "2Gi"
-cpu_limit = "2000m"
-memory_limit = "4Gi"
+# Runner Configuration
+# EKS terraform only stands up the cluster — runner resources are set on the helm
+# chart via runnerSize when you `helm install`. See blogs/right-sizing-matillion-agents.md.
+runner_replicas = 2
 ```
 
-### Step 3: Deploy EKS Cluster and Agent
+### Step 3: Deploy EKS Cluster and Runner
 ```bash
 terraform init
 terraform plan
@@ -293,10 +287,10 @@ terraform apply
 ### Step 4: Configure kubectl and Verify
 ```bash
 # Configure kubectl
-aws eks update-kubeconfig --region YOUR_REGION --name matillion-agent-eks
+aws eks update-kubeconfig --region YOUR_REGION --name matillion-runner-eks
 
 # Verify deployment
-kubectl get pods -n matillion -l app.kubernetes.io/name=matillion-agent
+kubectl get pods -n matillion -l app.kubernetes.io/name=matillion-runner
 kubectl get nodes
 ```
 
@@ -315,7 +309,7 @@ az account set --subscription "your-subscription-id"
 
 ### Step 2: Configure Terraform Variables
 ```bash
-cd agent/azure/aci
+cd runner/azure/aci
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -323,7 +317,7 @@ Edit `terraform.tfvars`:
 ```hcl
 # Azure Configuration
 azure_subscription_id = "your-subscription-id"
-resource_group_name   = "matillion-agent-rg"
+resource_group_name   = "matillion-runner-rg"
 location             = "East US"
 
 # Matillion Configuration
@@ -331,11 +325,9 @@ agent_id            = "your-agent-id"
 account_id          = "your-account-id"
 matillion_region    = "us-east-1"
 
-# ACI Configuration
-container_group_name = "matillion-agent-aci"
-cpu_cores           = 2
-memory_gb           = 4
-replica_count       = 2
+# Container Apps Configuration
+runner_size      = "medium"  # small | medium | large | xlarge — see blogs/right-sizing-matillion-agents.md
+replica_count    = 2
 
 # Container Configuration
 container_image = "your-registry/cloud-agent:latest"
@@ -352,10 +344,10 @@ terraform apply
 ### Step 4: Verify Deployment
 ```bash
 # Check container group status
-az container show --resource-group matillion-agent-rg --name matillion-agent-aci
+az container show --resource-group matillion-runner-rg --name matillion-runner-aci
 
 # View container logs
-az container logs --resource-group matillion-agent-rg --name matillion-agent-aci --container-name matillion-agent
+az container logs --resource-group matillion-runner-rg --name matillion-runner-aci --container-name matillion-runner
 ```
 
 ## Post-Deployment Configuration
@@ -368,7 +360,7 @@ All deployment methods include built-in metrics collection. To set up monitoring
 ```yaml
 # Add to your prometheus.yml
 scrape_configs:
-  - job_name: 'matillion-agent'
+  - job_name: 'matillion-runner'
     kubernetes_sd_configs:
       - role: pod
     relabel_configs:
@@ -378,8 +370,8 @@ scrape_configs:
 ```
 
 #### 2. Grafana Dashboard
-Import the included Grafana dashboard for agent monitoring:
-- Agent status and health
+Import the included Grafana dashboard for runner monitoring:
+- Runner status and health
 - Active tasks and requests
 - Resource utilization
 - Error rates and response times
@@ -391,12 +383,12 @@ Import the included Grafana dashboard for agent monitoring:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: matillion-agent-hpa
+  name: matillion-runner-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: matillion-agent
+    name: matillion-runner
   minReplicas: 2
   maxReplicas: 10
   metrics:
@@ -416,10 +408,10 @@ spec:
 
 ## Troubleshooting Common Issues
 
-### Issue 1: Agent Not Starting
+### Issue 1: Runner Not Starting
 **Symptoms**: Pods in CrashLoopBackOff or ECS tasks failing
 **Solutions**:
-- Verify account ID, agent ID, and region configuration
+- Verify account ID, runner ID, and region configuration
 - Check image pull permissions
 - Review container logs for authentication errors
 
@@ -459,13 +451,13 @@ spec:
 - Implement graceful shutdown procedures
 
 ### Monitoring
-- Set up alerts for agent health and performance metrics
+- Set up alerts for runner health and performance metrics
 - Monitor data pipeline execution times
 - Track resource utilization trends
 - Implement log aggregation for centralized monitoring
 
 ### Maintenance
-- Regularly update agent images
+- Regularly update runner images
 - Test deployments in staging environments
 - Document configuration changes
 - Maintain backup and disaster recovery procedures

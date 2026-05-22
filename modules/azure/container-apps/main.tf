@@ -1,5 +1,20 @@
 data "azurerm_client_config" "current" {}
 
+locals {
+  # Container Apps with workload profiles (Dedicated). Consumption profile won't
+  # accept the 1:4 cpu:memory ratio used by `small`, so all sizes assume Dedicated.
+  runner_size_map = {
+    small  = { cpu = "1.0", memory = "4Gi", profile = "D4" }
+    medium = { cpu = "2.0", memory = "8Gi", profile = "D4" }
+    large  = { cpu = "4.0", memory = "16Gi", profile = "D4" }
+    xlarge = { cpu = "8.0", memory = "32Gi", profile = "D8" }
+  }
+
+  container_cpu         = coalesce(var.container_cpu, local.runner_size_map[var.runner_size].cpu)
+  container_memory      = coalesce(var.container_memory, local.runner_size_map[var.runner_size].memory)
+  workload_profile_type = coalesce(var.workload_profile_type, local.runner_size_map[var.runner_size].profile)
+}
+
 # Log Analytics Workspace
 resource "azurerm_log_analytics_workspace" "log_analytics" {
   name                = join("-", [var.name, "log-workspace", var.random_string_salt])
@@ -112,7 +127,7 @@ resource "azurerm_container_app_environment" "env" {
     name                  = "agentpool"
     minimum_count         = 0
     maximum_count         = var.workload_profile_max_count
-    workload_profile_type = var.workload_profile_type
+    workload_profile_type = local.workload_profile_type
   }
 }
 
@@ -147,8 +162,8 @@ resource "azurerm_container_app" "app" {
     container {
       name   = var.name
       image  = var.container_image_url
-      cpu    = var.container_cpu
-      memory = var.container_memory
+      cpu    = local.container_cpu
+      memory = local.container_memory
 
       env {
         name  = "CLOUD_PROVIDER"

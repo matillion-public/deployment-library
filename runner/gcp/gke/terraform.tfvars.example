@@ -1,0 +1,61 @@
+# =============================================================================
+# GCP GKE Deployment Configuration
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# GCP Configuration
+# -----------------------------------------------------------------------------
+
+project_id = "your-gcp-project-id"   # GCP project ID
+region     = "us-central1"            # GCP region
+name       = "matillion-runner"        # Name prefix for all resources
+
+# Resource labels applied to all GCP resources
+labels = {
+  environment = "production"
+  project     = "matillion-runner"
+  team        = "data-platform"
+  managed_by  = "terraform"
+}
+
+# -----------------------------------------------------------------------------
+# GKE Cluster Configuration
+# -----------------------------------------------------------------------------
+
+desired_node_count     = 2             # Initial nodes (autoscaler adds up to +2)
+machine_type           = "e2-standard-4"  # 4 vCPU, 16 GB RAM
+node_disk_size         = 100           # Node boot disk size in GB
+
+# Cluster access configuration
+is_private_cluster     = true          # true = private nodes (recommended for production)
+master_ipv4_cidr_block = "172.16.0.0/28"  # Control-plane network CIDR
+authorized_ip_ranges   = ["0.0.0.0/0"]   # CIDR blocks allowed to access GKE API
+                                          # IMPORTANT: Restrict this in production!
+                                          # Example: ["203.0.113.0/24", "10.0.0.0/8"]
+
+# -----------------------------------------------------------------------------
+# Networking Configuration
+# -----------------------------------------------------------------------------
+
+# Recommended when is_private_cluster = true — allows nodes to pull container
+# images and reach external services without needing public IPs.
+enable_cloud_nat = true
+
+# =============================================================================
+# Configuration Examples
+# =============================================================================
+
+# Example 1: Development (public nodes, no Cloud NAT)
+# ---------------------------------------------------
+# is_private_cluster   = false
+# enable_cloud_nat     = false
+# authorized_ip_ranges = ["<your-office-ip>/32"]
+# desired_node_count   = 2
+
+# Example 2: Production (private nodes + Cloud NAT)
+# -------------------------------------------------
+# is_private_cluster   = true
+# enable_cloud_nat     = true
+# authorized_ip_ranges = ["10.0.0.0/8", "203.0.113.0/24"]
+# desired_node_count   = 3
+# machine_type         = "n2-standard-4"

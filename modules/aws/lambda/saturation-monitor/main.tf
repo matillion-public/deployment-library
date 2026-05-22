@@ -1,4 +1,4 @@
-# Lambda function for ECS Agent Saturation Monitoring
+# Lambda function for ECS Runner Saturation Monitoring
 
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
@@ -6,10 +6,10 @@ data "aws_region" "current" {}
 # Create deployment package (no external dependencies needed)
 data "archive_file" "lambda_zip" {
   type        = "zip"
-  source_dir  = "${path.module}"
+  source_dir  = path.module
   output_path = "${path.module}/lambda_deployment.zip"
   excludes    = ["main.tf", "variables.tf", "outputs.tf", "lambda_deployment.zip", ".gitignore", "requirements.txt", "main_with_layer.tf.alternative"]
-  
+
   # Force rebuild when source code changes
   depends_on = [
     local_file.lambda_function_py
@@ -47,7 +47,7 @@ resource "aws_iam_role" "lambda_role" {
 # IAM policy for Lambda function
 resource "aws_iam_policy" "lambda_policy" {
   name        = "${var.name}-saturation-monitor-lambda-policy"
-  description = "Policy for ECS Agent Saturation Monitor Lambda"
+  description = "Policy for ECS Runner Saturation Monitor Lambda"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -113,22 +113,22 @@ resource "aws_cloudwatch_log_group" "lambda_logs" {
 
 # Lambda function
 resource "aws_lambda_function" "saturation_monitor" {
-  filename         = data.archive_file.lambda_zip.output_path
-  function_name    = "${var.name}-saturation-monitor"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "lambda_function.lambda_handler"
-  runtime         = "python3.11"
-  timeout         = 300  # 5 minutes
-  memory_size     = 256
+  filename      = data.archive_file.lambda_zip.output_path
+  function_name = "${var.name}-saturation-monitor"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "lambda_function.lambda_handler"
+  runtime       = "python3.11"
+  timeout       = 300 # 5 minutes
+  memory_size   = 256
 
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
   environment {
     variables = {
       CLOUDWATCH_NAMESPACE      = var.cloudwatch_namespace
-      LOG_LEVEL                = var.log_level
-      AGENT_SERVICE_INDICATORS = var.agent_service_indicators
-      DEPLOYMENT_MODE          = var.deployment_mode
+      LOG_LEVEL                 = var.log_level
+      RUNNER_SERVICE_INDICATORS = var.runner_service_indicators
+      DEPLOYMENT_MODE           = var.deployment_mode
     }
   }
 
@@ -136,7 +136,7 @@ resource "aws_lambda_function" "saturation_monitor" {
   dynamic "vpc_config" {
     for_each = var.vpc_config != null ? [var.vpc_config] : []
     content {
-      subnet_ids = vpc_config.value.subnet_ids
+      subnet_ids         = vpc_config.value.subnet_ids
       security_group_ids = length(try(vpc_config.value.security_group_ids, [])) > 0 ? vpc_config.value.security_group_ids : [aws_security_group.lambda_sg[0].id]
     }
   }
@@ -154,7 +154,7 @@ resource "aws_lambda_function" "saturation_monitor" {
 # EventBridge rule to trigger Lambda
 resource "aws_cloudwatch_event_rule" "saturation_monitor_schedule" {
   name                = "${var.name}-saturation-monitor-schedule"
-  description         = "Trigger ECS Agent Saturation Monitor Lambda"
+  description         = "Trigger ECS Runner Saturation Monitor Lambda"
   schedule_expression = var.schedule_expression
 
   tags = {
@@ -181,7 +181,7 @@ resource "aws_lambda_permission" "allow_eventbridge" {
 # CloudWatch Dashboard for monitoring the Lambda and metrics
 resource "aws_cloudwatch_dashboard" "saturation_monitor_dashboard" {
   count          = var.create_dashboard ? 1 : 0
-  dashboard_name = "${var.name}-agent-saturation"
+  dashboard_name = "${var.name}-runner-saturation"
 
   dashboard_body = jsonencode({
     widgets = [
@@ -194,14 +194,14 @@ resource "aws_cloudwatch_dashboard" "saturation_monitor_dashboard" {
 
         properties = {
           metrics = [
-            ["ECS/AgentSaturation", "ActiveTaskCount"],
+            ["ECS/RunnerSaturation", "ActiveTaskCount"],
             [".", "ActiveRequestCount"],
             [".", "OpenSessionsCount"]
           ]
           view    = "timeSeries"
           stacked = false
           region  = data.aws_region.current.name
-          title   = "ECS Agent Saturation Metrics (Per Task)"
+          title   = "ECS Runner Saturation Metrics (Per Task)"
           period  = 60
           stat    = "Maximum"
         }
@@ -236,14 +236,14 @@ resource "aws_cloudwatch_dashboard" "saturation_monitor_dashboard" {
 
         properties = {
           metrics = [
-            ["ECS/AgentSaturation", "ActiveTaskCount"],
+            ["ECS/RunnerSaturation", "ActiveTaskCount"],
             [".", "ActiveRequestCount"],
             [".", "OpenSessionsCount"]
           ]
           view    = "timeSeries"
           stacked = false
           region  = data.aws_region.current.name
-          title   = "All Agent Saturation Metrics (By Task)"
+          title   = "All Runner Saturation Metrics (By Task)"
           period  = 60
           stat    = "Maximum"
         }
@@ -257,12 +257,12 @@ resource "aws_cloudwatch_dashboard" "saturation_monitor_dashboard" {
 
         properties = {
           metrics = [
-            ["ECS/AgentSaturation", "AgentStatus"]
+            ["ECS/RunnerSaturation", "RunnerStatus"]
           ]
           view    = "timeSeries"
           stacked = false
           region  = data.aws_region.current.name
-          title   = "All Agent Health Status (By Task)"
+          title   = "All Runner Health Status (By Task)"
           period  = 60
           stat    = "Maximum"
         }
@@ -282,7 +282,7 @@ resource "aws_cloudwatch_metric_alarm" "high_task_saturation" {
   period              = "300"
   statistic           = "Average"
   threshold           = var.high_task_count_threshold
-  alarm_description   = "This metric monitors high task saturation across ECS agents"
+  alarm_description   = "This metric monitors high task saturation across ECS runners"
   alarm_actions       = var.alarm_actions
 
   tags = {
@@ -300,7 +300,7 @@ resource "aws_cloudwatch_metric_alarm" "high_request_queue" {
   period              = "300"
   statistic           = "Average"
   threshold           = var.high_request_count_threshold
-  alarm_description   = "This metric monitors high request queue buildup across ECS agents"
+  alarm_description   = "This metric monitors high request queue buildup across ECS runners"
   alarm_actions       = var.alarm_actions
 
   tags = {

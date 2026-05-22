@@ -2,7 +2,7 @@
 # Creates S3 bucket and DynamoDB table for Terraform state management
 
 locals {
-  bucket_name = "${var.account_id}-terraform-states"
+  bucket_name     = "${var.account_id}-terraform-states"
   lock_table_name = "${var.account_id}-terraform-locks"
 }
 
@@ -49,9 +49,9 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
 
 # DynamoDB table for state locking
 resource "aws_dynamodb_table" "terraform_locks" {
-  name           = local.lock_table_name
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "LockID"
+  name         = local.lock_table_name
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "LockID"
 
   attribute {
     name = "LockID"

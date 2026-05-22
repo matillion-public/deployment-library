@@ -1,0 +1,64 @@
+---
+cloudProvider: "aws"
+config:
+  oauthClientId: "${MATILLION_RUNNER_CLIENT_ID}"
+  oauthClientSecret: "${MATILLION_RUNNER_CLIENT_SECRET}"
+serviceAccount:
+  roleArn: "${MATILLION_RUNNER_ROLE_ARN}"
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: "${MATILLION_RUNNER_ACCOUNT_ID}"
+      agentId: "${MATILLION_RUNNER_AGENT_ID}"
+      matillionRegion: "eu1"
+      defaultKeyvault: ""
+      # Proxy settings
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: ""
+      customCertLocation: ""
+      # Extension settings
+      extensionLibraryLocation: ""
+      externalDriverLocation: ""
+    image:
+      repository: "public.ecr.aws/matillion/etl-agent"
+      tag: "current"
+    imagePullPolicy: IfNotPresent
+    gracePeriodSeconds: 43200
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "1"
+        memory: 4Gi
+  replicas: 1
+kubernetesClusterDomain: cluster.local
+hpa:
+  scaleDown:
+    selectPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+  maxReplicas: 10
+  minReplicas: 1
+  metrics:
+    target:
+      averageValue: "10"
+      type: AverageValue
+
+# Network security configuration
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []

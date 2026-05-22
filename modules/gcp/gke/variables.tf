@@ -90,14 +90,14 @@ variable "k8s_service_account_name" {
   default     = ""
 }
 
-variable "agent_gcs_buckets" {
+variable "runner_gcs_buckets" {
   type        = list(string)
-  description = "Extra GCS bucket names to grant the agent read access to (e.g. custom certs, Python libs, external drivers)."
+  description = "Extra GCS bucket names to grant the runner read access to (e.g. custom certs, Python libs, external drivers)."
   default     = []
 }
 
 variable "additional_gcp_projects" {
   type        = list(string)
-  description = "Additional GCP project IDs to grant the agent SA Secret Manager read access to. Each project appears as a separate vault in the Matillion UI alongside the default project."
+  description = "Additional GCP project IDs to grant the runner SA Secret Manager read access to. Each project appears as a separate vault in the Matillion UI alongside the default project."
   default     = []
 }
