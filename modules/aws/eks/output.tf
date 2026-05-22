@@ -3,7 +3,7 @@ output "cluster_name" {
 }
 
 output "cluster_arn" {
-    value = aws_eks_cluster.eks_cluster.arn
+  value = aws_eks_cluster.eks_cluster.arn
 }
 
 output "auth_config_command" {

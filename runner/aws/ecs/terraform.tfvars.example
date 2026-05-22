@@ -1,0 +1,45 @@
+# Name for the ECS Fargate cluster
+name = "my-agent"
+
+# Matillion DPC
+account_id       = "your-matillion-account-id"
+agent_id         = "your-agent-id"
+matillion_region = "eu1"
+client_id        = "your-client-id"
+client_secret    = "your-client-secret"
+# secret_name    = "matillion-oauth-credentials"  # Override for multiple agents per account
+
+# Agent resources
+desired_count = 2
+
+# T-shirt size — small (default) | medium | large | xlarge
+# small  = 1 vCPU / 4 GiB    (current/legacy default)
+# medium = 2 vCPU / 8 GiB    (recommended for moderate concurrent pipelines)
+# large  = 4 vCPU / 16 GiB   (heavy ELT workloads)
+# xlarge = 8 vCPU / 32 GiB   (Linux-only on Fargate)
+runner_size = "small"
+
+# Optional overrides — leave commented to use the runner_size map.
+# Both must be set together, and the pair must be a Fargate-valid combination.
+# runner_cpu    = 1024
+# runner_memory = 4096
+
+# AWS
+region                      = "eu-west-1"
+use_existing_vpc            = true
+use_existing_subnet         = false
+use_existing_security_group = false
+vpc_id                      = "vpc-xxxxxxxxx"
+subnet_ids                  = []
+security_group_ids          = []
+assign_public_ip            = true
+
+# Optional ephemeral storage size in GiB
+ephemeral_storage_size = 40
+
+# Optional: Resource tags
+tags = {
+  "Category" = "Development"
+  "SBU"      = "Support"
+  "Owner"    = "user@example.com"
+}

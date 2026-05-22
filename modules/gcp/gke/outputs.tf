@@ -12,8 +12,8 @@ output "cluster_ca_certificate" {
   sensitive = true
 }
 
-output "agent_workload_sa_email" {
-  value = google_service_account.agent_workload_sa.email
+output "runner_workload_sa_email" {
+  value = google_service_account.runner_workload_sa.email
 }
 
 output "gcs_bucket_name" {
@@ -21,7 +21,7 @@ output "gcs_bucket_name" {
 }
 
 output "secret_manager_secret_id" {
-  value = google_secret_manager_secret.agent_secret.secret_id
+  value = google_secret_manager_secret.runner_secret.secret_id
 }
 
 output "auth_config_command" {

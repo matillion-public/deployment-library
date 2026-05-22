@@ -4,12 +4,12 @@ config:
   oauthClientId: "prod-client-id"
   oauthClientSecret: "prod-client-secret"
 serviceAccount:
-  roleArn: "arn:aws:iam::123456789012:role/matillion-agent-role"
+  roleArn: "arn:aws:iam::123456789012:role/matillion-runner-role"
 dpcAgent:
   dpcAgent:
     env:
       accountId: "123456789012"
-      agentId: "prod-agent-123"
+      agentId: "prod-runner-123"
       matillionRegion: "us1"
     image:
       repository: "matillion/etl-agent"

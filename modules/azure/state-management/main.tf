@@ -25,7 +25,7 @@ resource "azurerm_storage_account" "terraform_state" {
   location                 = azurerm_resource_group.state_management.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
-  
+
   # Enable versioning and encryption
   blob_properties {
     versioning_enabled = true

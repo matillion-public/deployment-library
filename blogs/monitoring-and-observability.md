@@ -1,28 +1,28 @@
-# Monitoring and Observability for Matillion Agents
+# Monitoring and Observability for Matillion Runners
 
-In production data environments, visibility into your agent performance isn't optional—it's critical. Data pipelines that fail silently, agents that degrade performance without warning, and resource bottlenecks that emerge unexpectedly can bring entire data operations to a halt. The Matillion Agent Deployment repository includes comprehensive monitoring and observability features designed specifically for data processing workloads.
+In production data environments, visibility into your runner performance isn't optional—it's critical. Data pipelines that fail silently, runners that degrade performance without warning, and resource bottlenecks that emerge unexpectedly can bring entire data operations to a halt. The Matillion Runner Deployment repository includes comprehensive monitoring and observability features designed specifically for data processing workloads.
 
-## Why Standard Monitoring Falls Short for Data Agents
+## Why Standard Monitoring Falls Short for Data Runners
 
-Traditional infrastructure monitoring focuses on generic metrics like CPU, memory, and disk usage. For data processing agents, these metrics tell only part of the story:
+Traditional infrastructure monitoring focuses on generic metrics like CPU, memory, and disk usage. For data processing runners, these metrics tell only part of the story:
 
 - **High CPU doesn't mean high productivity** (could be inefficient queries)
 - **Memory spikes might be normal** for large dataset processing
 - **Network I/O patterns** are different for data transfer vs. processing
 - **Error rates** don't capture data quality issues or pipeline failures
 
-Data agents need **application-aware monitoring** that tracks business-relevant metrics alongside infrastructure health.
+Data runners need **application-aware monitoring** that tracks business-relevant metrics alongside infrastructure health.
 
 ## Built-in Metrics Sidecar: Your Data Pipeline Observatory
 
 ### Custom Metrics That Matter
 
-The repository includes a **custom metrics exporter sidecar** that exposes Prometheus-compatible metrics specifically designed for data processing agents:
+The repository includes a **custom metrics exporter sidecar** that exposes Prometheus-compatible metrics specifically designed for data processing runners:
 
 ```python
 # Key metrics exposed by the sidecar
 {
-    "agent_status": 1,                    # 1 = running, 0 = stopped
+    "runner_status": 1,                    # 1 = running, 0 = stopped
     "active_task_count": 15,              # Currently executing data tasks
     "active_request_count": 8,            # Active API requests
     "open_sessions": 12,                  # Database connections
@@ -38,13 +38,13 @@ The repository includes a **custom metrics exporter sidecar** that exposes Prome
 
 #### Scenario 1: Peak Load Detection
 ```promql
-# Alert when agents are processing too many concurrent tasks
+# Alert when runners are processing too many concurrent tasks
 app_active_task_count > 18
 
 # Track task completion rates
 rate(app_completed_tasks_total[5m])
 
-# Identify agents approaching capacity
+# Identify runners approaching capacity
 app_active_task_count / app_max_task_capacity > 0.8
 ```
 
@@ -89,7 +89,7 @@ metadata:
 ```yaml
 # Prometheus scrape configuration
 scrape_configs:
-  - job_name: 'matillion-agents'
+  - job_name: 'matillion-runners'
     kubernetes_sd_configs:
       - role: pod
         namespaces:
@@ -114,7 +114,7 @@ scrape_configs:
 ### Metrics Retention and Storage
 
 ```yaml
-# Prometheus configuration for data agent metrics
+# Prometheus configuration for data runner metrics
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -123,7 +123,7 @@ global:
     environment: 'prod'
 
 rule_files:
-  - "matillion_agent_rules.yml"
+  - "matillion_runner_rules.yml"
 
 storage:
   tsdb:
@@ -139,20 +139,20 @@ remote_write:
 
 ## Grafana Dashboards: Visual Data Pipeline Insights
 
-### Agent Health Dashboard
+### Runner Health Dashboard
 
 ```json
 {
   "dashboard": {
-    "title": "Matillion Agent Health",
+    "title": "Matillion Runner Health",
     "panels": [
       {
-        "title": "Agent Status",
+        "title": "Runner Status",
         "type": "stat",
         "targets": [
           {
             "expr": "sum(app_agent_status)",
-            "legendFormat": "Running Agents"
+            "legendFormat": "Running Runners"
           }
         ]
       },
@@ -186,7 +186,7 @@ remote_write:
 ```json
 {
   "dashboard": {
-    "title": "Agent Performance Analytics",
+    "title": "Runner Performance Analytics",
     "panels": [
       {
         "title": "Average Task Duration",
@@ -203,7 +203,7 @@ remote_write:
         "type": "graph",
         "targets": [
           {
-            "expr": "container_memory_usage_bytes{pod=~'matillion-agent.*'}",
+            "expr": "container_memory_usage_bytes{pod=~'matillion-runner.*'}",
             "legendFormat": "Memory Usage"
           },
           {
@@ -219,21 +219,21 @@ remote_write:
 
 ## Alerting: Proactive Issue Detection
 
-### Critical Agent Alerts
+### Critical Runner Alerts
 
 ```yaml
-# Alert rules for Matillion agents
+# Alert rules for Matillion runners
 groups:
-- name: matillion-agent-critical
+- name: matillion-runner-critical
   rules:
-  - alert: AgentDown
+  - alert: RunnerDown
     expr: app_agent_status == 0
     for: 1m
     labels:
       severity: critical
     annotations:
-      summary: "Matillion agent is down"
-      description: "Agent {{$labels.pod}} has been down for more than 1 minute"
+      summary: "Matillion runner is down"
+      description: "Runner {{$labels.pod}} has been down for more than 1 minute"
       
   - alert: HighTaskBacklog
     expr: app_active_task_count > 100
@@ -242,7 +242,7 @@ groups:
       severity: warning
     annotations:
       summary: "High task backlog detected"
-      description: "Agent {{$labels.pod}} has {{$value}} active tasks"
+      description: "Runner {{$labels.pod}} has {{$value}} active tasks"
       
   - alert: DatabaseConnectionsExhausted
     expr: app_open_sessions > 150
@@ -251,13 +251,13 @@ groups:
       severity: critical
     annotations:
       summary: "Database connections exhausted"
-      description: "Agent {{$labels.pod}} has {{$value}} open sessions"
+      description: "Runner {{$labels.pod}} has {{$value}} open sessions"
 ```
 
 ### Performance Degradation Alerts
 
 ```yaml
-- name: matillion-agent-performance
+- name: matillion-runner-performance
   rules:
   - alert: SlowTaskExecution
     expr: avg_over_time(app_task_duration_seconds[30m]) > 600
@@ -278,7 +278,7 @@ groups:
       description: "Error rate is {{$value}} errors per second"
       
   - alert: MemoryLeakDetected
-    expr: increase(container_memory_usage_bytes{pod=~'matillion-agent.*'}[1h]) > 1073741824 and app_active_task_count < 5
+    expr: increase(container_memory_usage_bytes{pod=~'matillion-runner.*'}[1h]) > 1073741824 and app_active_task_count < 5
     for: 15m
     labels:
       severity: warning
@@ -292,7 +292,7 @@ groups:
 ### Structured Logging Configuration
 
 ```yaml
-# Fluent Bit configuration for agent logs
+# Fluent Bit configuration for runner logs
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -307,14 +307,14 @@ data:
 
     [INPUT]
         Name              tail
-        Path              /var/log/containers/matillion-agent*.log
+        Path              /var/log/containers/matillion-runner*.log
         Parser            cri
-        Tag               matillion.agent.*
+        Tag               matillion.runner.*
         Refresh_Interval  5
 
     [FILTER]
         Name                kubernetes
-        Match               matillion.agent.*
+        Match               matillion.runner.*
         Kube_URL            https://kubernetes.default.svc:443
         Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
@@ -324,10 +324,10 @@ data:
 
     [OUTPUT]
         Name  es
-        Match matillion.agent.*
+        Match matillion.runner.*
         Host  elasticsearch.logging.svc
         Port  9200
-        Index matillion-agent-logs
+        Index matillion-runner-logs
 ```
 
 ### Log Analysis Queries
@@ -339,7 +339,7 @@ data:
       "query": {
         "bool": {
           "must": [
-            {"match": {"kubernetes.labels.app": "matillion-agent"}},
+            {"match": {"kubernetes.labels.app": "matillion-runner"}},
             {"range": {"@timestamp": {"gte": "now-1h"}}},
             {"match": {"log": "ERROR"}}
           ]
@@ -357,7 +357,7 @@ data:
       "query": {
         "bool": {
           "must": [
-            {"match": {"kubernetes.labels.app": "matillion-agent"}},
+            {"match": {"kubernetes.labels.app": "matillion-runner"}},
             {"match": {"log": "TASK_COMPLETED"}},
             {"range": {"@timestamp": {"gte": "now-24h"}}}
           ]
@@ -400,7 +400,7 @@ data:
         }
       },
       "metrics": {
-        "namespace": "Matillion/Agent",
+        "namespace": "Matillion/Runner",
         "metrics_collected": {
           "cpu": {
             "measurement": [
@@ -453,7 +453,7 @@ data:
 ### Metric Naming Conventions
 
 ```python
-# Consistent metric naming for data agents
+# Consistent metric naming for data runners
 METRIC_PATTERNS = {
     # Business metrics
     'app_active_task_count',           # Current workload
@@ -477,28 +477,28 @@ METRIC_PATTERNS = {
 
 ```yaml
 # Monitoring as Code with Terraform
-resource "grafana_dashboard" "agent_health" {
-  config_json = file("${path.module}/dashboards/agent-health.json")
+resource "grafana_dashboard" "runner_health" {
+  config_json = file("${path.module}/dashboards/runner-health.json")
   folder      = grafana_folder.matillion.id
 }
 
-resource "grafana_dashboard" "agent_performance" {
-  config_json = file("${path.module}/dashboards/agent-performance.json")
+resource "grafana_dashboard" "runner_performance" {
+  config_json = file("${path.module}/dashboards/runner-performance.json")
   folder      = grafana_folder.matillion.id
 }
 
-resource "prometheus_rule_group" "agent_alerts" {
-  name     = "matillion-agent-alerts"
+resource "prometheus_rule_group" "runner_alerts" {
+  name     = "matillion-runner-alerts"
   interval = "30s"
   rule {
-    alert = "AgentDown"
+    alert = "RunnerDown"
     expr  = "app_agent_status == 0"
     for   = "1m"
     labels = {
       severity = "critical"
     }
     annotations = {
-      summary = "Matillion agent is down"
+      summary = "Matillion runner is down"
     }
   }
 }
@@ -533,14 +533,14 @@ prometheus:
 **Solutions**:
 ```bash
 # Check metrics endpoint
-kubectl port-forward svc/matillion-agent-metrics 8000:8000
+kubectl port-forward svc/matillion-runner-metrics 8000:8000
 curl http://localhost:8000/metrics
 
 # Verify Prometheus scraping
 kubectl logs deployment/prometheus-server -f
 
 # Check service discovery
-kubectl get endpoints matillion-agent-metrics
+kubectl get endpoints matillion-runner-metrics
 ```
 
 ### Issue: High Cardinality Metrics
@@ -567,7 +567,7 @@ metric_relabeling_configs:
 groups:
 - name: critical-only
   rules:
-  - alert: AgentClusterDown
+  - alert: RunnerClusterDown
     expr: count(app_agent_status == 1) == 0
     
 - name: warning-batched
@@ -596,7 +596,7 @@ groups:
 
 ## Conclusion
 
-Comprehensive monitoring and observability transform your Matillion agent deployment from a black box into a transparent, manageable system. With built-in metrics collection, Prometheus integration, Grafana dashboards, and intelligent alerting, you gain:
+Comprehensive monitoring and observability transform your Matillion runner deployment from a black box into a transparent, manageable system. With built-in metrics collection, Prometheus integration, Grafana dashboards, and intelligent alerting, you gain:
 
 - **Proactive issue detection** before problems impact business operations
 - **Performance optimization** through detailed metrics and analytics

@@ -19,23 +19,23 @@ variable "tags" {
 }
 
 variable "desired_node_count" {
-  type = number
-  default = 2  
+  type    = number
+  default = 2
 }
 
 variable "random_string_salt" {
-  type = string  
+  type = string
 }
 
 variable "is_private_cluster" {
-  type = bool
+  type    = bool
   default = false
 }
 
 variable "authorized_ip_ranges" {
-  type = list(string)
+  type    = list(string)
   default = [""]
-  
+
 }
 
 variable "vm_size" {
@@ -52,7 +52,7 @@ variable "node_disk_size" {
 
 variable "workload_identity_enabled" {
   type        = bool
-  description = "Enable Azure Workload Identity for the agent workload (requires OIDC issuer)"
+  description = "Enable Azure Workload Identity for the runner workload (requires OIDC issuer)"
   default     = true
 }
 

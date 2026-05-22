@@ -1,8 +1,8 @@
 resource "aws_vpc" "main_vpc" {
   count = var.use_existing_vpc ? 0 : 1
 
-  cidr_block = var.cidr_block
-  enable_dns_support = true
+  cidr_block           = var.cidr_block
+  enable_dns_support   = true
   enable_dns_hostnames = true
   tags = merge(var.tags, {
     Name = var.use_existing_vpc ? var.existing_vpc_id : join("-", [var.name, "vpc", var.random_string_salt])
@@ -69,7 +69,7 @@ locals {
     ])
   ]
 
-  public_netnums  = var.use_existing_vpc && !var.use_existing_subnet ? (
+  public_netnums = var.use_existing_vpc && !var.use_existing_subnet ? (
     length(local.available_netnums) >= 4 ? slice(local.available_netnums, 0, 2) : error("Insufficient available CIDR blocks in VPC. Found ${length(local.available_netnums)} available netnums, need at least 4.")
   ) : [0, 1]
   private_netnums = var.use_existing_vpc && !var.use_existing_subnet ? (
@@ -89,7 +89,7 @@ resource "aws_internet_gateway" "igw" {
   tags = merge(var.tags, {
     Name = join("-", [var.name, var.random_string_salt, "igw"])
   })
-  
+
 }
 
 resource "aws_route_table" "public" {
@@ -108,9 +108,9 @@ resource "aws_route_table" "public" {
 resource "aws_subnet" "public_subnet" {
   count = var.use_existing_subnet ? 0 : 2
 
-  vpc_id     = data.aws_vpc.vpc.id
-  cidr_block = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.public_netnums[count.index])
-  availability_zone = element(random_shuffle.aws_availability_zone_names.result, count.index)
+  vpc_id                  = data.aws_vpc.vpc.id
+  cidr_block              = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.public_netnums[count.index])
+  availability_zone       = element(random_shuffle.aws_availability_zone_names.result, count.index)
   map_public_ip_on_launch = true
   tags = merge(var.tags, {
     Name = join("-", [var.name, var.random_string_salt, "public", "subnet", count.index])
@@ -120,9 +120,9 @@ resource "aws_subnet" "public_subnet" {
 resource "aws_subnet" "private_subnet" {
   count = var.use_existing_subnet ? 0 : 2
 
-  vpc_id     = data.aws_vpc.vpc.id
-  cidr_block = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.private_netnums[count.index])
-  availability_zone = element(random_shuffle.aws_availability_zone_names.result, count.index)
+  vpc_id                  = data.aws_vpc.vpc.id
+  cidr_block              = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.private_netnums[count.index])
+  availability_zone       = element(random_shuffle.aws_availability_zone_names.result, count.index)
   map_public_ip_on_launch = false
   tags = merge(var.tags, {
     Name = join("-", [var.name, var.random_string_salt, "private", "subnet", count.index])
@@ -158,7 +158,7 @@ resource "aws_route_table" "private" {
 
   vpc_id = data.aws_vpc.vpc.id
   route {
-    cidr_block = "0.0.0.0/0"
+    cidr_block     = "0.0.0.0/0"
     nat_gateway_id = aws_nat_gateway.nat[count.index].id
   }
   tags = merge(var.tags, {
@@ -177,13 +177,13 @@ data "aws_route_table" "existing" {
 }
 
 resource "aws_route_table_association" "public_subnet_association" {
-  count = var.use_existing_subnet ? 0 : 2
+  count          = var.use_existing_subnet ? 0 : 2
   subnet_id      = aws_subnet.public_subnet[count.index].id
   route_table_id = var.use_existing_vpc ? data.aws_route_table.existing[0].id : aws_route_table.public[0].id
 }
 
 resource "aws_route_table_association" "private_subnet_association" {
-  count = var.use_existing_subnet ? 0 : 2
+  count          = var.use_existing_subnet ? 0 : 2
   subnet_id      = aws_subnet.private_subnet[count.index].id
   route_table_id = aws_route_table.private[count.index].id
 }
@@ -199,7 +199,7 @@ resource "aws_security_group" "k8s_security_group" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  
+
   tags = merge(var.tags, {
     Name = join("-", [var.name, var.random_string_salt, "k8s", "sg"])
   })

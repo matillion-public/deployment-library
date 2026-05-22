@@ -4,7 +4,7 @@
 resource "aws_security_group" "lambda_sg" {
   count       = var.vpc_config != null && length(try(var.vpc_config.security_group_ids, [])) == 0 ? 1 : 0
   name        = "${var.name}-saturation-monitor-lambda-sg"
-  description = "Security group for ECS Agent Saturation Monitor Lambda"
+  description = "Security group for ECS Runner Saturation Monitor Lambda"
   vpc_id      = var.vpc_config.vpc_id
 
   # Outbound access to ECS tasks on actuator port

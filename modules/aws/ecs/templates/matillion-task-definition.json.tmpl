@@ -14,6 +14,11 @@
                 "sourceVolume": "api-profiles-volume",
                 "containerPath": "/home/agentuser/api_profiles",
                 "readOnly": false
+            },
+            {
+                "sourceVolume": "cdata-volume",
+                "containerPath": "/home",
+                "readOnly": false
             }
         ],
         "user": "0",
@@ -49,11 +54,11 @@
         "secrets":[
             {
                 "name": "OAUTH_CLIENT_ID",
-                "ValueFrom": "${agent_secret_arn}:client_id::"
+                "ValueFrom": "${runner_secret_arn}:client_id::"
             },
             {
                 "name": "OAUTH_CLIENT_SECRET",
-                "ValueFrom": "${agent_secret_arn}:client_secret::"
+                "ValueFrom": "${runner_secret_arn}:client_secret::"
             }
         ],
         "logConfiguration": {

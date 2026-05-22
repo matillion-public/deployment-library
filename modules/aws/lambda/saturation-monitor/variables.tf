@@ -6,7 +6,7 @@ variable "name" {
 variable "cloudwatch_namespace" {
   description = "CloudWatch namespace for metrics"
   type        = string
-  default     = "ECS/AgentSaturation"
+  default     = "ECS/RunnerSaturation"
 }
 
 variable "schedule_expression" {
@@ -55,10 +55,10 @@ variable "alarm_actions" {
   default     = []
 }
 
-variable "agent_service_indicators" {
-  description = "Comma-separated list of service name patterns to identify agent services"
+variable "runner_service_indicators" {
+  description = "Comma-separated list of service name patterns to identify runner services. Includes 'agent' for backward-compat discovery of older deployments."
   type        = string
-  default     = "matillion,agent,dpc"
+  default     = "matillion,runner,agent,dpc"
 }
 
 variable "vpc_config" {
@@ -78,7 +78,7 @@ variable "create_vpc_endpoints" {
 }
 
 variable "deployment_mode" {
-  description = "Deployment mode: 'public' (Lambda outside VPC, works with public agents), 'private' (Lambda in VPC, works with private agents), 'hybrid' (Lambda outside VPC, tries both public and private IPs)"
+  description = "Deployment mode: 'public' (Lambda outside VPC, works with public runners), 'private' (Lambda in VPC, works with private runners), 'hybrid' (Lambda outside VPC, tries both public and private IPs)"
   type        = string
   default     = "hybrid"
   validation {
@@ -88,7 +88,7 @@ variable "deployment_mode" {
 }
 
 variable "create_internet_access_rules" {
-  description = "Whether to create security group rules allowing internet access to agent ports (needed for public agents)"
+  description = "Whether to create security group rules allowing internet access to runner ports (needed for public runners)"
   type        = bool
   default     = false
 }

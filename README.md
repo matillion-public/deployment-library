@@ -1,14 +1,14 @@
-# Matillion Agent Deployment
+# Matillion Runner Deployment
 
 ## Overview
 
-This repository provides multiple deployment methods for the Matillion Data Productivity Cloud (DPC) Agent, supporting **Kubernetes**, **AWS ECS**, **AWS EKS**, **Azure AKS**, and **Azure Container Apps** environments with comprehensive monitoring and observability features.
+This repository provides multiple deployment methods for the Matillion Data Productivity Cloud (DPC) Runner, supporting **Kubernetes**, **AWS ECS**, **AWS EKS**, **Azure AKS**, and **Azure Container Apps** environments with comprehensive monitoring and observability features.
 
 ## Deployment Options
 
 ### 1. **Kubernetes with Helm Charts** (Recommended)
 - Ready-to-use Helm charts for Kubernetes deployment
-- Native Prometheus metrics via the agent's `/actuator/prometheus` endpoint
+- Native Prometheus metrics via the runner's `/actuator/prometheus` endpoint
 - Support for AWS EKS (IAM roles) and local/minikube (direct credentials)
 - Configurable resource limits and autoscaling
 - Security-first approach with non-root containers
@@ -76,10 +76,12 @@ See [Network Requirements for Pulling the Runner Image](./blogs/runner-image-pul
 The solution uses the following Docker images across different deployment methods:
 
 ### Core Application Images
-- **`public.ecr.aws/matillion/etl-agent:current`** - Main Data Productivity Cloud agent (AWS deployments)
-- **`public.ecr.aws/matillion/etl-agent:stable`** - Stable Data Productivity Cloud agent (AWS deployments)
-- **`matillion.azurecr.io/cloud-agent:current`** - Main Data Productivity Cloud agent (Azure deployments)
-- **`matillion.azurecr.io/cloud-agent:stable`** - Stable Data Productivity Cloud agent (Azure deployments)
+- **`public.ecr.aws/matillion/etl-agent:current`** - Main Data Productivity Cloud runner image (AWS deployments)
+- **`public.ecr.aws/matillion/etl-agent:stable`** - Stable Data Productivity Cloud runner image (AWS deployments)
+- **`matillion.azurecr.io/cloud-agent:current`** - Main Data Productivity Cloud runner image (Azure deployments)
+- **`matillion.azurecr.io/cloud-agent:stable`** - Stable Data Productivity Cloud runner image (Azure deployments)
+
+> **Note**: The container image artifacts are still published under their original `etl-agent` / `cloud-agent` / `dpc-agent` names — those registry paths are part of the Matillion artifact contract.
 
 ### Infrastructure Images
 - **`curlimages/curl:8.5.0`** - Init container for readiness checks
@@ -97,27 +99,27 @@ The solution uses the following Docker images across different deployment method
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd agent-deployment
+cd poc-agent-deployment
 
 # Create required namespaces
 kubectl create namespace matillion
 kubectl create namespace prometheus
 
 # Install Prometheus monitoring
-helm install prometheus agent/helm/prometheus --namespace prometheus
+helm install prometheus runner/helm/prometheus --namespace prometheus
 
 # Create your values file (choose appropriate template):
 # For AWS EKS with environment variables:
-cp agent/helm/agent/test-values.yaml my-values.yaml
+cp runner/helm/runner/test-values.yaml my-values.yaml
 # For AWS local/minikube or direct configuration:
-cp agent/helm/agent/values.yaml my-values.yaml
+cp runner/helm/runner/values.yaml my-values.yaml
 # For Azure example:
-cp agent/helm/agent/local.yaml my-values.yaml
+cp runner/helm/runner/local.yaml my-values.yaml
 
 # Edit my-values.yaml with your configuration
 
-# Install the agent
-helm install matillion-agent agent/helm/agent/ \
+# Install the runner
+helm install matillion-runner runner/helm/runner/ \
   --namespace matillion \
   -f my-values.yaml
 ```
@@ -127,7 +129,7 @@ helm install matillion-agent agent/helm/agent/ \
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd deployment-library/agent/aws/ecs
+cd deployment-library/runner/aws/ecs
 
 # Create your terraform.tfvars file
 cp terraform.tfvars.example terraform.tfvars
@@ -144,16 +146,16 @@ terraform apply
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd agent-deployment
+cd poc-agent-deployment
 
 # Navigate to EKS deployment
-cd agent/aws/eks
+cd runner/aws/eks
 
 # Create your terraform.tfvars file
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with your AWS values
 
-# Deploy EKS cluster and agent
+# Deploy EKS cluster and runner
 terraform init
 terraform plan
 terraform apply
@@ -164,16 +166,16 @@ terraform apply
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd agent-deployment
+cd poc-agent-deployment
 
 # Navigate to AKS deployment
-cd agent/azure/aks
+cd runner/azure/aks
 
 # Create your terraform.tfvars file
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with your Azure values
 
-# Deploy AKS cluster and agent
+# Deploy AKS cluster and runner
 terraform init
 terraform plan
 terraform apply
@@ -184,16 +186,16 @@ terraform apply
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd agent-deployment
+cd poc-agent-deployment
 
 # Navigate to Container Apps deployment
-cd agent/azure/container_apps
+cd runner/azure/container_apps
 
 # Create your terraform.tfvars file
 cp terraform.example.tfvars terraform.tfvars
 # Edit terraform.tfvars with your Azure values
 
-# Deploy Container Apps and agent
+# Deploy Container Apps and runner
 terraform init
 terraform plan
 terraform apply
@@ -204,9 +206,9 @@ terraform apply
 ### Kubernetes Architecture
 ```
 ┌─────────────────┐    ┌─────────────────┐
-│   Agent Pod     │    │   Prometheus    │
+│   Runner Pod    │    │   Prometheus    │
 │  ┌────────────┐ │    │    Scraping     │
-│  │    Agent   │◄├────┤                 │
+│  │   Runner   │◄├────┤                 │
 │  │    :8080   │ │    │                 │
 │  └────────────┘ │    └─────────────────┘
 │                 │  :8080/actuator/prometheus
@@ -214,7 +216,7 @@ terraform apply
 ```
 
 ### Components
-- **Agent Container**: Main Matillion DPC Agent (with native Prometheus metrics)
+- **Runner Container**: Main Matillion DPC Runner (with native Prometheus metrics)
 - **HPA**: Horizontal Pod Autoscaler for scaling
 - **Service**: Kubernetes service for internal communication
 
@@ -225,10 +227,10 @@ The HPA scales on **in-flight tasks per agent pod** (`hpa.metrics.target.average
 ## Metrics and Monitoring
 
 ### Native Prometheus Metrics
-The agent natively exposes Prometheus-compatible metrics at `/actuator/prometheus`:
+The runner natively exposes Prometheus-compatible metrics at `/actuator/prometheus`:
 
-- **Agent Status**: Running/Stopped state
-- **Agent Connected**: Connection state to the Data Productivity Cloud
+- **Runner Status**: Running/Stopped state
+- **Runner Connected**: Connection state to the Data Productivity Cloud
 - **Active Tasks**: Number of currently executing tasks
 - **Active Requests**: Number of active API requests
 - **Open Sessions**: Number of open database connections
@@ -245,20 +247,22 @@ prometheus.io/path: "/actuator/prometheus"
 ## Configuration
 
 ### Helm Chart Configuration
-Key configuration values in `agent/helm/agent/values.yaml`:
+Key configuration values in `runner/helm/runner/values.yaml`:
 
 ```yaml
 dpcAgent:
   dpcAgent:
     env:
       accountId: "YOUR_ACCOUNT_ID"
-      agentId: "YOUR_AGENT_ID" 
+      agentId: "YOUR_AGENT_ID"
       matillionRegion: "YOUR_REGION"
     image:
-      repository: "your-registry/agent"
+      repository: "your-registry/dpc-agent"
       tag: "latest"
   replicas: 2
 ```
+
+> **Note**: The `dpcAgent.*` values block and `agentId` field map to the upstream Matillion subchart contract — these names are intentionally preserved.
 
 ### Terraform Configuration
 
@@ -266,12 +270,12 @@ dpcAgent:
 For AWS ECS deployment, see the [Terraform documentation](./terraform/README.md) for detailed configuration options.
 
 #### Azure AKS Deployment
-Key configuration values in `agent/azure/aks/terraform.tfvars`:
+Key configuration values in `runner/azure/aks/terraform.tfvars`:
 
 ```hcl
 # Azure Configuration
 azure_subscription_id = "your-subscription-id"
-resource_group_name   = "matillion-agent-rg"
+resource_group_name   = "matillion-runner-rg"
 location             = "East US"
 
 # Matillion Configuration
@@ -286,20 +290,22 @@ vm_size            = "Standard_D4s_v4"
 node_disk_size     = 250
 desired_node_count = 3
 
-# Agent Configuration
-agent_replicas = 2
+# Runner Configuration
+runner_replicas = 2
 ```
+
+> **Note**: `agent_id` is preserved as the input variable name because it maps directly to the Matillion `AGENT_ID` env var that the runner image consumes.
 
 ## Development
 
 ### Repository Structure
 ```
 poc-agent-deployment/
-├── agent/
+├── runner/
 │   ├── azure/aks/              # Azure AKS Terraform deployment
-│   ├── aws/eks/                # AWS EKS Terraform deployment  
+│   ├── aws/eks/                # AWS EKS Terraform deployment
 │   └── helm/                   # Helm charts
-│       ├── agent/              # Main agent chart
+│       ├── runner/             # Main runner chart
 │       ├── prometheus/         # Prometheus adapter chart
 │       └── image/              # Legacy metrics sidecar (deprecated)
 ├── modules/
@@ -319,11 +325,11 @@ The repository includes comprehensive testing:
 
 ```bash
 # Python unit tests for metrics exporter
-cd agent/helm/image
+cd runner/helm/image
 pytest test_custom_metrics_exporter.py
 
 # Helm chart tests  
-pytest tests/helm/test_agent_chart.py
+pytest tests/helm/test_runner_chart.py
 
 # Integration tests (requires running metrics exporter)
 pytest tests/integration/test_metrics_endpoint.py
@@ -347,16 +353,17 @@ helm repo add matillion https://matillion.github.io/poc-agent-deployment/
 helm repo update
 
 # Install from the repository
-helm install my-agent matillion/agent
+helm install my-runner matillion/runner
 ```
 
 ## Additional Documentation
 
-- [Helm Chart Documentation](./agent/helm/README.md)
-- [Metrics Exporter Documentation](./agent/helm/image/README.md) 
+- [Helm Chart Documentation](./runner/helm/README.md)
+- [Metrics Exporter Documentation](./runner/helm/image/README.md) 
 - [AWS ECS Terraform Modules](./terraform/README.md)
-- [Azure AKS Documentation](./agent/azure/README.md)
+- [Azure AKS Documentation](./runner/azure/README.md)
 - [Network Requirements for Pulling the Runner Image](./blogs/runner-image-pull-network-requirements.md)
+- [Right-sizing Matillion Runners](./blogs/right-sizing-matillion-agents.md) — pick `small` / `medium` / `large` / `xlarge` and what each one means on Fargate, Container Apps and Kubernetes
 - [Contributing Guide](./CONTRIBUTING.md)
 
 ## Support
