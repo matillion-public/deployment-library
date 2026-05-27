@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository provides multiple deployment methods for the Matillion Data Productivity Cloud (DPC) Runner, supporting **Kubernetes**, **AWS ECS**, **AWS EKS**, **Azure AKS**, and **Azure Container Apps** environments with comprehensive monitoring and observability features.
+This repository provides multiple deployment methods for the Matillion Data Productivity Cloud (DPC) Runner, supporting **Kubernetes**, **AWS ECS**, **AWS EKS**, **Azure AKS**, **Azure Container Apps**, and **GCP GKE** environments with comprehensive monitoring and observability features.
 
 ## Deployment Options
 
@@ -35,6 +35,12 @@ This repository provides multiple deployment methods for the Matillion Data Prod
 - Serverless container deployment on Azure
 - Managed Identity integration
 
+### 6. **GCP GKE with Terraform**
+- Infrastructure as Code with Terraform modules
+- Workload Identity for secretless pod authentication to GCP services
+- GKE cluster deployment with configurable node pools and machine types
+- GCS bucket and Secret Manager integration
+
 ## Prerequisites
 
 ### For Kubernetes Deployment
@@ -65,9 +71,17 @@ This repository provides multiple deployment methods for the Matillion Data Prod
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Azure subscription with appropriate permissions
 
+### For GCP GKE Deployment
+- [Terraform](https://www.terraform.io/downloads.html)
+- [Google Cloud SDK (`gcloud`)](https://cloud.google.com/sdk/docs/install) configured with credentials (`gcloud auth application-default login`)
+- [gke-gcloud-auth-plugin](https://cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl)
+- [kubectl](https://kubernetes.io/docs/tasks/tools/)
+- [Helm 3.x](https://helm.sh/docs/intro/install/)
+- GCP project with billing enabled and sufficient compute quotas
+
 ### Image Delivery & Network Requirements
 
-The Runner image is pulled from `public.ecr.aws/matillion/etl-agent` (AWS deployments) or `matillion.azurecr.io/cloud-agent` (Azure deployments). Both are public registries. Your environment must have network access to the relevant registry — via open egress, a whitelisted egress path, or a private mirror for zero-egress environments.
+The Runner image is pulled from `public.ecr.aws/matillion/etl-agent` (AWS deployments), `matillion.azurecr.io/cloud-agent` (Azure deployments), or `us-docker.pkg.dev/maia-492711/maia-runners/maia-runner` (GCP deployments — with `europe-docker.pkg.dev` and `australia-southeast1-docker.pkg.dev` regional equivalents for `eu1` and `au1`). All are public registries. Your environment must have network access to the relevant registry — via open egress, a whitelisted egress path, or a private mirror for zero-egress environments.
 
 See [Network Requirements for Pulling the Runner Image](./blogs/runner-image-pull-network-requirements.md) for the supported network patterns and configuration steps for each.
 
@@ -81,7 +95,13 @@ The solution uses the following Docker images across different deployment method
 - **`matillion.azurecr.io/cloud-agent:current`** - Main Data Productivity Cloud runner image (Azure deployments)
 - **`matillion.azurecr.io/cloud-agent:stable`** - Stable Data Productivity Cloud runner image (Azure deployments)
 
-> **Note**: The container image artifacts are still published under their original `etl-agent` / `cloud-agent` / `dpc-agent` names — those registry paths are part of the Matillion artifact contract.
+> **Note**: The AWS and Azure container image artifacts are still published under their original `etl-agent` / `cloud-agent` / `dpc-agent` names — those registry paths are part of the Matillion artifact contract. GCP deployments use the `maia-runner` image in Google Artifact Registry.
+
+### GCP Images
+- **`us-docker.pkg.dev/maia-492711/maia-runners/maia-runner:stable`** — GCP runner image, US region (stable)
+- **`us-docker.pkg.dev/maia-492711/maia-runners/maia-runner:current`** — GCP runner image, US region (current)
+- **`europe-docker.pkg.dev/maia-492711/maia-runners/maia-runner`** — GCP runner image, EU region
+- **`australia-southeast1-docker.pkg.dev/maia-492711/maia-runners/maia-runner`** — GCP runner image, AU region
 
 ### Infrastructure Images
 - **`curlimages/curl:8.5.0`** - Init container for readiness checks
@@ -201,6 +221,37 @@ terraform plan
 terraform apply
 ```
 
+### GCP GKE Deployment
+
+```bash
+# Clone the repository
+git clone <repository_url>
+cd deployment-library
+
+# Navigate to GKE deployment
+cd runner/gcp/gke
+
+# Create your terraform.tfvars file
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your GCP values
+
+# Deploy GKE cluster and runner infrastructure
+terraform init
+terraform plan
+terraform apply
+
+# Configure kubectl
+gcloud container clusters get-credentials $(terraform output -raw cluster_name) \
+  --region <region> --project <project-id>
+
+# Deploy the runner with Helm
+RELEASE_NAME="matillion-runner"
+kubectl create namespace "$RELEASE_NAME"
+helm upgrade --install "$RELEASE_NAME" ../../helm/runner \
+  --namespace "$RELEASE_NAME" \
+  -f ../../helm/runner/values-gcp.yaml
+```
+
 ## Architecture
 
 ### Kubernetes Architecture
@@ -222,7 +273,7 @@ terraform apply
 
 ### Sizing the HPA target
 
-The HPA scales on **in-flight tasks per agent pod** (`hpa.metrics.target.averageValue`), not CPU/memory. Each agent instance has a **hard cap of 20 concurrent tasks**, so `averageValue` must be ≤ 20. We recommend **15–17**: `15` for proactive scaling (spiky workloads), `16` as a balanced default, `17` for reactive scaling (steady workloads). See [`agent/helm/README.md`](agent/helm/README.md#sizing-the-hpa-target-averagevalue) for the full explainer.
+The HPA scales on **in-flight tasks per agent pod** (`hpa.metrics.target.averageValue`), not CPU/memory. Each agent instance has a **hard cap of 20 concurrent tasks**, so `averageValue` must be ≤ 20. We recommend **15–17**: `15` for proactive scaling (spiky workloads), `16` as a balanced default, `17` for reactive scaling (steady workloads). See [`runner/helm/README.md`](runner/helm/README.md#sizing-the-hpa-target-averagevalue) for the full explainer.
 
 ## Metrics and Monitoring
 
@@ -300,17 +351,19 @@ runner_replicas = 2
 
 ### Repository Structure
 ```
-poc-agent-deployment/
+deployment-library/
 ├── runner/
-│   ├── azure/aks/              # Azure AKS Terraform deployment
 │   ├── aws/eks/                # AWS EKS Terraform deployment
+│   ├── azure/aks/              # Azure AKS Terraform deployment
+│   ├── gcp/gke/                # GCP GKE Terraform deployment
 │   └── helm/                   # Helm charts
 │       ├── runner/             # Main runner chart
 │       ├── prometheus/         # Prometheus adapter chart
-│       └── image/              # Legacy metrics sidecar (deprecated)
+│       └── checks/             # Pre-deployment validation scripts
 ├── modules/
+│   ├── aws/                    # AWS Terraform modules
 │   ├── azure/                  # Azure Terraform modules
-│   └── aws/                    # AWS Terraform modules
+│   └── gcp/                    # GCP Terraform modules
 ├── tests/                      # Test suite
 │   ├── helm/                   # Helm chart tests
 │   ├── integration/            # Integration tests
@@ -362,6 +415,7 @@ helm install my-runner matillion/runner
 - [Metrics Exporter Documentation](./runner/helm/image/README.md) 
 - [AWS ECS Terraform Modules](./terraform/README.md)
 - [Azure AKS Documentation](./runner/azure/README.md)
+- [GCP GKE Documentation](./runner/gcp/gke/README.md)
 - [Network Requirements for Pulling the Runner Image](./blogs/runner-image-pull-network-requirements.md)
 - [Right-sizing Matillion Runners](./blogs/right-sizing-matillion-agents.md) — pick `small` / `medium` / `large` / `xlarge` and what each one means on Fargate, Container Apps and Kubernetes
 - [Contributing Guide](./CONTRIBUTING.md)
