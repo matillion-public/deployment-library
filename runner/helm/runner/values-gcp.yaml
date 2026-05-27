@@ -23,7 +23,7 @@ dpcAgent:
     env:
       accountId: "your-matillion-account-id"
       agentId: "your-matillion-agent-id"
-      matillionRegion: "us1"  # Options: us1, eu1, ap1
+      matillionRegion: "us1"  # Options: us1, eu1, au1
       defaultGcpProject: "your-gcp-project-id"
       proxyHttp: ""
       proxyHttps: ""
