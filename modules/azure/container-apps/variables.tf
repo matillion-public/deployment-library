@@ -1,6 +1,6 @@
 variable "name" {
   type        = string
-  description = "Resource name prefix for all resources"
+  description = "Resource name prefix for all resources. When enable_script_runner = true, maximum 11 characters — the script runner Container App name suffix (-script-runner-<6-char-salt>) consumes 21 of Azure's 32-character limit."
 }
 
 variable "location" {
@@ -61,10 +61,26 @@ variable "matillion_cloud_region" {
   description = "Matillion regional endpoint (e.g. eu1, us1)"
 }
 
+variable "matillion_environment" {
+  type        = string
+  description = "Matillion environment — internal use only (e.g. preprod). Leave empty for production."
+  default     = ""
+}
+
 variable "container_image_url" {
   type        = string
   description = "Container image URL for the Matillion runner"
   default     = "matillion.azurecr.io/cloud-agent:current"
+  validation {
+    condition     = !can(regex("^https?://", var.container_image_url)) && can(regex("^[^/]+/", var.container_image_url))
+    error_message = "container_image_url must be in the form registry-hostname/repository:tag with no scheme prefix (e.g. matillion.azurecr.io/image:tag)."
+  }
+}
+
+variable "container_acr_id" {
+  type        = string
+§  description = "Resource ID of the Azure Container Registry hosting container_image_url. Set for a private registry to scope AcrPull to that registry and wire identity-based pulls; leave null to retain the legacy subscription-scope AcrPull grant (public or pre-existing private registry deployments)."
+  default     = null
 }
 
 variable "runner_size" {
@@ -111,4 +127,43 @@ variable "zone_redundancy_enabled" {
   type        = bool
   description = "Enable zone redundancy for the Container App Environment"
   default     = true
+}
+
+variable "enable_script_runner" {
+  type        = bool
+  description = "Deploy the optional shared script runner Container App alongside the agent"
+  default     = false
+}
+
+variable "script_runner_size" {
+  type        = string
+  description = "T-shirt size for the script runner container: small=1vCPU/4GiB, medium=2vCPU/8GiB, large=4vCPU/16GiB, xlarge=8vCPU/32GiB"
+  default     = "small"
+  validation {
+    condition     = contains(["small", "medium", "large", "xlarge"], var.script_runner_size)
+    error_message = "script_runner_size must be one of: small, medium, large, xlarge."
+  }
+}
+
+variable "script_runner_authorized_keys" {
+  type        = string
+  description = "SSH authorized_keys content for the script runner. Required when enable_script_runner = true."
+  sensitive   = true
+  default     = ""
+}
+
+variable "script_runner_image_url" {
+  type        = string
+  description = "Container image URL for the script runner"
+  default     = "matillion.azurecr.io/maia-script-runner:current"
+  validation {
+    condition     = !can(regex("^https?://", var.script_runner_image_url)) && can(regex("^[^/]+/", var.script_runner_image_url))
+    error_message = "script_runner_image_url must be in the form registry-hostname/repository:tag with no scheme prefix (e.g. matillion.azurecr.io/image:tag)."
+  }
+}
+
+variable "script_runner_acr_id" {
+  type        = string
+  description = "Resource ID of the Azure Container Registry to grant AcrPull on for the script runner identity. Set when pulling from a private registry; leave null for a public registry (anonymous pull)."
+  default     = null
 }
