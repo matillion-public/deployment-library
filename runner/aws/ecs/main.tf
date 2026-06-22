@@ -17,7 +17,8 @@ resource "aws_vpc" "main_vpc" {
 }
 
 locals {
-  vpc_id = var.use_existing_vpc ? var.vpc_id : aws_vpc.main_vpc[0].id
+  vpc_id                     = var.use_existing_vpc ? var.vpc_id : aws_vpc.main_vpc[0].id
+  runner_keypair_secret_name = var.runner_keypair_secret_name != "" ? var.runner_keypair_secret_name : join("-", [var.name, "runner-keypair"])
 }
 
 data "aws_vpc" "vpc" {
@@ -166,6 +167,10 @@ module "secert_manager" {
 
   client_id     = var.client_id
   client_secret = var.client_secret
+
+  enable_keypair_secret      = var.enable_script_runner
+  runner_keypair_secret_name = local.runner_keypair_secret_name
+  runner_authorized_keys     = var.runner_authorized_keys
 }
 
 module "iam_roles" {
@@ -173,6 +178,10 @@ module "iam_roles" {
 
   name              = join("-", [var.name, random_string.salt.result])
   runner_secret_arn = module.secert_manager.runner_secret_arn
+
+  enable_script_runner                       = var.enable_script_runner
+  runner_keypair_secret_arn                  = module.secert_manager.runner_keypair_secret_arn
+  script_runner_extension_library_bucket_arn = var.script_runner_extension_library_bucket_arn
 }
 
 module "runner" {
@@ -180,15 +189,17 @@ module "runner" {
 
   name = join("-", [var.name, random_string.salt.result])
 
-  account_id       = var.account_id
-  agent_id         = var.agent_id
-  matillion_region = var.matillion_region
+  account_id            = var.account_id
+  agent_id              = var.agent_id
+  matillion_region      = var.matillion_region
+  matillion_environment = var.matillion_environment
 
   region             = var.region
   vpc_id             = data.aws_vpc.vpc.id
   subnet_ids         = var.use_existing_subnet ? var.subnet_ids : aws_subnet.ecs_subnet[*].id
   security_group_ids = var.use_existing_security_group ? var.security_group_ids : [aws_security_group.ecs_security_group[0].id]
   create_bucket      = var.create_bucket
+  image_url          = var.image_url
 
   extension_library_location = var.extension_library_location
   proxy_http                 = var.proxy_http
@@ -211,6 +222,14 @@ module "runner" {
   assign_public_ip       = var.assign_public_ip
   ephemeral_storage_size = var.ephemeral_storage_size
   tags                   = var.tags
+
+  enable_script_runner             = var.enable_script_runner
+  script_runner_image_url          = var.script_runner_image_url
+  script_runner_size               = var.script_runner_size
+  script_runner_desired_count      = var.script_runner_desired_count
+  script_runner_log_retention_days = var.script_runner_log_retention_days
+  runner_keypair_secret_arn        = module.secert_manager.runner_keypair_secret_arn
+  script_runner_task_role_arn      = module.iam_roles.script_runner_task_role_arn
 }
 
 # module "saturation_monitor" {

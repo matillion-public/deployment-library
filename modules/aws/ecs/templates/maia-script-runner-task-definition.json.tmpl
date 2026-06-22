@@ -1,0 +1,31 @@
+[
+    {
+        "name": "${name}-script-runner",
+        "image": "${image}",
+        "essential": true,
+        "portMappings": [
+            {
+                "name": "ssh",
+                "containerPort": 2222,
+                "protocol": "tcp"
+            }
+        ],
+        "environment": [
+            {"name": "EXTENSION_LIBRARY_LOCATION", "value": "${extension_library_location}"}
+        ],
+        "secrets": [
+            {
+                "name": "RUNNER_AUTHORIZED_KEYS",
+                "valueFrom": "${keypair_secret_arn}:authorized_keys::"
+            }
+        ],
+        "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+                "awslogs-group": "${log_group}",
+                "awslogs-region": "${region}",
+                "awslogs-stream-prefix": "/ecs"
+            }
+        }
+    }
+]

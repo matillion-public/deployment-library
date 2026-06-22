@@ -177,3 +177,49 @@ variable "tags" {
   default     = {}
   description = "Any tags that you would like to be applied to the created resources"
 }
+
+variable "enable_script_runner" {
+  description = "Whether to deploy the maia-script-runner service alongside the agent. Enables Service Connect on both services. NOTE: toggling this on an existing deployment modifies the agent ECS service and triggers a rolling task replacement. IMPORTANT: ECS Service Connect proxy sidecars snapshot the namespace at task launch — if the script-runner alias/port/topology ever changes after the agent tasks are running, the agent tasks must be redeployed to pick up the new alias. This is inherent to Service Connect and cannot be worked around in Terraform."
+  type        = bool
+  default     = false
+}
+
+variable "script_runner_image_url" {
+  description = "Container image for the maia-script-runner. Only used when enable_script_runner is true."
+  type        = string
+  default     = "public.ecr.aws/matillion/maia-script-runner:current"
+}
+
+variable "script_runner_size" {
+  description = "T-shirt size for the script runner task: small=1vCPU/4GiB, medium=2vCPU/8GiB, large=4vCPU/16GiB, xlarge=8vCPU/32GiB."
+  type        = string
+  default     = "small"
+  validation {
+    condition     = contains(["small", "medium", "large", "xlarge"], var.script_runner_size)
+    error_message = "script_runner_size must be one of: small, medium, large, xlarge."
+  }
+}
+
+variable "runner_keypair_secret_arn" {
+  description = "ARN of the Secrets Manager secret containing the runner SSH authorized_keys. Required when enable_script_runner is true."
+  type        = string
+  default     = ""
+}
+
+variable "script_runner_task_role_arn" {
+  description = "ARN of the narrow IAM task role for the script runner. Required when enable_script_runner is true."
+  type        = string
+  default     = ""
+}
+
+variable "script_runner_desired_count" {
+  description = "Number of script runner tasks to run."
+  type        = number
+  default     = 1
+}
+
+variable "script_runner_log_retention_days" {
+  description = "CloudWatch log retention in days for the script runner task."
+  type        = number
+  default     = 30
+}

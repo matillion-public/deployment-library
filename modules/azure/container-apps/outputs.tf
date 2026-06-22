@@ -32,3 +32,23 @@ output "storage_account_name" {
   description = "The name of the storage account"
   value       = azurerm_storage_account.storage.name
 }
+
+output "script_runner_host" {
+  description = "Bare Container App name to use as the SSH host from a sibling Container App within the same environment. Null when enable_script_runner = false."
+  value       = var.enable_script_runner ? azurerm_container_app.script_runner[0].name : null
+}
+
+output "script_runner_ssh_port" {
+  description = "SSH port the script runner listens on (non-root sshd uses the unprivileged 2222). Null when enable_script_runner = false."
+  value       = var.enable_script_runner ? 2222 : null
+}
+
+output "script_runner_ssh_user" {
+  description = "SSH user for the script runner image. Null when enable_script_runner = false."
+  value       = var.enable_script_runner ? "mtln" : null
+}
+
+output "script_runner_fqdn" {
+  description = "Internal FQDN of the script runner Container App (diagnostic reference only — not routable for sibling-to-sibling SSH within the same environment; use script_runner_host for that). Null when enable_script_runner = false."
+  value       = var.enable_script_runner ? azurerm_container_app.script_runner[0].ingress[0].fqdn : null
+}
