@@ -19,6 +19,26 @@
                 "sourceVolume": "cdata-volume",
                 "containerPath": "/home",
                 "readOnly": false
+            },
+            {
+                "sourceVolume": "cache-volume",
+                "containerPath": "/root/.cache",
+                "readOnly": false
+            },
+            {
+                "sourceVolume": "python-libs-volume",
+                "containerPath": "/usr/lib/pythonLibs",
+                "readOnly": false
+            },
+            {
+                "sourceVolume": "jdbc-drivers-volume",
+                "containerPath": "/usr/local/drivers",
+                "readOnly": false
+            },
+            {
+                "sourceVolume": "custom-certs-volume",
+                "containerPath": "/usr/local/custom-certs",
+                "readOnly": false
             }
         ],
         "user": "0",

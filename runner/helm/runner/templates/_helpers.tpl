@@ -90,3 +90,42 @@ runnerSize must be one of: small, medium, large, xlarge.
 {{- toYaml $sizeMap -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Fully qualified name for the Shared Script Runner resources.
+*/}}
+{{- define "matillion-runner.scriptRunner.fullname" -}}
+{{- printf "%s-script-runner" (include "matillion-runner.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Script Runner selector labels — runner selectorLabels plus a component marker so
+NetworkPolicies can target script-runner pods distinctly from agent (runner) pods.
+*/}}
+{{- define "matillion-runner.scriptRunner.selectorLabels" -}}
+{{ include "matillion-runner.selectorLabels" . }}
+app.kubernetes.io/component: script-runner
+{{- end }}
+
+{{/*
+Resolve the Script Runner container resources block.
+
+Precedence:
+  1. .Values.scriptRunner.resources, if non-empty (full override)
+  2. .Values.runnerSizes[.Values.scriptRunner.size] from the shared size map
+
+scriptRunner.size must be one of: small, medium, large, xlarge.
+*/}}
+{{- define "matillion-runner.scriptRunner.resources" -}}
+{{- $size := .Values.scriptRunner.size | default "small" -}}
+{{- $sizeMap := index .Values.runnerSizes $size -}}
+{{- if not $sizeMap -}}
+{{- fail (printf "scriptRunner.size %q is not defined in .Values.runnerSizes — must be one of: small, medium, large, xlarge" $size) -}}
+{{- end -}}
+{{- $override := .Values.scriptRunner.resources | default dict -}}
+{{- if and (kindIs "map" $override) (gt (len $override) 0) -}}
+{{- toYaml $override -}}
+{{- else -}}
+{{- toYaml $sizeMap -}}
+{{- end -}}
+{{- end }}

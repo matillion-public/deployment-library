@@ -156,8 +156,9 @@ data "aws_iam_policy_document" "service_account_assume_role_policy" {
       variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub"
       values = [
         "system:serviceaccount:matillion:matillion-runner-sa",
-        "system:serviceaccount:*:matillion-runner-sa"
-      ] # Allow the service account in any namespace
+        "system:serviceaccount:*:matillion-runner-sa",
+        "system:serviceaccount:*:*-script-runner-sa"
+      ] # Agent SA (any namespace) + script-runner SA (any release name / namespace)
     }
 
     condition {
