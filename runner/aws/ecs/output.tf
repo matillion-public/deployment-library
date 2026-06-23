@@ -24,3 +24,8 @@ output "security_group_id" {
   description = "The ID of the security group"
   value       = var.use_existing_security_group ? var.security_group_ids : [aws_security_group.ecs_security_group[0].id]
 }
+
+output "script_runner_endpoint" {
+  description = "Service Connect DNS endpoint for the script runner. Configure this in the agent as the SSH target."
+  value       = module.runner.script_runner_endpoint
+}

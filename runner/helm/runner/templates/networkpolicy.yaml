@@ -43,6 +43,18 @@ spec:
     - protocol: TCP
       port: 80
   {{- end }}
+  # Allow SSH egress to the Shared Script Runner pods (Script Pushdown). Port
+  # 2222 — the runner's actual listen port. NetworkPolicy operates at the pod
+  # level so this is the runner container's port, not the Service mapping.
+  {{- if .Values.scriptRunner.enabled }}
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
+    ports:
+    - protocol: TCP
+      port: 2222
+  {{- end }}
   # Allow custom egress rules
   {{- if .Values.networkPolicy.additionalEgressRules }}
   {{- toYaml .Values.networkPolicy.additionalEgressRules | nindent 2 }}

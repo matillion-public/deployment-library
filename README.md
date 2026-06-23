@@ -119,7 +119,7 @@ The solution uses the following Docker images across different deployment method
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd poc-agent-deployment
+cd deployment-library
 
 # Create required namespaces
 kubectl create namespace matillion
@@ -166,7 +166,7 @@ terraform apply
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd poc-agent-deployment
+cd deployment-library
 
 # Navigate to EKS deployment
 cd runner/aws/eks
@@ -186,7 +186,7 @@ terraform apply
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd poc-agent-deployment
+cd deployment-library
 
 # Navigate to AKS deployment
 cd runner/azure/aks
@@ -206,7 +206,7 @@ terraform apply
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd poc-agent-deployment
+cd deployment-library
 
 # Navigate to Container Apps deployment
 cd runner/azure/container_apps
@@ -398,11 +398,11 @@ Automated workflows include:
 
 ### Releases
 
-Helm charts are automatically published to: `https://matillion.github.io/poc-agent-deployment/`
+Helm charts are automatically published to: `https://github.com/matillion-public/deployment-library`
 
 ```bash
 # Add the Helm repository
-helm repo add matillion https://matillion.github.io/poc-agent-deployment/
+helm repo add matillion https://github.com/matillion-public/deployment-library
 helm repo update
 
 # Install from the repository
