@@ -1,0 +1,46 @@
+---
+{{- if and .Values.scriptRunner.enabled .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "matillion-runner.scriptRunner.fullname" . }}-netpol
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "matillion-runner.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # SSH (and SFTP) on the runner's actual listen port (2222) — only from agent
+  # pods. NetworkPolicy ingress rules apply at the pod level, so this is the
+  # container's port, not the Service's port mapping.
+  - from:
+    - podSelector:
+        matchLabels:
+          app: {{ include "matillion-runner.fullname" . }}-app-pods
+    ports:
+    - protocol: TCP
+      port: 2222
+  egress:
+  # DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # HTTPS outbound — library / certificate hydration from cloud storage
+  # (S3 / Azure Blob / GCS) and cloud-provider auth endpoints.
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Custom egress rules (shared with the agent's allow-list)
+  {{- if .Values.networkPolicy.additionalEgressRules }}
+  {{- toYaml .Values.networkPolicy.additionalEgressRules | nindent 2 }}
+  {{- end }}
+{{- end }}
