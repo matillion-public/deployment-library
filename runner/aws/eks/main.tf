@@ -23,5 +23,6 @@ module "eks" {
   security_group_ids      = [module.deployment.k8s_security_group_id]
   tags                    = var.tags
   endpoint_public_access = !var.is_private_cluster
+  endpoint_private_access = var.is_private_cluster
   public_access_cidrs    = var.authorized_ip_ranges
 }

@@ -189,3 +189,56 @@ variable "assign_public_ip" {
   type        = bool
   default     = true
 }
+
+variable "enable_script_runner" {
+  description = "Whether to deploy the maia-script-runner service alongside the agent. NOTE: toggling this on an existing deployment modifies the agent ECS service and triggers a rolling task replacement."
+  type        = bool
+  default     = false
+}
+
+variable "script_runner_image_url" {
+  description = "Container image for the maia-script-runner."
+  type        = string
+  default     = "public.ecr.aws/matillion/maia-script-runner:current"
+}
+
+variable "script_runner_size" {
+  description = "T-shirt size for the script runner task: small=1vCPU/4GiB, medium=2vCPU/8GiB, large=4vCPU/16GiB, xlarge=8vCPU/32GiB."
+  type        = string
+  default     = "small"
+  validation {
+    condition     = contains(["small", "medium", "large", "xlarge"], var.script_runner_size)
+    error_message = "script_runner_size must be one of: small, medium, large, xlarge."
+  }
+}
+
+variable "runner_authorized_keys" {
+  description = "SSH public key content for the script runner's authorized_keys. Required when enable_script_runner is true."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "runner_keypair_secret_name" {
+  description = "Name for the Secrets Manager secret holding the script runner SSH authorized_keys. Defaults to <name>-runner-keypair when not set."
+  type        = string
+  default     = ""
+}
+
+variable "script_runner_extension_library_bucket_arn" {
+  description = "Optional: ARN of the S3 bucket used for extension library hydration. Grants narrowly-scoped s3:GetObject and s3:ListBucket to the script runner task role."
+  type        = string
+  default     = ""
+}
+
+variable "script_runner_desired_count" {
+  description = "Number of script runner tasks to run."
+  type        = number
+  default     = 1
+}
+
+variable "script_runner_log_retention_days" {
+  description = "CloudWatch log retention in days for the script runner task."
+  type        = number
+  default     = 30
+}

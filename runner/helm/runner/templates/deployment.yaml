@@ -81,6 +81,14 @@ spec:
         {{- end }}
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
+        {{- if .Values.scriptRunner.enabled }}
+        # Hostname the agent SSHes into for Script Pushdown — the short ClusterIP
+        # Service name, which resolves within the release's namespace (kube-dns
+        # appends the namespace + cluster suffix at lookup time). Cross-namespace
+        # callers would need to use the fully qualified <name>.<ns>.svc.<domain>.
+        - name: MTLN_SCRIPT_RUNNER_HOST
+          value: {{ include "matillion-runner.scriptRunner.fullname" . | quote }}
+        {{- end }}
         {{- if .Values.dpcAgent.dpcAgent.env.fromSecret }}
         {{- range .Values.dpcAgent.dpcAgent.env.fromSecret }}
         - name: {{ .name }}
@@ -151,7 +159,7 @@ spec:
         - name: api-profiles-volume
           mountPath: /home/agentuser/api_profiles
         image: {{ .Values.dpcAgent.dpcAgent.image.repository }}{{ if .Values.dpcAgent.dpcAgent.image.digest }}@{{ .Values.dpcAgent.dpcAgent.image.digest }}{{ else }}:{{ .Values.applicationImageTag | default .Values.dpcAgent.dpcAgent.image.tag | default .Chart.AppVersion }}{{ end }}
-        imagePullPolicy: Always
+        imagePullPolicy: {{ .Values.dpcAgent.dpcAgent.imagePullPolicy | default "Always" }}
         name: {{ include "matillion-runner.fullname" . }}-pods
         ports:
         - containerPort: 8080

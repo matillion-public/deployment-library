@@ -1,0 +1,119 @@
+---
+{{- if .Values.scriptRunner.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "matillion-runner.scriptRunner.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
+{{- include "matillion-runner.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.scriptRunner.replicas | default 1 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
+{{- include "matillion-runner.scriptRunner.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
+{{- include "matillion-runner.scriptRunner.selectorLabels" . | nindent 8 }}
+        {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+      {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+      annotations:
+        azure.workload.identity/service-account-token-expiration: {{ quote .Values.azure.workloadIdentity.tokenExpiration }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "matillion-runner.scriptRunner.fullname" . }}-sa
+      {{- if or (and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled) (and (eq (include "matillion-runner.cloudProvider" .) "gcp") .Values.gcp.workloadIdentity.enabled) }}
+      automountServiceAccountToken: true
+      {{- else }}
+      automountServiceAccountToken: false
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
+        image: {{ .Values.scriptRunner.image.repository }}{{ if .Values.scriptRunner.image.digest }}@{{ .Values.scriptRunner.image.digest }}{{ else }}:{{ .Values.scriptRunner.image.tag | default "latest" }}{{ end }}
+        imagePullPolicy: {{ .Values.scriptRunner.image.pullPolicy | default "Always" }}
+        # The runner image listens on the non-privileged port 2222 and runs end-
+        # to-end as the unprivileged mtln user (host keys, /run/sshd, and
+        # /home/mtln/.ssh are pre-baked at build time). That lets us enforce
+        # runAsNonRoot here and still keep allowPrivilegeEscalation off — a
+        # setuid binary inside the runner can't escape mtln's privileges in
+        # spawned shells. capabilities.drop: [ALL] is defence-in-depth — a
+        # non-root container doesn't have most caps anyway, but dropping ALL
+        # explicitly means a future image change (e.g. an `apt-get install` of
+        # a setcap binary) can't reintroduce one without a chart-level grant.
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 2222
+          name: ssh
+        # Restart the pod if sshd stops accepting connections. Destructive-test
+        # H8 (DPC-49795) showed a runner can end up in a broken state with sshd
+        # dead but the container still "running" (RESTARTS: 0) — without a probe
+        # Kubernetes never self-heals and an operator has to delete the pod by
+        # hand. A TCP check on the listen port catches a dead/wedged sshd.
+        livenessProbe:
+          tcpSocket:
+            port: ssh
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        env:
+        - name: CLOUD_PROVIDER
+          value: {{ include "matillion-runner.cloudProvider" . | upper | quote }}
+        - name: EXTENSION_LIBRARY_LOCATION
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.extensionLibraryLocation }}
+        {{- if .Values.dpcAgent.dpcAgent.env.customCertLocation }}
+        - name: CUSTOM_CERT_LOCATION
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.customCertLocation }}
+        {{- end }}
+        # Azure Workload Identity needs the client id for the runner's own
+        # managed-identity login during library/cert hydration (AWS IRSA and GCP
+        # WI are tokenless — the projected SA token is enough).
+        {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+        - name: AZURE_CLIENT_ID
+          value: {{ required "scriptRunner.serviceAccount.clientId is required for Azure workload identity deployments" .Values.scriptRunner.serviceAccount.clientId }}
+        {{- end }}
+        resources:
+          {{- include "matillion-runner.scriptRunner.resources" . | nindent 10 }}
+        volumeMounts:
+        - name: runner-keys
+          mountPath: /run/secrets
+          readOnly: true
+        - name: tmp-volume
+          mountPath: /tmp
+      volumes:
+      # Project only the public authorized_keys into the runner — never the
+      # agent's private key.
+      - name: runner-keys
+        secret:
+          secretName: {{ include "matillion-runner.scriptRunner.fullname" . }}-keys
+          items:
+          - key: runner_authorized_keys
+            path: runner_authorized_keys
+      - name: tmp-volume
+        emptyDir:
+          # Bound the runner's scratch space so a runaway script can't exhaust
+          # node ephemeral storage (destructive-test H2 / DPC-49794). When the
+          # limit is hit Kubernetes evicts this pod, not the node — keeping the
+          # blast radius pod-local. Tunable via scriptRunner.tmpSizeLimit.
+          sizeLimit: {{ .Values.scriptRunner.tmpSizeLimit | quote }}
+{{- end }}

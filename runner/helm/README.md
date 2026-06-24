@@ -205,6 +205,74 @@ dpcAgent:
       requests: { cpu: "1500m", memory: "6Gi" }
       limits:   { cpu: "3",     memory: "6Gi" }
 ```
+## Shared Script Runner — Security Hardening (Customer-Hosted)
+
+The opt-in Shared Script Runner (`scriptRunner.enabled: true`) executes
+customer-authored Python and Bash scripts over SSH. In a Customer-Hosted Agent
+(CHA) deployment **you own the cluster and its network**, so the items below are
+hardening *you* should apply — the chart ships safe defaults but cannot enforce
+network policy on a cluster with no CNI enforcer (Calico, Cilium, Azure NPM).
+
+### Service-account token exposure
+
+The runner pod sets `automountServiceAccountToken: true` **only** when Azure or
+GCP Workload Identity is enabled (it needs the projected token for the OIDC
+exchange). On AWS (IRSA) and on clusters without Workload Identity the token is
+**not** mounted. Where it is mounted, a script running on the runner can read the
+projected Kubernetes API token, so scope the runner's ServiceAccount to least
+privilege: do **not** bind it to any `Role`/`ClusterRole` beyond what the cloud
+identity exchange requires. The chart creates the SA with no `RoleBinding`; keep
+it that way unless you have a specific need.
+
+### Egress restriction and blocking cloud metadata (IMDS)
+
+When `networkPolicy.enabled: true` the runner's egress is already default-deny
+except DNS (53) and HTTPS (443). Cloud metadata endpoints (IMDS,
+`169.254.169.254`, served over HTTP/80) are therefore unreachable from the
+runner by default. **This only holds if your cluster runs a CNI that enforces
+NetworkPolicy** — without one the policy is inert and a script can reach IMDS to
+harvest node credentials.
+
+To keep general HTTPS egress but explicitly carve out the link-local metadata
+range (belt-and-braces, and useful if you widen egress), use the existing
+`networkPolicy.additionalEgressRules` hook — it is applied to both the agent and
+the script-runner NetworkPolicies:
+
+```yaml
+networkPolicy:
+  enabled: true
+  additionalEgressRules:
+    # Allow HTTPS to anywhere EXCEPT the cloud metadata endpoint.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32   # AWS/Azure/GCP IMDS
+              - 169.254.0.0/16       # link-local (covers GKE metadata too)
+      ports:
+        - protocol: TCP
+          port: 443
+```
+
+NetworkPolicy is allow-list only (there is no "deny" rule); the `ipBlock.except`
+pattern above is how you exclude a destination from an otherwise-broad allow.
+
+### Script output truncation (Python vs Bash)
+
+Script output is truncated before it is returned to the Designer, and the two
+interpreters behave differently — document this for pipeline authors so large
+outputs aren't silently lost:
+
+| Interpreter | Limit | Behaviour |
+|---|---|---|
+| Python | ~300 KB | Output is tail-truncated and an explicit `WARNING` is prepended to the returned output. |
+| Bash | ~200 KB | Output is tail-truncated **silently** — no warning is emitted. |
+
+If a script's result matters, write it to a durable sink (cloud storage, a table)
+rather than relying on stdout. The canonical customer-facing reference is the
+[Script Pushdown documentation](https://docs.matillion.com/data-productivity-cloud/);
+this table is the deployment-side summary.
+
 ## Prometheus Chart Configuration
 
 ### Module Control Parameters
