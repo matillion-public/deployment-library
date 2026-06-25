@@ -28,7 +28,7 @@ runner_size = "small"
 
 replica_count              = 2
 workload_profile_max_count = 1
-zone_redundancy_enabled    = true
+zone_redundancy_enabled    = false
 
 # Optional: outbound egress control
 # enable_nat_gateway       = false

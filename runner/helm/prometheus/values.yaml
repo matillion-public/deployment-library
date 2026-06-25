@@ -140,3 +140,11 @@ prometheus:
   serviceAccount:
     annotations: {}
   type: ClusterIP
+
+# Node selector configuration
+# Optional: specify node labels to schedule the prometheus and adapter pods on specific nodes
+# Example:
+#   nodeSelector:
+#     kubernetes.io/os: linux
+#     node.kubernetes.io/instance-type: m5.large
+nodeSelector: {}

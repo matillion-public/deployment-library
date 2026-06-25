@@ -61,6 +61,10 @@ spec:
           type: RuntimeDefault
       automountServiceAccountToken: true
       serviceAccountName: {{ include "prometheus.fullname" . }}-adapter
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
       - configMap:
           name: {{ include "prometheus.fullname" . }}-adapter-config
@@ -111,6 +115,10 @@ spec:
           type: RuntimeDefault
       automountServiceAccountToken: true
       serviceAccountName: {{ include "prometheus.fullname" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
       - configMap:
           name: {{ include "prometheus.fullname" . }}-config
