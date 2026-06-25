@@ -119,7 +119,7 @@ The solution uses the following Docker images across different deployment method
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd poc-agent-deployment
+cd deployment-library
 
 # Create required namespaces
 kubectl create namespace matillion
@@ -130,11 +130,11 @@ helm install prometheus runner/helm/prometheus --namespace prometheus
 
 # Create your values file (choose appropriate template):
 # For AWS EKS with environment variables:
-cp runner/helm/runner/test-values.yaml my-values.yaml
-# For AWS local/minikube or direct configuration:
-cp runner/helm/runner/values.yaml my-values.yaml
+cp runner/helm/runner/values-aws.yaml my-values.yaml
 # For Azure example:
-cp runner/helm/runner/local.yaml my-values.yaml
+cp runner/helm/runner/values-azure.yaml my-values.yaml
+# For Google Cloud GKE example:
+cp runner/helm/runner/values-gcp.yaml my-values.yaml
 
 # Edit my-values.yaml with your configuration
 
@@ -142,7 +142,10 @@ cp runner/helm/runner/local.yaml my-values.yaml
 helm install matillion-runner runner/helm/runner/ \
   --namespace matillion \
   -f my-values.yaml
+
 ```
+
+For further details reference: [helm readme](https://github.com/matillion-public/deployment-library/blob/main/runner/helm/README.md)
 
 ### AWS ECS Deployment
 
@@ -166,7 +169,7 @@ terraform apply
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd poc-agent-deployment
+cd deployment-library
 
 # Navigate to EKS deployment
 cd runner/aws/eks
@@ -186,7 +189,7 @@ terraform apply
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd poc-agent-deployment
+cd deployment-library
 
 # Navigate to AKS deployment
 cd runner/azure/aks
@@ -206,7 +209,7 @@ terraform apply
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd poc-agent-deployment
+cd deployment-library
 
 # Navigate to Container Apps deployment
 cd runner/azure/container_apps
@@ -398,11 +401,11 @@ Automated workflows include:
 
 ### Releases
 
-Helm charts are automatically published to: `https://matillion.github.io/poc-agent-deployment/`
+Helm charts are automatically published to: `https://github.com/matillion-public/deployment-library`
 
 ```bash
 # Add the Helm repository
-helm repo add matillion https://matillion.github.io/poc-agent-deployment/
+helm repo add matillion https://github.com/matillion-public/deployment-library
 helm repo update
 
 # Install from the repository
