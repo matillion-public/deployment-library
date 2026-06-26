@@ -1,0 +1,18 @@
+Matillion DPC Agent "{{ include "matillion-runner.fullname" . }}" deployed to namespace "{{ .Release.Namespace }}".
+{{ if .Values.scriptRunner.enabled }}
+Shared Script Runner (Script Pushdown) is ENABLED. The agent connects to it over
+SSH/SFTP using these details — copy the Host into the Script Pushdown component's
+connection settings:
+
+  Host:     {{ include "matillion-runner.scriptRunner.fullname" . }}
+            (in-cluster DNS: {{ include "matillion-runner.scriptRunner.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }})
+  Port:     2222
+  Username: mtln
+
+The agent pod already receives the Host as the MTLN_SCRIPT_RUNNER_HOST environment
+variable, so managed connections are wired automatically; the values above are for
+manual configuration or troubleshooting.
+{{- else }}
+Shared Script Runner is DISABLED (scriptRunner.enabled=false) — no runner resources
+were created. Set scriptRunner.enabled=true to deploy it.
+{{- end }}

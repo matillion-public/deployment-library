@@ -1,0 +1,59 @@
+# Azure Configuration
+azure_subscription_id = "REPLACE_WITH_SUBSCRIPTION_ID"
+azure_tenant_id       = "REPLACE_WITH_TENANT_ID"
+resource_group_name   = "matillion-script-runner-rg"
+location              = "eastus"
+
+# Resource Naming
+# Must be <=11 chars when enable_script_runner = true.
+# The script runner CA suffix (-script-runner-<6-char-salt>) consumes
+# 21 of Azure's 32-character Container App name limit.
+name = "mtln-test"
+
+# Matillion Configuration
+matillion_cloud_region = "us1"
+account_id             = "REPLACE_WITH_ACCOUNT_ID"
+agent_id               = "REPLACE_WITH_AGENT_ID"
+client_id              = "REPLACE_WITH_OAUTH_CLIENT_ID"
+client_secret          = "REPLACE_WITH_OAUTH_CLIENT_SECRET"
+
+# Dev/test sizing
+runner_size                = "small"
+replica_count              = 1
+workload_profile_max_count = 1
+zone_redundancy_enabled    = false
+
+container_image_url = "matillion.azurecr.io/cloud-agent:current"
+
+tags = {
+  Environment = "test"
+  Project     = "script-pushdown-phase2"
+}
+
+# ---------------------------------------------------------------------------
+# Shared Script Runner (Script Pushdown — Phase 2 test coverage)
+# ---------------------------------------------------------------------------
+# Setup:
+#   1. Generate an SSH keypair:
+#        ssh-keygen -t ed25519 -f ./script-runner-key -C "maia-script-runner" -N ""
+#   2. Paste the public key into script_runner_authorized_keys below.
+#   3. Store the private key as a Matillion Secret (e.g. "script-runner-key")
+#      and reference it in the Script Pushdown component's SSH Key Pair field.
+#
+# After apply:
+#   terraform output script_runner_host      # sshHost — bare CA name (not FQDN)
+#   terraform output script_runner_ssh_port  # 2222
+#   terraform output script_runner_ssh_user  # mtln
+#
+# Note: sibling Container Apps MUST use the bare CA name for sshHost.
+# The script_runner_fqdn output does NOT resolve for intra-environment SSH.
+
+enable_script_runner = true
+
+script_runner_size = "small"
+
+script_runner_authorized_keys = "ssh-ed25519 REPLACE_WITH_PUBLIC_KEY maia-script-runner"
+
+script_runner_image_url = "matillion.azurecr.io/maia-script-runner:current"
+
+# script_runner_acr_id = null  # leave null for the public Matillion registry

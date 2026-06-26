@@ -172,6 +172,17 @@ resource "azurerm_federated_identity_credential" "runner_federated_credential" {
   subject             = "system:serviceaccount:${var.name}:${var.name}-sa"
 }
 
+# Federated Identity Credential for Script-Runner Service Account
+resource "azurerm_federated_identity_credential" "script_runner_federated_credential" {
+  count               = var.workload_identity_enabled ? 1 : 0
+  name                = join("-", [var.name, "script-runner-federated-credential", var.random_string_salt])
+  resource_group_name = var.resource_group_name
+  parent_id           = azurerm_user_assigned_identity.runner_workload_identity[0].id
+  audience            = ["api://AzureADTokenExchange"]
+  issuer              = azurerm_kubernetes_cluster.aks_cluster.oidc_issuer_url
+  subject             = "system:serviceaccount:${var.name}:${var.name}-script-runner-sa"
+}
+
 # Data source to get the Service Principal object ID
 data "azuread_service_principal" "runner_keyvault_sp" {
   count     = var.service_principal_enabled ? 1 : 0

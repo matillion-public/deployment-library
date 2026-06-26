@@ -1,6 +1,11 @@
 resource "random_string" "salt" {
   length  = 6
   special = false
+  upper   = false
+
+  lifecycle {
+    ignore_changes = [upper]
+  }
 }
 
 module "networking" {
@@ -53,8 +58,10 @@ module "container_apps" {
   client_id              = var.client_id
   client_secret          = var.client_secret
   matillion_cloud_region = var.matillion_cloud_region
+  matillion_environment  = var.matillion_environment
 
   container_image_url        = var.container_image_url
+  container_acr_id           = var.container_acr_id
   runner_size                = var.runner_size
   workload_profile_type      = var.workload_profile_type
   workload_profile_max_count = var.workload_profile_max_count
@@ -62,6 +69,15 @@ module "container_apps" {
   container_cpu              = var.container_cpu
   container_memory           = var.container_memory
   zone_redundancy_enabled    = var.zone_redundancy_enabled
+
+  enable_script_runner          = var.enable_script_runner
+  script_runner_size            = var.script_runner_size
+  script_runner_authorized_keys = var.script_runner_authorized_keys
+  script_runner_image_url       = var.script_runner_image_url
+  script_runner_acr_id          = var.script_runner_acr_id
+
+  extension_library_location = var.extension_library_location
+  external_driver_location   = var.external_driver_location
 
   tags = var.tags
 }
