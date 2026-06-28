@@ -37,6 +37,29 @@ assign_public_ip            = true
 # Optional ephemeral storage size in GiB
 ephemeral_storage_size = 40
 
+# Script runner (optional — disabled by default)
+# enable_script_runner = true
+#
+# T-shirt size for the script runner task — small (default) | medium | large | xlarge
+# small  = 1 vCPU / 4 GiB
+# medium = 2 vCPU / 8 GiB
+# large  = 4 vCPU / 16 GiB
+# xlarge = 8 vCPU / 32 GiB
+# script_runner_size = "small"
+#
+# script_runner_image_url          = "public.ecr.aws/matillion/maia-script-runner:current"
+# script_runner_desired_count      = 1
+# script_runner_log_retention_days = 30
+#
+# SSH public key placed in the script runner's authorized_keys (required when enable_script_runner = true)
+# runner_authorized_keys = "ssh-ed25519 AAAA... user@host"
+#
+# Secrets Manager secret name for the SSH keypair (defaults to <name>-runner-keypair)
+# runner_keypair_secret_name = "my-agent-runner-keypair"
+#
+# Optional: ARN of an S3 bucket for extension library hydration
+# script_runner_extension_library_bucket_arn = "arn:aws:s3:::my-extension-library-bucket"
+
 # Optional: Resource tags
 tags = {
   "Category" = "Development"
