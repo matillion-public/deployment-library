@@ -32,9 +32,10 @@ config:
   oauthClientId: "<AgentClientId>"
   oauthClientSecret: "<AgentClientSecret>"
 serviceAccount:
-  # Optional: Override the default service account name.
-  # If empty, uses the generated name based on release name
-  name: ""
+  # SA name must match the IRSA / workload-identity trust binding in Terraform.
+  # The AWS trust policy hard-codes matillion-runner-sa; changing this requires
+  # a matching Terraform update.
+  name: matillion-runner-sa
   roleArn: "<ServiceAccountRoleArn>"
 dpcAgent:
   dpcAgent:
@@ -42,12 +43,21 @@ dpcAgent:
       accountId: <MatillionAccountId>
       agentId: <MatillionAgentId>
       matillionRegion: <MatillionRegion>
-      proxyHttp: <ProxyHttp>
-      proxyHttps: <ProxyHttps>
-      proxyExclude: <ProxyExclude>
-      customCertLocation: <CustomCertLocation>
-      extensionLibraryLocation: <ExtensionLibraryLocation>
-      externalDriverLocation: <ExternalDriverLocation>
+      # Proxy + library/cert/driver locations default to empty. The Spring
+      # config + the agent's startup script treat empty values as "not set"
+      # — leaving the previous "<ProxyHttp>" / "<ExtensionLibraryLocation>"
+      # placeholder strings as defaults would land them in the container
+      # verbatim, where the agent's Spring proxy parser then crashes on
+      # "expected system property https.proxyPort to be a number but got
+      # empty string" and the library/cert hydration loops on
+      # "Invalid bucket name <ExtensionLibraryLocation>". Customers who
+      # actually use a proxy / external libraries override these per-env.
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: ""
+      customCertLocation: ""
+      extensionLibraryLocation: ""
+      externalDriverLocation: ""
       # defaultKeyvault: <KeyVaultName>   # Optional: only required for Azure
       # defaultGcpProject: <GcpProjectId> # Optional: only required for GCP
       # matillionEnv: ""                  # Optional: set to "dev" for non-production environments
@@ -55,12 +65,56 @@ dpcAgent:
       repository: <AgentImageRepository>
       tag: <AgentImageTag>
       # digest: <AgentImageDigest>  # Optional: use digest instead of tag for immutable deployments
-    imagePullPolicy: IfNotPresent
+    # CKV_K8S_15: `Always` is the secure default — kubelet re-validates the
+    # image with the registry on every pod start, so a replaced upstream image
+    # (security update, revoked pull perms, etc.) is caught at pod schedule
+    # time rather than indefinitely cached on a node. Override per-env (e.g.
+    # `Never` for offline / `minikube image load` flows) only when needed.
+    imagePullPolicy: Always
     gracePeriodSeconds: 43200
     # Optional override. Leave empty to derive from runnerSize. Setting any keys here
     # replaces the runnerSize-derived resources whole — set both requests and limits.
     resources: {}
   replicas: 2
+
+# Shared Script Runner (opt-in). When enabled, deploys a separate runner pod the
+# agent SSHes into for Script Pushdown (bash / python). Disabled by default —
+# zero new resources rendered. See DPC-47328 / design §5.2.
+scriptRunner:
+  enabled: false
+  # T-shirt size — reuses the runnerSizes map above (small/medium/large/xlarge).
+  size: small
+  replicas: 1
+  image:
+    # Production registries (set repository to match your cloud/region):
+    #   AWS:              public.ecr.aws/matillion/maia-script-runner
+    #   Azure:            matillion.azurecr.io/maia-script-runner
+    #   GCP (australia):  australia-southeast1-docker.pkg.dev/maia-492711/maia-script-runner/maia-script-runner
+    #   GCP (europe):     europe-docker.pkg.dev/maia-492711/maia-script-runner/maia-script-runner
+    #   GCP (us):         us-docker.pkg.dev/maia-492711/maia-script-runner/maia-script-runner
+    repository: <ScriptRunnerImageRepository>
+    tag: latest
+    # digest: <ScriptRunnerImageDigest>  # Optional: immutable deploys
+    pullPolicy: Always
+  # Customer-supplied SSH keypair (no template-side keygen). Provide via --set-file:
+  #   --set-file scriptRunner.authorizedKeys=./runner_authorized_keys.pub
+  #   --set-file scriptRunner.privateKey=./agent_runner_key
+  # authorizedKeys: the public key(s) the runner trusts (the agent's public key).
+  # privateKey:     the agent's private key used to connect to the runner.
+  authorizedKeys: ""
+  privateKey: ""
+  # Optional resources override. Leave empty to derive from scriptRunner.size.
+  resources: {}
+  # Cap on the runner's /tmp scratch volume (emptyDir.sizeLimit). Bounds the
+  # disk-fill blast radius to the pod — a runaway script is evicted rather than
+  # exhausting node ephemeral storage. Raise if scripts stage large files.
+  tmpSizeLimit: 5Gi
+  # Runner's own runtime identity (separate from the agent's). One per cloud:
+  serviceAccount:
+    roleArn: ""              # AWS IRSA role ARN
+    clientId: ""             # Azure workload-identity client ID
+    serviceAccountEmail: ""  # GCP workload-identity SA email
+
 kubernetesClusterDomain: cluster.local
 hpa:
   enabled: true

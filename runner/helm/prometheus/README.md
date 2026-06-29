@@ -89,6 +89,7 @@ adapter:
 | `externalPrometheus.url` | External Prometheus URL | `"http://prometheus.monitoring.svc.cluster.local:9090"` |
 | `externalPrometheus.namespace` | External Prometheus namespace | `"monitoring"` |
 | `externalPrometheus.serviceName` | External Prometheus service name | `"prometheus"` |
+| `nodeSelector` | Node labels for pod assignment (applies to the prometheus and adapter pods) | `{}` |
 
 ### Component Configuration
 
