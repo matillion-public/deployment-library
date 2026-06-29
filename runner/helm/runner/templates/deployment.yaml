@@ -68,12 +68,18 @@ spec:
           value: {{ quote .Values.dpcAgent.dpcAgent.env.proxyHttps }}
         - name: PROXY_EXCLUDE
           value: {{ quote .Values.dpcAgent.dpcAgent.env.proxyExclude }}
+        - name: PROXY_PROTOCOL_HTTP
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.proxyProtocolHttp }}
+        - name: PROXY_PROTOCOL_HTTPS
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.proxyProtocolHttps }}
         - name: CUSTOM_CERT_LOCATION
           value: {{ quote .Values.dpcAgent.dpcAgent.env.customCertLocation }}
         - name: EXTENSION_LIBRARY_LOCATION
           value: {{ quote .Values.dpcAgent.dpcAgent.env.extensionLibraryLocation }}
         - name: EXTERNAL_DRIVER_LOCATION
           value: {{ quote .Values.dpcAgent.dpcAgent.env.externalDriverLocation }}
+        - name: EXPORT_LOGS
+          value: {{ quote .Values.dpcAgent.dpcAgent.env.exportLogs }}
         {{- if .Values.dpcAgent.dpcAgent.env.matillionEnv }}
         - name: MATILLION_ENV
           value: {{ quote .Values.dpcAgent.dpcAgent.env.matillionEnv }}
