@@ -77,7 +77,7 @@ aws:
 # Azure-specific configuration
 azure:
   # Azure Subscription ID (optional but recommended for workload identity)
-  # Get this from Terraform: terraform output -raw azure_subscription_id
+  # Get this from azure: az account show --query id -o tsv
   subscriptionId: "your-azure-subscription-id"
 
   # Workload Identity (recommended for AKS)
@@ -85,7 +85,7 @@ azure:
   workloadIdentity:
     enabled: true
     # Client ID of the Azure Managed Identity for Workload Identity
-    # Get this value from Terraform output: runner_workload_identity_client_id
+    # Get this value from Terraform output: terraform output k8s_workload_identity_client_id
     clientId: "your-runner-workload-identity-client-id"
 
   # Service Principal (alternative to Workload Identity)
