@@ -444,6 +444,24 @@ class TestScriptRunner:
         projected = [i['key'] for i in vol['secret']['items']]
         assert projected == ['runner_authorized_keys']  # private key never reaches the runner
 
+    def test_runner_keys_not_mounted_over_run_secrets(self, base_values):
+        """authorized_keys must NOT overlay /run/secrets (== /var/run/secrets).
+
+        That path is where Kubernetes injects projected service-account tokens
+        (AWS IRSA, Azure Workload Identity). A read-only secret volume there blocks
+        the runtime from creating the token mountpoint and crash-loops the pod with
+        "read-only file system" (DPC-50587). The image must be told the alternate
+        path via RUNNER_AUTHORIZED_KEYS_FILE.
+        """
+        documents = self.helm_template(self.enabled_values(base_values))
+        dep = next(d for d in self._runner_docs(documents) if d['kind'] == 'Deployment')
+        container = dep['spec']['template']['spec']['containers'][0]
+        mount = next(m for m in container['volumeMounts'] if m['name'] == 'runner-keys')
+        assert not mount['mountPath'].startswith('/run/secrets')
+        assert not mount['mountPath'].startswith('/var/run/secrets')
+        env = {e['name']: e.get('value') for e in container['env']}
+        assert env['RUNNER_AUTHORIZED_KEYS_FILE'].startswith(mount['mountPath'] + '/')
+
     def test_agent_gets_runner_host_when_enabled(self, base_values):
         """Agent container gets MTLN_SCRIPT_RUNNER_HOST pointing at the runner service."""
         documents = self.helm_template(self.enabled_values(base_values))

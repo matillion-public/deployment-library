@@ -35,9 +35,12 @@ config:
   oauthClientSecret: ""
 
 serviceAccount:
-  # IAM Role ARN for the service account (IRSA)
-  # This role should have permissions to access AWS services (S3, Secrets Manager, etc.)
-  roleArn: "arn:aws:iam::123456789012:role/matillion-runner-role"
+  # REQUIRED: IAM Role ARN for the service account (IRSA). Replace the placeholder
+  # below with the ARN of the IAM role you created for the runner. The role must
+  # have permissions for the AWS services the runner uses (S3, Secrets Manager, etc.).
+  # Format: arn:aws:iam::<account-id>:role/<role-name>
+  # Leaving the placeholder in place will cause AWS authentication to fail.
+  roleArn: "<ServiceAccountRoleArn>"
 
 dpcAgent:
   dpcAgent:

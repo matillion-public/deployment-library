@@ -79,6 +79,11 @@ spec:
         env:
         - name: CLOUD_PROVIDER
           value: {{ include "matillion-runner.cloudProvider" . | upper | quote }}
+        # Tell the runner image where to read authorized_keys from. Must match the
+        # volumeMount path below. We deliberately keep this off /run/secrets so the
+        # projected service-account token mounts (AWS IRSA / Azure WI) can be created.
+        - name: RUNNER_AUTHORIZED_KEYS_FILE
+          value: /etc/matillion/runner-keys/runner_authorized_keys
         - name: EXTENSION_LIBRARY_LOCATION
           value: {{ quote .Values.dpcAgent.dpcAgent.env.extensionLibraryLocation }}
         {{- if .Values.dpcAgent.dpcAgent.env.customCertLocation }}
@@ -96,7 +101,16 @@ spec:
           {{- include "matillion-runner.scriptRunner.resources" . | nindent 10 }}
         volumeMounts:
         - name: runner-keys
-          mountPath: /run/secrets
+          # Mount the authorized_keys secret under a dedicated path, NOT /run/secrets.
+          # /var/run/secrets is a symlink to /run/secrets, which is exactly where
+          # Kubernetes injects projected service-account tokens: AWS IRSA at
+          # /var/run/secrets/eks.amazonaws.com/serviceaccount and Azure Workload
+          # Identity at /var/run/secrets/azure/tokens. Overlaying /run/secrets with a
+          # read-only secret volume stops the container runtime from creating those
+          # token mountpoints, so the pod crash-loops with "read-only file system"
+          # (DPC-50587). Keeping the keys on a separate path leaves /run/secrets
+          # writable for the platform. The image reads RUNNER_AUTHORIZED_KEYS_FILE.
+          mountPath: /etc/matillion/runner-keys
           readOnly: true
         - name: tmp-volume
           mountPath: /tmp

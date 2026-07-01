@@ -47,7 +47,7 @@ ephemeral_storage_size = 40
 # xlarge = 8 vCPU / 32 GiB
 # script_runner_size = "small"
 #
-# script_runner_image_url          = "public.ecr.aws/matillion/maia-script-runner:current"
+# script_runner_image_url          = "public.ecr.aws/matillion/maia-script-runner:latest"
 # script_runner_desired_count      = 1
 # script_runner_log_retention_days = 30
 #

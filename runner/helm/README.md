@@ -93,6 +93,76 @@ helm template matillion-runner ./runner \
   --validate
 ```
 
+> **Required — set the workload identity for your cloud.** The runner (and its
+> script runner) authenticate to cloud services via the service account, so the
+> identity below **must** be set before installing. The provider values files ship
+> with a `<Placeholder>` here — leaving it unchanged causes authentication to fail
+> (and, on EKS/AKS, can crash-loop the script runner when the projected token
+> mount can't be created). Set the value for your cloud:
+>
+> **AWS EKS (IRSA)** — set the IAM role ARN in `values-aws.yaml`:
+> ```yaml
+> serviceAccount:
+>   roleArn: "arn:aws:iam::<account-id>:role/<role-name>"
+> ```
+>
+> **Azure AKS (Workload Identity)** — set the managed-identity client ID:
+> ```yaml
+> azure:
+>   workloadIdentity:
+>     clientId: "<workload-identity-client-id>"
+> scriptRunner:
+>   serviceAccount:
+>     clientId: "<workload-identity-client-id>"   # if the script runner is enabled
+> ```
+>
+> **Google GKE (Workload Identity)** — set the GCP service account to impersonate:
+> ```yaml
+> gcp:
+>   workloadIdentity:
+>     serviceAccountEmail: "<name>@<project>.iam.gserviceaccount.com"
+> scriptRunner:
+>   serviceAccount:
+>     serviceAccountEmail: "<name>@<project>.iam.gserviceaccount.com"   # if the script runner is enabled
+> ```
+>
+> **Alternatives (static credentials instead of workload identity)** — if your
+> cluster can't use cloud-native identity, disable it and supply credentials directly:
+> - **AWS** — set `aws.local.enabled: true` and provide `aws.local.region` /
+>   `accessKeyId` / `secretAccessKey` (leave `serviceAccount.roleArn` unset).
+> - **Azure** — set `azure.workloadIdentity.enabled: false` and
+>   `azure.servicePrincipal.enabled: true` with `clientId` / `clientSecret` / `tenantId`.
+> - **Local / dev** — start from `values-local.yaml`, which wires up static
+>   credentials for all providers for out-of-cluster testing.
+
+#### Placeholder Reference
+
+The `values.yaml` template ships with `<Placeholder>` tokens that you **must**
+replace before installing. Every token below must be set (unless marked optional):
+
+| Placeholder | Where to get it | Applies to |
+|---|---|---|
+| `<CloudProvider>` | `aws`, `azure`, or `gcp` | all |
+| `<AgentClientId>` | OAuth client ID from the DPC agent registration | all |
+| `<AgentClientSecret>` | OAuth client secret from the DPC agent registration | all |
+| `<MatillionAccountId>` | DPC account ID (Hub → account settings) | all |
+| `<MatillionAgentId>` | DPC agent/runner ID from the agent registration | all |
+| `<MatillionRegion>` | `us1` or `eu1` | all |
+| `<ServiceAccountRoleArn>` | AWS IAM role ARN for IRSA (`arn:aws:iam::<account-id>:role/<role-name>`) | AWS |
+| `<AgentImageRepository>` / `<AgentImageTag>` | Agent image location + tag (e.g. `public.ecr.aws/matillion/etl-agent` / `current`) | all |
+| `<ScriptRunnerImageRepository>` | Script-runner image (e.g. `public.ecr.aws/matillion/maia-script-runner`) — only if `scriptRunner.enabled` | all |
+| `<MaxReplicas>` / `<ScaleUpAverageValue>` | HPA bounds for your workload | all |
+| `<AgentImageDigest>` / `<ScriptRunnerImageDigest>` | *Optional* — pin an immutable digest instead of a tag | all |
+| `<KeyVaultName>` | *Optional* — only for Azure Key Vault secret hydration | Azure |
+| `<GcpProjectId>` | *Optional* — only for GCP secret hydration | GCP |
+
+Identity token — set exactly one per the "Required workload identity" note above:
+`<ServiceAccountRoleArn>` (AWS), `azure.workloadIdentity.clientId` (Azure), or
+`gcp.workloadIdentity.serviceAccountEmail` (GCP).
+
+> **Tip:** find anything you missed before installing with
+> `grep -nE '<[A-Za-z].*>' my-values.yaml` — it should return nothing.
+
 #### Step 3: Install with Values File
 ```bash
 # Install using your customized values file
