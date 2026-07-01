@@ -54,6 +54,6 @@ script_runner_size = "small"
 
 script_runner_authorized_keys = "ssh-ed25519 REPLACE_WITH_PUBLIC_KEY maia-script-runner"
 
-script_runner_image_url = "matillion.azurecr.io/maia-script-runner:current"
+script_runner_image_url = "matillion.azurecr.io/maia-script-runner:latest"
 
 # script_runner_acr_id = null  # leave null for the public Matillion registry
