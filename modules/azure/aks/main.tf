@@ -169,7 +169,7 @@ resource "azurerm_federated_identity_credential" "runner_federated_credential" {
   parent_id           = azurerm_user_assigned_identity.runner_workload_identity[0].id
   audience            = ["api://AzureADTokenExchange"]
   issuer              = azurerm_kubernetes_cluster.aks_cluster.oidc_issuer_url
-  subject             = "system:serviceaccount:${var.name}:${var.name}-sa"
+  subject             = "system:serviceaccount:${var.namespace}:${var.runner_service_account_name}"
 }
 
 # Federated Identity Credential for Script-Runner Service Account
@@ -180,7 +180,7 @@ resource "azurerm_federated_identity_credential" "script_runner_federated_creden
   parent_id           = azurerm_user_assigned_identity.runner_workload_identity[0].id
   audience            = ["api://AzureADTokenExchange"]
   issuer              = azurerm_kubernetes_cluster.aks_cluster.oidc_issuer_url
-  subject             = "system:serviceaccount:${var.name}:${var.name}-script-runner-sa"
+  subject             = "system:serviceaccount:${var.namespace}:${var.script_runner_service_account_name}"
 }
 
 # Data source to get the Service Principal object ID
