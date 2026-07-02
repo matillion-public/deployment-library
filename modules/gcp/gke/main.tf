@@ -5,8 +5,9 @@ locals {
   runner_sa_account_id = "${local.name_prefix}-a-${var.random_string_salt}"
 
   # Workload Identity: fall back to var.name-derived defaults if not explicitly set
-  k8s_namespace            = var.k8s_namespace != "" ? var.k8s_namespace : var.name
-  k8s_service_account_name = var.k8s_service_account_name != "" ? var.k8s_service_account_name : "${var.name}-sa"
+  k8s_namespace                          = var.k8s_namespace != "" ? var.k8s_namespace : var.name
+  k8s_service_account_name               = var.k8s_service_account_name != "" ? var.k8s_service_account_name : "${var.name}-sa"
+  script_runner_k8s_service_account_name = var.script_runner_k8s_service_account_name != "" ? var.script_runner_k8s_service_account_name : "${var.name}-script-runner-sa"
 
   # Flat map of bucket/role pairs for extra GCS bucket permissions
   runner_extra_bucket_roles = {
@@ -162,7 +163,7 @@ resource "google_service_account_iam_binding" "workload_identity_binding" {
   role               = "roles/iam.workloadIdentityUser"
   members = [
     "serviceAccount:${var.project_id}.svc.id.goog[${local.k8s_namespace}/${local.k8s_service_account_name}]",
-    "serviceAccount:${var.project_id}.svc.id.goog[${local.k8s_namespace}/${var.name}-script-runner-sa]"
+    "serviceAccount:${var.project_id}.svc.id.goog[${local.k8s_namespace}/${local.script_runner_k8s_service_account_name}]"
   ]
   depends_on = [google_container_cluster.gke_cluster]
 }
