@@ -90,6 +90,12 @@ variable "k8s_service_account_name" {
   default     = ""
 }
 
+variable "script_runner_k8s_service_account_name" {
+  type        = string
+  description = "Kubernetes service account name for the script-runner pod. Must match the Helm chart fullname output. Defaults to <name>-script-runner-sa."
+  default     = ""
+}
+
 variable "runner_gcs_buckets" {
   type        = list(string)
   description = "Extra GCS bucket names to grant the runner read access to (e.g. custom certs, Python libs, external drivers)."
