@@ -162,7 +162,7 @@ variable "script_runner_authorized_keys" {
 variable "script_runner_image_url" {
   type        = string
   description = "Container image URL for the script runner"
-  default     = "matillion.azurecr.io/maia-script-runner:current"
+  default     = "matillion.azurecr.io/maia-script-runner:latest"
   validation {
     condition     = !can(regex("^https?://", var.script_runner_image_url)) && can(regex("^[^/]+/", var.script_runner_image_url))
     error_message = "script_runner_image_url must be in the form registry-hostname/repository:tag with no scheme prefix (e.g. matillion.azurecr.io/image:tag)."

@@ -199,7 +199,7 @@ variable "enable_script_runner" {
 variable "script_runner_image_url" {
   description = "Container image for the maia-script-runner."
   type        = string
-  default     = "public.ecr.aws/matillion/maia-script-runner:current"
+  default     = "public.ecr.aws/matillion/maia-script-runner:latest"
 }
 
 variable "script_runner_size" {
