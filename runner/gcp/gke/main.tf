@@ -37,10 +37,11 @@ module "gke" {
   master_ipv4_cidr_block = var.master_ipv4_cidr_block
   authorized_ip_ranges   = var.authorized_ip_ranges
 
-  k8s_namespace            = var.k8s_namespace
-  k8s_service_account_name = var.k8s_service_account_name
-  runner_gcs_buckets       = var.runner_gcs_buckets
-  additional_gcp_projects  = var.additional_gcp_projects
+  k8s_namespace                          = var.k8s_namespace
+  k8s_service_account_name               = var.k8s_service_account_name
+  script_runner_k8s_service_account_name = var.script_runner_k8s_service_account_name
+  runner_gcs_buckets                     = var.runner_gcs_buckets
+  additional_gcp_projects                = var.additional_gcp_projects
 
   labels = var.labels
 }
