@@ -29,9 +29,12 @@ dpcAgent:
       proxyHttp: ""
       proxyHttps: ""
       proxyExclude: ""
+      # proxyProtocolHttp: ""
+      # proxyProtocolHttps: ""
       customCertLocation: ""
       extensionLibraryLocation: ""
       externalDriverLocation: ""
+      exportLogs: "true"
       # Azure Key Vault name for storing secrets
       defaultKeyvault: "matillion-runner-kv"
     image:
@@ -105,9 +108,17 @@ networkPolicy:
 
 # Pod security configuration
 podSecurityContext:
-  sysctls:
-    - name: "net.ipv4.tcp_keepalive_time"
-      value: "30"
+  # Additional kernel sysctls to set on the pod (advanced use).
+  sysctls: []
+  # Network Environment Configuration (optional)
+  # Enable OS-level TCP keepalive on the runner pod. Recommended when connecting
+  # to NetSuite (or other sources that drop idle, long-running connections).
+  # Opt-in: disabled by default so the pod's default behaviour is unchanged.
+  tcpKeepAlive:
+    enabled: false
+    keepaliveTime: 90
+    keepaliveInterval: 15
+    keepaliveProbes: 5
 
 # Node selector configuration
 # Example: Schedule pods on specific Azure VM sizes
