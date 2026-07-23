@@ -22,9 +22,12 @@ dpcAgent:
       proxyHttp: ""
       proxyHttps: ""
       proxyExclude: "localhost,127.0.0.1,.cluster.local"
+      # proxyProtocolHttp: ""
+      # proxyProtocolHttps: ""
       customCertLocation: ""
       extensionLibraryLocation: ""
       externalDriverLocation: ""
+      exportLogs: "true"
     image:
       repository: "matillion/agent"  # Use public or local registry
       tag: "latest"

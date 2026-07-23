@@ -29,9 +29,12 @@ dpcAgent:
       proxyHttp: ""
       proxyHttps: ""
       proxyExclude: ""
+      # proxyProtocolHttp: ""
+      # proxyProtocolHttps: ""
       customCertLocation: ""
       extensionLibraryLocation: ""
       externalDriverLocation: ""
+      exportLogs: "true"
       # Azure Key Vault name for storing secrets
       defaultKeyvault: "matillion-runner-kv"
     image:

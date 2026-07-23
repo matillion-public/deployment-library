@@ -12,9 +12,6 @@ variable "namespace" {
   description = "Kubernetes namespace the runner is deployed into. Must match the namespace used in Helm chart installation (default: matillion). The federated credential subject references this namespace for AAD token exchange."
   default     = "matillion"
 }
-  type    = string
-  default = "matillion"
-}
 
 # ServiceAccount names presented by the runner pods. These are fixed by the Helm
 # chart (runner/helm/runner/values.yaml hardcodes `matillion-runner-sa`;
@@ -27,17 +24,11 @@ variable "runner_service_account_name" {
   description = "ServiceAccount name for the runner pod. Must match the serviceAccount.name value in the Helm chart (default: matillion-runner-sa). The federated credential subject references this for workload identity."
   default     = "matillion-runner-sa"
 }
-  type    = string
-  default = "matillion-runner-sa"
-}
 
 variable "script_runner_service_account_name" {
   type        = string
   description = "ServiceAccount name for the script-runner pod. Must match the fullname helper output in the Helm chart (default: matillion-runner-script-runner-sa). The federated credential subject references this for workload identity."
   default     = "matillion-runner-script-runner-sa"
-}
-  type    = string
-  default = "matillion-runner-script-runner-sa"
 }
 
 variable "location" {
