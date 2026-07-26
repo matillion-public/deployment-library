@@ -33,11 +33,21 @@ spec:
       {{- else }}
       automountServiceAccountToken: false
       {{- end }}
+      {{- if or (gt (len .Values.podSecurityContext.sysctls) 0) .Values.podSecurityContext.tcpKeepAlive.enabled }}
       securityContext:
-        {{- with .Values.podSecurityContext.sysctls }}
         sysctls:
+        {{- with .Values.podSecurityContext.sysctls }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- if .Values.podSecurityContext.tcpKeepAlive.enabled }}
+        - name: "net.ipv4.tcp_keepalive_time"
+          value: {{ .Values.podSecurityContext.tcpKeepAlive.keepaliveTime | quote }}
+        - name: "net.ipv4.tcp_keepalive_intvl"
+          value: {{ .Values.podSecurityContext.tcpKeepAlive.keepaliveInterval | quote }}
+        - name: "net.ipv4.tcp_keepalive_probes"
+          value: {{ .Values.podSecurityContext.tcpKeepAlive.keepaliveProbes | quote }}
+        {{- end }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
