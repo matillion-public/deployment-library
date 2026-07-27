@@ -341,9 +341,9 @@ kubectl describe hpa matillion-runner-hpa -n matillion-runner
 
 #### Sizing the HPA target (`averageValue`)
 
-The HPA scales agent pods based on `hpa.metrics.target.averageValue` — the **target number of in-flight tasks per agent pod**, not a CPU/memory percentage.
+The HPA scales runner pods based on `hpa.metrics.target.averageValue` — the **target number of in-flight tasks per runner pod**, not a CPU/memory percentage.
 
-- **Hard cap: 20.** Each agent instance runs a maximum of 20 concurrent tasks. Values above 20 mean the HPA can never reach the target — pods will saturate before the HPA reacts.
+- **Hard cap: 20.** Each runner instance runs a maximum of 20 concurrent tasks. Values above 20 mean the HPA can never reach the target — pods will saturate before the HPA reacts.
 - **Recommended range: 15–17:**
   - `15` — **proactive** (spiky / latency-sensitive workloads, more headroom, higher cost)
   - `16` — **balanced** (recommended default — see `values-gcp.yaml`)

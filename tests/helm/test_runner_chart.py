@@ -373,7 +373,7 @@ class TestScriptRunner:
         assert kinds == {'Deployment', 'Service', 'Secret', 'NetworkPolicy', 'ServiceAccount'}
 
     def test_runner_service_publishes_2222(self, base_values):
-        """Service publishes 2222 (not the privileged :22) so the agent dials the
+        """Service publishes 2222 (not the privileged :22) so the runner dials the
         same port everywhere — Service, container, and the deploy NOTES agree."""
         documents = self.helm_template(self.enabled_values(base_values))
         svc = next(d for d in self._runner_docs(documents) if d['kind'] == 'Service')
@@ -392,7 +392,7 @@ class TestScriptRunner:
         container = dep['spec']['template']['spec']['containers'][0]
         # Runner listens on the non-privileged port 2222 (the image runs as the
         # mtln user end-to-end). The Service publishes the same 2222 and routes
-        # to the named `ssh` port, so the agent dials 2222 everywhere — Service,
+        # to the named `ssh` port, so the runner dials 2222 everywhere — Service,
         # container, and the deploy NOTES all agree.
         assert container['ports'][0]['containerPort'] == 2222
         # securityContext: defence-in-depth — non-root, no privilege escalation,
@@ -481,7 +481,7 @@ class TestScriptRunner:
     def test_agent_netpol_allows_ssh_egress_when_enabled(self, base_values):
         """Agent NetworkPolicy gains a :2222 egress rule to the runner when enabled."""
         documents = self.helm_template(self.enabled_values(base_values))
-        # Pick the agent NetworkPolicy (its name doesn't contain `script-runner`).
+        # Pick the runner NetworkPolicy (its name doesn't contain `script-runner`).
         agent_np = next(
             d for d in documents
             if d.get('kind') == 'NetworkPolicy'
@@ -500,9 +500,9 @@ class TestScriptRunner:
         # NetworkPolicy enforces at the pod level — uses the runner's actual
         # listen port (2222), not the Service's external :22 mapping.
         assert ingress[0]['ports'][0]['port'] == 2222
-        # Ingress selector must match the agent pods' actual `app` label,
+        # Ingress selector must match the runner pods' actual `app` label,
         # otherwise the policy selects nothing and silently fails open
-        # (DPC-49793). Tie the assertion to the rendered agent Deployment
+        # (DPC-49793). Tie the assertion to the rendered runner Deployment
         # rather than a hard-coded suffix so this regresses if either drifts.
         selector = ingress[0]['from'][0]['podSelector']['matchLabels']
         agent = self.find_document_by_kind(documents, 'Deployment', name='-app')

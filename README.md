@@ -276,7 +276,7 @@ helm upgrade --install "$RELEASE_NAME" ../../helm/runner \
 
 ### Sizing the HPA target
 
-The HPA scales on **in-flight tasks per agent pod** (`hpa.metrics.target.averageValue`), not CPU/memory. Each agent instance has a **hard cap of 20 concurrent tasks**, so `averageValue` must be ≤ 20. We recommend **15–17**: `15` for proactive scaling (spiky workloads), `16` as a balanced default, `17` for reactive scaling (steady workloads). See [`runner/helm/README.md`](runner/helm/README.md#sizing-the-hpa-target-averagevalue) for the full explainer.
+The HPA scales on **in-flight tasks per runner pod** (`hpa.metrics.target.averageValue`), not CPU/memory. Each runner instance has a **hard cap of 20 concurrent tasks**, so `averageValue` must be ≤ 20. We recommend **15–17**: `15` for proactive scaling (spiky workloads), `16` as a balanced default, `17` for reactive scaling (steady workloads). See [`runner/helm/README.md`](runner/helm/README.md#sizing-the-hpa-target-averagevalue) for the full explainer.
 
 ## Metrics and Monitoring
 

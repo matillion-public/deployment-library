@@ -77,7 +77,7 @@ Operational reference for cloud engineers and solution architects deploying the 
 ---
 
 ### 6. [Right-sizing Matillion Agents: T-Shirt Sizing Across Orchestrators](./right-sizing-matillion-agents.md)
-**Pick the right CPU/memory for your agent on any cloud, without re-reading every orchestrator's matrix**
+**Pick the right CPU/memory for your runner on any cloud, without re-reading every orchestrator's matrix**
 
 A practical guide to the new `runner_size` / `runnerSize` variable that replaces hand-rolled `cpu`/`memory` values across every deployment template:
 - The four t-shirt sizes (small / medium / large / xlarge) and what each one costs

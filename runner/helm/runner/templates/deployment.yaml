@@ -88,7 +88,7 @@ spec:
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
         {{- if .Values.scriptRunner.enabled }}
-        # Hostname the agent SSHes into for Script Pushdown — the short ClusterIP
+        # Hostname the runner SSHes into for Script Pushdown — the short ClusterIP
         # Service name, which resolves within the release's namespace (kube-dns
         # appends the namespace + cluster suffix at lookup time). Cross-namespace
         # callers would need to use the fully qualified <name>.<ns>.svc.<domain>.

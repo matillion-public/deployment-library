@@ -290,7 +290,7 @@ resource "azurerm_role_assignment" "script_runner_acr_pull" {
 }
 
 # Script runner reads blobs (inputs/artifacts) but never writes back — write-back
-# goes through the agent identity. Reader rather than Contributor is intentional.
+# goes through the runner identity. Reader rather than Contributor is intentional.
 resource "azurerm_role_assignment" "script_runner_storage_blob_data_reader" {
   count                = var.enable_script_runner ? 1 : 0
   scope                = azurerm_storage_account.storage.id

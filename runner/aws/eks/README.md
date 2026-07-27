@@ -317,7 +317,7 @@ config:
 serviceAccount:
   roleArn: "<service-account-role-arn>"
 
-# Pick a t-shirt size — drives the agent container's requests/limits via the
+# Pick a t-shirt size — drives the runner container's requests/limits via the
 # runnerSizes map in values.yaml. Override individual values with
 # dpcAgent.dpcAgent.resources if needed.
 runnerSize: medium  # small | medium | large | xlarge
@@ -368,9 +368,9 @@ helm install matillion-runner . -f values-production.yaml
 
 ### Sizing the HPA target (`averageValue`)
 
-`hpa.metrics.target.averageValue` is the **target number of in-flight tasks per agent pod** the HPA aims for — not a CPU/memory percentage.
+`hpa.metrics.target.averageValue` is the **target number of in-flight tasks per runner pod** the HPA aims for — not a CPU/memory percentage.
 
-- **Hard cap: 20.** Each agent instance runs a maximum of 20 concurrent tasks. Values above 20 mean the HPA can never reach the target — pods will saturate before the HPA reacts.
+- **Hard cap: 20.** Each runner instance runs a maximum of 20 concurrent tasks. Values above 20 mean the HPA can never reach the target — pods will saturate before the HPA reacts.
 - **Recommended range: 15–17:**
   - `15` — **proactive** (spiky / latency-sensitive workloads, more headroom, higher cost)
   - `16` — **balanced** (recommended default)

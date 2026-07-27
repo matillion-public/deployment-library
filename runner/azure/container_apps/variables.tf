@@ -74,7 +74,7 @@ variable "container_acr_id" {
 
 variable "runner_size" {
   type        = string
-  description = "T-shirt size for the agent container: small=1vCPU/4GiB, medium=2vCPU/8GiB, large=4vCPU/16GiB, xlarge=8vCPU/32GiB. Drives container_cpu, container_memory, and workload_profile_type (D4 for small/medium/large, D8 for xlarge)."
+  description = "T-shirt size for the runner container: small=1vCPU/4GiB, medium=2vCPU/8GiB, large=4vCPU/16GiB, xlarge=8vCPU/32GiB. Drives container_cpu, container_memory, and workload_profile_type (D4 for small/medium/large, D8 for xlarge)."
   default     = "small"
   validation {
     condition     = contains(["small", "medium", "large", "xlarge"], var.runner_size)

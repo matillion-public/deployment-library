@@ -67,7 +67,7 @@ create_vpc_endpoints = false  # Set to false if you have existing VPC endpoints 
 deployment_mode = "hybrid"
 
 # Security Group Rules for Agent Access
-# Set to true if you need to allow internet access to agent ports (for public agents)
+# Set to true if you need to allow internet access to runner ports (for public agents)
 # Only needed when using existing security groups that don't allow the required access
 create_internet_access_rules = false
 

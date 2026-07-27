@@ -155,7 +155,7 @@ resource "google_service_account" "runner_workload_sa" {
 }
 
 # Workload Identity binding: Kubernetes SA -> GCP SA
-# Covers both the agent SA and the script-runner SA (same GCP identity, different k8s SAs).
+# Covers both the runner SA and the script-runner SA (same GCP identity, different k8s SAs).
 # The Kubernetes SAs are created by Helm in the namespace matching var.name.
 # depends_on the cluster ensures the Workload Identity pool exists before binding.
 resource "google_service_account_iam_binding" "workload_identity_binding" {

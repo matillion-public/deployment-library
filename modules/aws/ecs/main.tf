@@ -150,10 +150,10 @@ resource "aws_ecs_service" "matillion_dpc_service" {
   desired_count   = var.desired_count
 
   # When Service Connect is enabled, ensure the script-runner is healthy and its
-  # alias is registered in the namespace before launching agent tasks. ECS Service
-  # Connect proxy sidecars snapshot the namespace at task launch — an agent that
+  # alias is registered in the namespace before launching runner tasks. ECS Service
+  # Connect proxy sidecars snapshot the namespace at task launch — a runner that
   # starts before the script-runner alias exists will never resolve "script-runner"
-  # until the agent tasks are redeployed.
+  # until the runner tasks are redeployed.
   depends_on = [aws_ecs_service.script_runner]
 
   capacity_provider_strategy {
@@ -187,7 +187,7 @@ resource "aws_ecs_service" "matillion_dpc_service" {
     rollback = true
   }
 
-  # No service{} block: the agent joins the namespace as a client only (to resolve script-runner:2222
+  # No service{} block: the runner joins the namespace as a client only (to resolve script-runner:2222
   # via Service Connect DNS) without registering itself as a discoverable service.
   service_connect_configuration {
     enabled   = var.enable_script_runner
@@ -213,7 +213,7 @@ resource "aws_security_group" "script_runner_security_group" {
   count = var.enable_script_runner ? 1 : 0
 
   name        = join("-", [var.name, "script-runner-sg"])
-  description = "Allow SSH from agent to maia-script-runner"
+  description = "Allow SSH from runner to maia-script-runner"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -335,7 +335,7 @@ resource "aws_ecs_service" "script_runner" {
   }
 
   # Block until the script-runner alias is live in the namespace before Terraform
-  # considers this resource complete. Without this, the agent service (which depends_on
+  # considers this resource complete. Without this, the runner service (which depends_on
   # this resource) could launch its proxy sidecars before the alias is registered,
   # causing UnknownHostException on every connection attempt.
   wait_for_steady_state = true
