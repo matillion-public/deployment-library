@@ -61,8 +61,8 @@ create_vpc_endpoints = false  # Set to false if you have existing VPC endpoints 
 # create_vpc_endpoints = true
 
 # Deployment Mode - Controls how Lambda connects to agents
-# "public"  - Lambda outside VPC, works with agents that have public IPs
-# "private" - Lambda in VPC, works with agents on private IPs only  
+# "public"  - Lambda outside VPC, works with runners that have public IPs
+# "private" - Lambda in VPC, works with runners on private IPs only  
 # "hybrid"  - Lambda outside VPC, tries both public and private IPs (recommended)
 deployment_mode = "hybrid"
 

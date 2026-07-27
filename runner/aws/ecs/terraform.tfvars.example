@@ -7,7 +7,7 @@ agent_id         = "your-agent-id"
 matillion_region = "eu1"
 client_id        = "your-client-id"
 client_secret    = "your-client-secret"
-# secret_name    = "matillion-oauth-credentials"  # Override for multiple agents per account
+# secret_name    = "matillion-oauth-credentials"  # Override for multiple runners per account
 
 # Agent resources
 desired_count = 2

@@ -85,7 +85,7 @@ A practical guide to the new `runner_size` / `runnerSize` variable that replaces
 - When to override the size map and what's safe to set
 - A repeatable approach for picking the right size from existing telemetry
 
-**Target Audience:** Cloud engineers, platform leads, anyone deploying agents into a new environment
+**Target Audience:** Cloud engineers, platform leads, anyone deploying runners into a new environment
 
 ---
 
