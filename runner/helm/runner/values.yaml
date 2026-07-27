@@ -44,10 +44,10 @@ dpcAgent:
       agentId: <MatillionAgentId>
       matillionRegion: <MatillionRegion>
       # Proxy + library/cert/driver locations default to empty. The Spring
-      # config + the agent's startup script treat empty values as "not set"
+      # config + the runner's startup script treat empty values as "not set"
       # — leaving the previous "<ProxyHttp>" / "<ExtensionLibraryLocation>"
       # placeholder strings as defaults would land them in the container
-      # verbatim, where the agent's Spring proxy parser then crashes on
+      # verbatim, where the runner's Spring proxy parser then crashes on
       # "expected system property https.proxyPort to be a number but got
       # empty string" and the library/cert hydration loops on
       # "Invalid bucket name <ExtensionLibraryLocation>". Customers who
@@ -99,8 +99,8 @@ scriptRunner:
   # Customer-supplied SSH keypair (no template-side keygen). Provide via --set-file:
   #   --set-file scriptRunner.authorizedKeys=./runner_authorized_keys.pub
   #   --set-file scriptRunner.privateKey=./agent_runner_key
-  # authorizedKeys: the public key(s) the runner trusts (the agent's public key).
-  # privateKey:     the agent's private key used to connect to the runner.
+  # authorizedKeys: the public key(s) the runner trusts (the runner's public key).
+  # privateKey:     the runner's private key used to connect to the runner.
   authorizedKeys: ""
   privateKey: ""
   # Optional resources override. Leave empty to derive from scriptRunner.size.
@@ -109,7 +109,7 @@ scriptRunner:
   # disk-fill blast radius to the pod — a runaway script is evicted rather than
   # exhausting node ephemeral storage. Raise if scripts stage large files.
   tmpSizeLimit: 5Gi
-  # Runner's own runtime identity (separate from the agent's). One per cloud:
+  # Runner's own runtime identity (separate from the runner's). One per cloud:
   serviceAccount:
     roleArn: ""              # AWS IRSA role ARN
     clientId: ""             # Azure workload-identity client ID

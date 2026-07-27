@@ -39,7 +39,7 @@ spec:
     ports:
     - protocol: TCP
       port: 443
-  # Custom egress rules (shared with the agent's allow-list)
+  # Custom egress rules (shared with the runner's allow-list)
   {{- if .Values.networkPolicy.additionalEgressRules }}
   {{- toYaml .Values.networkPolicy.additionalEgressRules | nindent 2 }}
   {{- end }}

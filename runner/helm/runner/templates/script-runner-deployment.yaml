@@ -116,7 +116,7 @@ spec:
           mountPath: /tmp
       volumes:
       # Project only the public authorized_keys into the runner — never the
-      # agent's private key.
+      # runner's private key.
       - name: runner-keys
         secret:
           secretName: {{ include "matillion-runner.scriptRunner.fullname" . }}-keys
