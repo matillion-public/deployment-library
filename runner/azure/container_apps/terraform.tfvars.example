@@ -14,7 +14,7 @@ agent_id               = "your-unique-agent-id"
 client_id              = "your-oauth-client-id"
 client_secret          = "your-oauth-client-secret"
 
-# Agent sizing — small (default) | medium | large | xlarge
+# Runner sizing — small (default) | medium | large | xlarge
 # small  = 1 vCPU / 4 GiB   on D4
 # medium = 2 vCPU / 8 GiB   on D4
 # large  = 4 vCPU / 16 GiB  on D4 (whole profile)

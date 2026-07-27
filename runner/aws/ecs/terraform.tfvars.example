@@ -9,7 +9,7 @@ client_id        = "your-client-id"
 client_secret    = "your-client-secret"
 # secret_name    = "matillion-oauth-credentials"  # Override for multiple runners per account
 
-# Agent resources
+# Runner resources
 desired_count = 2
 
 # T-shirt size — small (default) | medium | large | xlarge

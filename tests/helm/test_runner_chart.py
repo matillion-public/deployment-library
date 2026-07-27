@@ -465,7 +465,7 @@ class TestScriptRunner:
     def test_agent_gets_runner_host_when_enabled(self, base_values):
         """Agent container gets MTLN_SCRIPT_RUNNER_HOST pointing at the runner service."""
         documents = self.helm_template(self.enabled_values(base_values))
-        # Agent Deployment is named `<release>-matillion-runner-app` after the PR #80 rename;
+        # Runner Deployment is named `<release>-matillion-runner-app` after the PR #80 rename;
         # the script-runner Deployment ends in `-script-runner`, so `-app` uniquely picks the agent.
         agent = self.find_document_by_kind(documents, 'Deployment', name='-app')
         env = {e['name']: e.get('value') for e in agent['spec']['template']['spec']['containers'][0]['env']}

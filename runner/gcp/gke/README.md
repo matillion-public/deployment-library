@@ -180,7 +180,7 @@ kubectl get hpa -n matillion-runner
 
 ## Configuration Options
 
-### Agent Sizing
+### Runner Sizing
 
 The agent's container resources are set on the helm chart via `runnerSize` (see `agent/helm/README.md`). The Terraform here only stands up the cluster — pick a `machine_type` large enough to host the t-shirt size you plan to install:
 

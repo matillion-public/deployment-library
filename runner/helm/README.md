@@ -149,7 +149,7 @@ replace before installing. Every token below must be set (unless marked optional
 | `<MatillionAgentId>` | Maia agent/runner ID from the runner registration | all |
 | `<MatillionRegion>` | `us1` or `eu1` | all |
 | `<ServiceAccountRoleArn>` | AWS IAM role ARN for IRSA (`arn:aws:iam::<account-id>:role/<role-name>`) | AWS |
-| `<AgentImageRepository>` / `<AgentImageTag>` | Agent image location + tag (e.g. `public.ecr.aws/matillion/etl-agent` / `current`) | all |
+| `<AgentImageRepository>` / `<AgentImageTag>` | Runner image location + tag (e.g. `public.ecr.aws/matillion/etl-agent` / `current`) | all |
 | `<ScriptRunnerImageRepository>` | Script-runner image (e.g. `public.ecr.aws/matillion/maia-script-runner`) — only if `scriptRunner.enabled` | all |
 | `<MaxReplicas>` / `<ScaleUpAverageValue>` | HPA bounds for your workload | all |
 | `<AgentImageDigest>` / `<ScriptRunnerImageDigest>` | *Optional* — pin an immutable digest instead of a tag | all |

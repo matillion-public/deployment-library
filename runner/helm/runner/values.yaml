@@ -3,7 +3,7 @@
 # Useful for CI/CD pipelines: helm upgrade --set applicationImageTag=v1.2.3
 applicationImageTag: ""
 
-# Agent t-shirt size. Drives dpcAgent.dpcAgent.resources via the runnerSizes map below.
+# Runner t-shirt size. Drives dpcAgent.dpcAgent.resources via the runnerSizes map below.
 # Override on the CLI: helm upgrade --set runnerSize=medium
 # small  = 1 vCPU req / 4 GiB,  2 vCPU limit / 4 GiB   (current/legacy default)
 # medium = 2 vCPU req / 8 GiB,  4 vCPU limit / 8 GiB

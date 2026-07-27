@@ -30,7 +30,7 @@ variable "account_id" {
 
 variable "agent_id" {
   type        = string
-  description = "Matillion Agent ID from Matillion runner (Agent) details (API contract field name)"
+  description = "Matillion Runner ID from Matillion runner (Agent) details (API contract field name)"
 }
 
 variable "client_id" {

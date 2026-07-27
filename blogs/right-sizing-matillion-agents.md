@@ -1,4 +1,4 @@
-# Right-sizing Matillion Agents: T-Shirt Sizing Across Orchestrators
+# Right-sizing Matillion Runners: T-Shirt Sizing Across Orchestrators
 
 Picking CPU and memory for a Matillion runner used to mean re-reading three different orchestrator pages every time you stood up a cluster. Fargate has a fixed table of valid `cpu`/`memory` combinations. Azure Container Apps enforces a 1:2 vCPU-to-memory ratio on the Consumption profile and refuses anything else. Kubernetes lets you ask for whatever you want — but if no node has the headroom, your pod sits in `Pending` forever and nothing tells you that's the problem.
 
@@ -118,4 +118,4 @@ One variable, four sizes, every orchestrator. Pick `small` until your telemetry 
 - [Helm chart README](../agent/helm/README.md) — full `runnerSize` / `runnerSizes` reference
 - [AWS ECS template README](../agent/aws/ecs/README.md) — ECS-specific sizing notes
 - [Azure Container Apps template README](../agent/azure/container_apps/README.md) — Container Apps workload-profile mapping
-- [Autoscaling Matillion Agents](./autoscaling-matillion-agents.md) — pairs well with sizing: pick the right per-pod size first, then scale replicas on workload metrics
+- [Autoscaling Matillion Runners](./autoscaling-matillion-agents.md) — pairs well with sizing: pick the right per-pod size first, then scale replicas on workload metrics

@@ -76,7 +76,7 @@ Operational reference for cloud engineers and solution architects deploying the 
 
 ---
 
-### 6. [Right-sizing Matillion Agents: T-Shirt Sizing Across Orchestrators](./right-sizing-matillion-agents.md)
+### 6. [Right-sizing Matillion Runners: T-Shirt Sizing Across Orchestrators](./right-sizing-matillion-agents.md)
 **Pick the right CPU/memory for your runner on any cloud, without re-reading every orchestrator's matrix**
 
 A practical guide to the new `runner_size` / `runnerSize` variable that replaces hand-rolled `cpu`/`memory` values across every deployment template:
@@ -107,7 +107,7 @@ Explore **"Monitoring and Observability"** for comprehensive monitoring strategi
 Read **"Network Requirements for Pulling the Runner Image"** to understand image delivery and network access requirements, including private-mirror patterns for zero-egress environments.
 
 ### Picking the Right Resources?
-Read **"Right-sizing Matillion Agents"** before your first deploy or when you suspect throttling/OOMs. Covers the small/medium/large/xlarge sizes, per-orchestrator constraints, and how to validate the choice from telemetry.
+Read **"Right-sizing Matillion Runners"** before your first deploy or when you suspect throttling/OOMs. Covers the small/medium/large/xlarge sizes, per-orchestrator constraints, and how to validate the choice from telemetry.
 
 ### Security-Focused?
 Review **"Security Best Practices"** for defense-in-depth security implementation.

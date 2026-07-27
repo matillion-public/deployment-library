@@ -4,7 +4,7 @@
 
 cloudProvider: "azure"
 
-# Agent t-shirt size — small | medium | large | xlarge. See values.yaml for the size map.
+# Runner t-shirt size — small | medium | large | xlarge. See values.yaml for the size map.
 # Recommended AKS node sizing: small/medium → Standard_D2s_v5 or larger,
 # large → Standard_D8s_v5, xlarge → Standard_D16s_v5. Always size the node above the
 # request to leave room for kubelet/system pods.

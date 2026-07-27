@@ -158,7 +158,7 @@ data "aws_iam_policy_document" "service_account_assume_role_policy" {
         "system:serviceaccount:matillion:matillion-runner-sa",
         "system:serviceaccount:*:matillion-runner-sa",
         "system:serviceaccount:*:*-script-runner-sa"
-      ] # Agent SA (any namespace) + script-runner SA (any release name / namespace)
+      ] # Runner SA (any namespace) + script-runner SA (any release name / namespace)
     }
 
     condition {

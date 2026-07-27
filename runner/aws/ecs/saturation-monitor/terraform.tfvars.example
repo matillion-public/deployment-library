@@ -1,4 +1,4 @@
-# Example terraform.tfvars for ECS Agent Saturation Monitor
+# Example terraform.tfvars for ECS Runner Saturation Monitor
 
 # Basic configuration
 name = "my-matillion-agent"
@@ -66,7 +66,7 @@ create_vpc_endpoints = false  # Set to false if you have existing VPC endpoints 
 # "hybrid"  - Lambda outside VPC, tries both public and private IPs (recommended)
 deployment_mode = "hybrid"
 
-# Security Group Rules for Agent Access
+# Security Group Rules for Runner Access
 # Set to true if you need to allow internet access to runner ports (for public agents)
 # Only needed when using existing security groups that don't allow the required access
 create_internet_access_rules = false
