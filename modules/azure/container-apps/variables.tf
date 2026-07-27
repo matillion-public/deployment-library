@@ -41,7 +41,7 @@ variable "account_id" {
 
 variable "agent_id" {
   type        = string
-  description = "Matillion agent ID (API contract field name — preserved as `agent_id` because it maps to the AGENT_ID env var consumed by the runner image)"
+  description = "Matillion Agent ID (API contract field name — preserved as `agent_id` because it maps to the AGENT_ID env var consumed by the runner image)"
 }
 
 variable "client_id" {

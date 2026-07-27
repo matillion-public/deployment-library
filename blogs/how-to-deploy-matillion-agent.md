@@ -6,7 +6,7 @@ This comprehensive guide walks you through deploying the Matillion Maia Runner u
 
 Before starting any deployment, ensure you have:
 
-- **Matillion Account**: Runner ID, Account ID, and region information
+- **Matillion Account**: Agent/runner ID, Account ID, and region information
 - **Container Registry Access**: Pull permissions for required images
 - **Target Platform Tools**: Depending on your chosen deployment method
 - **Network Egress to the Runner Image Registry**: AWS deployments pull from `public.ecr.aws/matillion/etl-agent`; Azure deployments pull from `matillion.azurecr.io/cloud-agent`. If you are deploying into a restricted-egress environment (zero-egress, firewall whitelisting, or air-gapped), see [Network Requirements for Pulling the Runner Image](./runner-image-pull-network-requirements.md) and the deployment-specific README for your chosen platform.
@@ -411,7 +411,7 @@ spec:
 ### Issue 1: Runner Not Starting
 **Symptoms**: Pods in CrashLoopBackOff or ECS tasks failing
 **Solutions**:
-- Verify account ID, runner ID, and region configuration
+- Verify account ID, agent/runner ID, and region configuration
 - Check image pull permissions
 - Review container logs for authentication errors
 

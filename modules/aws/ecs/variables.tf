@@ -27,7 +27,7 @@ variable "account_id" {
 }
 
 variable "agent_id" {
-  description = "Matillion agent ID (API contract field name) - This can be acquired from Matillion HUB during the deployment process"
+  description = "Matillion Agent ID (API contract field name) - This can be acquired from Matillion HUB during the deployment process"
   type        = string
 }
 

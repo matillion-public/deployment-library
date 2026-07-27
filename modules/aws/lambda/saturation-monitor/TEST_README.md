@@ -6,7 +6,7 @@ This directory contains comprehensive unit and integration tests for the Lambda 
 
 ### Unit Tests (`test_lambda_function.py`)
 - **Service Discovery**: Tests runner service identification logic
-- **Runner ID Extraction**: Tests extracting runner IDs from task definitions
+- **Agent ID Extraction**: Tests extracting agent IDs from task definitions
 - **Private IP Extraction**: Tests getting private IPs from ECS tasks
 - **Metrics Fetching**: Tests HTTP requests to actuator endpoints
 - **CloudWatch Publishing**: Tests metric publishing to CloudWatch
@@ -86,8 +86,8 @@ xdg-open htmlcov/index.html  # Linux
 - [x] Non-matching service names
 
 ### ✅ Runner Information Extraction
-- [x] Matillion runner ID (API field) from task definition environment variables
-- [x] Matillion runner ID fallback to task ID
+- [x] Matillion agent ID (API field) from task definition environment variables
+- [x] Matillion agent ID fallback to task ID
 - [x] Private IP from ECS task attachments
 - [x] Missing private IP handling
 
