@@ -553,7 +553,7 @@ class TestScriptRunner:
         documents = self.helm_template(values)
         sa = next(d for d in self._runner_docs(documents) if d['kind'] == 'ServiceAccount')
         annotations = sa['metadata']['annotations']
-        # Runner gets its own WI identity, distinct from the agent's.
+        # Runner gets its own WI identity, distinct from the runner's.
         assert annotations['azure.workload.identity/client-id'] == 'runner-wi-client'
         # The SA also carries the workload-identity use label.
         assert sa['metadata']['labels']['azure.workload.identity/use'] == 'true'
@@ -571,5 +571,5 @@ class TestScriptRunner:
         sa = next(d for d in self._runner_docs(documents) if d['kind'] == 'ServiceAccount')
         annotations = sa['metadata']['annotations']
         assert annotations['iam.gke.io/gcp-service-account'] == 'runner-wi@p.iam.gserviceaccount.com'
-        # GCP WI label distinguishes WI-bound SAs (parallels the agent's pattern).
+        # GCP WI label distinguishes WI-bound SAs (parallels the runner's pattern).
         assert sa['metadata']['labels']['app.kubernetes.io/gcp-workload-identity'] == 'true'

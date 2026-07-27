@@ -417,7 +417,7 @@ dpcAgent:
 
 ### Resource Limits
 
-Prefer `runnerSize` (see [Agent t-shirt sizes](#agent-t-shirt-sizes)) over hand-rolling resources:
+Prefer `runnerSize` (see [Runner t-shirt sizes](#agent-t-shirt-sizes)) over hand-rolling resources:
 
 ```yaml
 runnerSize: medium  # 2 vCPU / 8 GiB requests, 4 vCPU / 8 GiB limits

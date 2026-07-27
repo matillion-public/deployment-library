@@ -6,7 +6,7 @@ This directory contains comprehensive unit and integration tests for the Lambda 
 
 ### Unit Tests (`test_lambda_function.py`)
 - **Service Discovery**: Tests runner service identification logic
-- **Agent ID Extraction**: Tests extracting runner IDs from task definitions
+- **Runner ID Extraction**: Tests extracting runner IDs from task definitions
 - **Private IP Extraction**: Tests getting private IPs from ECS tasks
 - **Metrics Fetching**: Tests HTTP requests to actuator endpoints
 - **CloudWatch Publishing**: Tests metric publishing to CloudWatch
