@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository provides multiple deployment methods for the Matillion Data Productivity Cloud (DPC) Runner, supporting **Kubernetes**, **AWS ECS**, **AWS EKS**, **Azure AKS**, **Azure Container Apps**, and **GCP GKE** environments with comprehensive monitoring and observability features.
+This repository provides multiple deployment methods for the Matillion Maia Runner, supporting **Kubernetes**, **AWS ECS**, **AWS EKS**, **Azure AKS**, **Azure Container Apps**, and **GCP GKE** environments with comprehensive monitoring and observability features.
 
 ## Deployment Options
 
@@ -90,10 +90,10 @@ See [Network Requirements for Pulling the Runner Image](./blogs/runner-image-pul
 The solution uses the following Docker images across different deployment methods:
 
 ### Core Application Images
-- **`public.ecr.aws/matillion/etl-agent:current`** - Main Data Productivity Cloud runner image (AWS deployments)
-- **`public.ecr.aws/matillion/etl-agent:stable`** - Stable Data Productivity Cloud runner image (AWS deployments)
-- **`matillion.azurecr.io/cloud-agent:current`** - Main Data Productivity Cloud runner image (Azure deployments)
-- **`matillion.azurecr.io/cloud-agent:stable`** - Stable Data Productivity Cloud runner image (Azure deployments)
+- **`public.ecr.aws/matillion/etl-agent:current`** - Main Maia runner image (AWS deployments)
+- **`public.ecr.aws/matillion/etl-agent:stable`** - Stable Maia runner image (AWS deployments)
+- **`matillion.azurecr.io/cloud-agent:current`** - Main Maia runner image (Azure deployments)
+- **`matillion.azurecr.io/cloud-agent:stable`** - Stable Maia runner image (Azure deployments)
 
 > **Note**: The AWS and Azure container image artifacts are still published under their original `etl-agent` / `cloud-agent` / `dpc-agent` names — those registry paths are part of the Matillion artifact contract. GCP deployments use the `maia-runner` image in Google Artifact Registry.
 
@@ -270,7 +270,7 @@ helm upgrade --install "$RELEASE_NAME" ../../helm/runner \
 ```
 
 ### Components
-- **Runner Container**: Main Matillion DPC Runner (with native Prometheus metrics)
+- **Runner Container**: Main Matillion Maia Runner (with native Prometheus metrics)
 - **HPA**: Horizontal Pod Autoscaler for scaling
 - **Service**: Kubernetes service for internal communication
 
@@ -284,7 +284,7 @@ The HPA scales on **in-flight tasks per agent pod** (`hpa.metrics.target.average
 The runner natively exposes Prometheus-compatible metrics at `/actuator/prometheus`:
 
 - **Runner Status**: Running/Stopped state
-- **Runner Connected**: Connection state to the Data Productivity Cloud
+- **Runner Connected**: Connection state to Maia
 - **Active Tasks**: Number of currently executing tasks
 - **Active Requests**: Number of active API requests
 - **Open Sessions**: Number of open database connections

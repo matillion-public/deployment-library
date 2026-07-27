@@ -1,6 +1,6 @@
 # Why Use the Matillion Runner Deployment Repository?
 
-When it comes to deploying the Matillion Data Productivity Cloud (DPC) Runner in production environments, organizations face numerous challenges around reliability, scalability, security, and observability. The Matillion Runner Deployment repository addresses these critical concerns with a comprehensive, enterprise-ready solution.
+When it comes to deploying the Matillion Maia Runner in production environments, organizations face numerous challenges around reliability, scalability, security, and observability. The Matillion Runner Deployment repository addresses these critical concerns with a comprehensive, enterprise-ready solution.
 
 ## The Challenge: Complex Runner Deployment at Scale
 

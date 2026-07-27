@@ -1,6 +1,6 @@
 # GCP GKE Deployment for Matillion Runner
 
-This directory contains Terraform configurations for deploying the Matillion DPC Runner using Google Kubernetes Engine (GKE) — Google Cloud's managed Kubernetes service.
+This directory contains Terraform configurations for deploying the Matillion Maia Runner using Google Kubernetes Engine (GKE) — Google Cloud's managed Kubernetes service.
 
 ## Overview
 

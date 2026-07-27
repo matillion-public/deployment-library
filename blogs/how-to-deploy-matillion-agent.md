@@ -1,6 +1,6 @@
 # How to Deploy the Matillion Runner: Complete Guide
 
-This comprehensive guide walks you through deploying the Matillion Data Productivity Cloud (DPC) Runner using the five supported methods: Kubernetes with Helm, AWS ECS with Terraform, Azure AKS with Terraform, AWS EKS with Terraform, and Azure Container Instances (ACI) with Terraform.
+This comprehensive guide walks you through deploying the Matillion Maia Runner using the five supported methods: Kubernetes with Helm, AWS ECS with Terraform, Azure AKS with Terraform, AWS EKS with Terraform, and Azure Container Instances (ACI) with Terraform.
 
 ## Prerequisites
 

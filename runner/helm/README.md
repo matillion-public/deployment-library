@@ -1,10 +1,10 @@
 # Matillion Runner Helm Charts
 
-This directory contains Helm charts for deploying the Matillion Data Productivity Cloud (DPC) Runner on Kubernetes with comprehensive monitoring capabilities.
+This directory contains Helm charts for deploying the Matillion Maia Runner on Kubernetes with comprehensive monitoring capabilities.
 
 ## Charts
 
-### `runner/` - Matillion DPC Runner
+### `runner/` - Matillion Maia Runner
 The main Helm chart that deploys the Matillion Runner with native Prometheus metrics support.
 
 ### `prometheus/` - Modular Prometheus Stack  
@@ -143,10 +143,10 @@ replace before installing. Every token below must be set (unless marked optional
 | Placeholder | Where to get it | Applies to |
 |---|---|---|
 | `<CloudProvider>` | `aws`, `azure`, or `gcp` | all |
-| `<AgentClientId>` | OAuth client ID from the DPC agent registration | all |
-| `<AgentClientSecret>` | OAuth client secret from the DPC agent registration | all |
-| `<MatillionAccountId>` | DPC account ID (Hub → account settings) | all |
-| `<MatillionAgentId>` | DPC agent/runner ID from the agent registration | all |
+| `<AgentClientId>` | OAuth client ID from the Maia agent registration | all |
+| `<AgentClientSecret>` | OAuth client secret from the Maia agent registration | all |
+| `<MatillionAccountId>` | Maia account ID (Hub → account settings) | all |
+| `<MatillionAgentId>` | Maia agent/runner ID from the agent registration | all |
 | `<MatillionRegion>` | `us1` or `eu1` | all |
 | `<ServiceAccountRoleArn>` | AWS IAM role ARN for IRSA (`arn:aws:iam::<account-id>:role/<role-name>`) | AWS |
 | `<AgentImageRepository>` / `<AgentImageTag>` | Agent image location + tag (e.g. `public.ecr.aws/matillion/etl-agent` / `current`) | all |

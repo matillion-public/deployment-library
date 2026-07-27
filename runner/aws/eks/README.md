@@ -1,6 +1,6 @@
 # AWS EKS Deployment for Matillion Runner
 
-This directory contains Terraform configurations for deploying the Matillion DPC Runner using Amazon EKS (Elastic Kubernetes Service) - a managed Kubernetes service that provides enterprise-grade security, reliability, and scalability.
+This directory contains Terraform configurations for deploying the Matillion Maia Runner using Amazon EKS (Elastic Kubernetes Service) - a managed Kubernetes service that provides enterprise-grade security, reliability, and scalability.
 
 ## Overview
 

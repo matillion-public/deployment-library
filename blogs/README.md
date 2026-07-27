@@ -1,6 +1,6 @@
 # Matillion Runner Deployment Blog Series
 
-Welcome to the comprehensive blog series covering the Matillion Runner Deployment repository. These articles provide in-depth insights into deploying, scaling, monitoring, and securing Matillion Data Productivity Cloud (DPC) runners in production environments.
+Welcome to the comprehensive blog series covering the Matillion Runner Deployment repository. These articles provide in-depth insights into deploying, scaling, monitoring, and securing Matillion Maia runners in production environments.
 
 ## Blog Articles
 
@@ -117,7 +117,7 @@ Review **"Security Best Practices"** for defense-in-depth security implementatio
 ### Common Requirements
 - Basic understanding of containerization and orchestration
 - Familiarity with your chosen cloud platform (AWS, Azure, or Kubernetes)
-- Access to Matillion DPC account credentials
+- Access to Matillion Maia account credentials
 
 ### Platform-Specific Prerequisites
 - **Kubernetes**: Helm 3.x, kubectl, cluster access
