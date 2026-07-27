@@ -21,7 +21,7 @@ variable "account_id" {
 }
 
 variable "agent_id" {
-  description = "Matillion Runner ID - This can be acquired from Matillion HUB during the deployment process"
+  description = "Matillion Agent ID - This can be acquired from Matillion HUB during the deployment process"
   type        = string
 }
 
@@ -191,7 +191,7 @@ variable "assign_public_ip" {
 }
 
 variable "enable_script_runner" {
-  description = "Whether to deploy the maia-script-runner service alongside the agent. NOTE: toggling this on an existing deployment modifies the runner ECS service and triggers a rolling task replacement."
+  description = "Whether to deploy the maia-script-runner service alongside the agent. NOTE: toggling this on an existing deployment modifies the agent ECS service and triggers a rolling task replacement."
   type        = bool
   default     = false
 }

@@ -373,7 +373,7 @@ class TestScriptRunner:
         assert kinds == {'Deployment', 'Service', 'Secret', 'NetworkPolicy', 'ServiceAccount'}
 
     def test_runner_service_publishes_2222(self, base_values):
-        """Service publishes 2222 (not the privileged :22) so the runner dials the
+        """Service publishes 2222 (not the privileged :22) so the agent dials the
         same port everywhere — Service, container, and the deploy NOTES agree."""
         documents = self.helm_template(self.enabled_values(base_values))
         svc = next(d for d in self._runner_docs(documents) if d['kind'] == 'Service')

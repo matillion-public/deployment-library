@@ -213,7 +213,7 @@ resource "aws_security_group" "script_runner_security_group" {
   count = var.enable_script_runner ? 1 : 0
 
   name        = join("-", [var.name, "script-runner-sg"])
-  description = "Allow SSH from runner to maia-script-runner"
+  description = "Allow SSH from agent to maia-script-runner"
   vpc_id      = var.vpc_id
 
   ingress {
