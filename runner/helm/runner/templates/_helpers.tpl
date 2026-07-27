@@ -100,7 +100,7 @@ Fully qualified name for the Shared Script Runner resources.
 
 {{/*
 Script Runner selector labels — runner selectorLabels plus a component marker so
-NetworkPolicies can target script-runner pods distinctly from runner (runner) pods.
+NetworkPolicies can target script-runner pods distinctly from runner pods.
 */}}
 {{- define "matillion-runner.scriptRunner.selectorLabels" -}}
 {{ include "matillion-runner.selectorLabels" . }}
