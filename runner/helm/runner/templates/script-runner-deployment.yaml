@@ -30,6 +30,7 @@ spec:
       {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
       annotations:
         azure.workload.identity/service-account-token-expiration: {{ quote .Values.azure.workloadIdentity.tokenExpiration }}
+        azure.workload.identity/inject-proxy-sidecar: "true"
       {{- end }}
     spec:
       serviceAccountName: {{ include "matillion-runner.scriptRunner.fullname" . }}-sa
@@ -76,6 +77,12 @@ spec:
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
+        {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "az login --identity"]
+        {{- end }}
         env:
         - name: CLOUD_PROVIDER
           value: {{ include "matillion-runner.cloudProvider" . | upper | quote }}
