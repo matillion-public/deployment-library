@@ -25,6 +25,7 @@ spec:
         prometheus.io/scrape: "true"
         {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
         azure.workload.identity/service-account-token-expiration: {{ quote .Values.azure.workloadIdentity.tokenExpiration }}
+        azure.workload.identity/inject-proxy-sidecar: "true"
         {{- end }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" (include "matillion-runner.fullname" .)) }}
@@ -33,11 +34,21 @@ spec:
       {{- else }}
       automountServiceAccountToken: false
       {{- end }}
+      {{- if or (gt (len .Values.podSecurityContext.sysctls) 0) .Values.podSecurityContext.tcpKeepAlive.enabled }}
       securityContext:
-        {{- with .Values.podSecurityContext.sysctls }}
         sysctls:
+        {{- with .Values.podSecurityContext.sysctls }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- if .Values.podSecurityContext.tcpKeepAlive.enabled }}
+        - name: "net.ipv4.tcp_keepalive_time"
+          value: {{ .Values.podSecurityContext.tcpKeepAlive.keepaliveTime | quote }}
+        - name: "net.ipv4.tcp_keepalive_intvl"
+          value: {{ .Values.podSecurityContext.tcpKeepAlive.keepaliveInterval | quote }}
+        - name: "net.ipv4.tcp_keepalive_probes"
+          value: {{ .Values.podSecurityContext.tcpKeepAlive.keepaliveProbes | quote }}
+        {{- end }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -171,6 +182,12 @@ spec:
         - containerPort: 8080
           name: metrics
         securityContext: {}
+        {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "az login --identity"]
+        {{- end }}
         resources:
           {{- include "matillion-runner.resources" . | nindent 10 }}
       volumes:
