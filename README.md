@@ -152,7 +152,10 @@ For further details reference: [helm readme](https://github.com/matillion-public
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd deployment-library/runner/aws/ecs
+cd deployment-library
+
+# Navigate to ECS deployment
+cd runner/aws/ecs
 
 # Create your terraform.tfvars file
 cp terraform.tfvars.example terraform.tfvars
@@ -242,17 +245,6 @@ cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform plan
 terraform apply
-
-# Configure kubectl
-gcloud container clusters get-credentials $(terraform output -raw cluster_name) \
-  --region <region> --project <project-id>
-
-# Deploy the runner with Helm
-RELEASE_NAME="matillion-runner"
-kubectl create namespace "$RELEASE_NAME"
-helm upgrade --install "$RELEASE_NAME" ../../helm/runner \
-  --namespace "$RELEASE_NAME" \
-  -f ../../helm/runner/values-gcp.yaml
 ```
 
 ## Architecture

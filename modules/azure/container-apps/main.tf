@@ -256,6 +256,30 @@ resource "azurerm_container_app" "app" {
           value = var.external_driver_location
         }
       }
+
+      dynamic "env" {
+        for_each = var.export_logs != "" ? [1] : []
+        content {
+          name  = "EXPORT_LOGS"
+          value = var.export_logs
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.proxy_protocol_http != "" ? [1] : []
+        content {
+          name  = "PROXY_PROTOCOL_HTTP"
+          value = var.proxy_protocol_http
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.proxy_protocol_https != "" ? [1] : []
+        content {
+          name  = "PROXY_PROTOCOL_HTTPS"
+          value = var.proxy_protocol_https
+        }
+      }
     }
   }
 

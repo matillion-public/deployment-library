@@ -186,3 +186,22 @@ variable "external_driver_location" {
   description = "Optional Azure Blob Storage URL for external JDBC drivers. Set on the runner container only. Leave empty to omit."
   default     = ""
 }
+
+variable "export_logs" {
+  type        = string
+  description = "Optional flag to enable log export from the runner container to Matillion. Set to 'true' to enable, 'false' to disable. Leave empty to omit."
+  default     = "true"
+}
+
+variable "proxy_protocol_http" {
+  type        = string
+  description = "Optional proxy protocol for HTTP traffic (e.g. 'http'). Leave empty to omit."
+  default     = ""
+}
+
+variable "proxy_protocol_https" {
+  type        = string
+  description = "Optional proxy protocol for HTTPS traffic (e.g. 'https'). Leave empty to omit."
+  default     = ""
+}
+

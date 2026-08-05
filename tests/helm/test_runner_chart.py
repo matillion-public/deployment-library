@@ -67,6 +67,64 @@ class TestRunnerChart:
                     return doc
         return None
 
+    def _pod_sysctls(self, values):
+        """Return the pod-level securityContext.sysctls list from the Deployment."""
+        documents = self.helm_template(values)
+        deployment = self.find_document_by_kind(documents, 'Deployment')
+        assert deployment is not None, "Deployment not rendered"
+        pod_spec = deployment['spec']['template']['spec']
+        return pod_spec.get('securityContext', {}).get('sysctls') or []
+
+    def test_tcp_keepalive_disabled_by_default(self, base_values):
+        """TCP keepalive is opt-in: no keepalive sysctls unless explicitly enabled."""
+        names = [s['name'] for s in self._pod_sysctls(base_values)]
+        assert 'net.ipv4.tcp_keepalive_time' not in names
+        assert 'net.ipv4.tcp_keepalive_intvl' not in names
+        assert 'net.ipv4.tcp_keepalive_probes' not in names
+
+    def test_tcp_keepalive_enabled_renders_sysctls(self, base_values):
+        """Enabling the opt-in toggle renders the three keepalive sysctls."""
+        values = dict(base_values)
+        values['podSecurityContext'] = {
+            'sysctls': [],
+            'tcpKeepAlive': {
+                'enabled': True,
+                'keepaliveTime': 90,
+                'keepaliveInterval': 15,
+                'keepaliveProbes': 5,
+            },
+        }
+        by_name = {s['name']: s['value'] for s in self._pod_sysctls(values)}
+        assert by_name.get('net.ipv4.tcp_keepalive_time') == '90'
+        assert by_name.get('net.ipv4.tcp_keepalive_intvl') == '15'
+        assert by_name.get('net.ipv4.tcp_keepalive_probes') == '5'
+
+    def test_security_context_omitted_when_both_disabled(self, base_values):
+        """The pod-level securityContext must be omitted entirely when neither
+        generic sysctls nor the keepalive toggle are set — an empty
+        `securityContext: {}` (or a bare `sysctls:` key) is a needless diff from
+        the pod's default and, on some admission controllers, a policy trip.
+        Regression guard for the deployment.yaml guard condition."""
+        documents = self.helm_template(base_values)
+        deployment = self.find_document_by_kind(documents, 'Deployment')
+        assert deployment is not None, "Deployment not rendered"
+        pod_spec = deployment['spec']['template']['spec']
+        assert 'securityContext' not in pod_spec, (
+            "securityContext should be omitted when no sysctls and keepalive is "
+            f"disabled, got: {pod_spec.get('securityContext')!r}"
+        )
+
+    def test_security_context_rendered_for_generic_sysctls_only(self, base_values):
+        """A generic sysctl (keepalive still disabled) renders securityContext
+        with just that sysctl — the two guard operands are independent."""
+        values = dict(base_values)
+        values['podSecurityContext'] = {
+            'sysctls': [{'name': 'net.core.somaxconn', 'value': '1024'}],
+        }
+        by_name = {s['name']: s['value'] for s in self._pod_sysctls(values)}
+        assert by_name.get('net.core.somaxconn') == '1024'
+        assert 'net.ipv4.tcp_keepalive_time' not in by_name
+
     def test_deployment_has_main_container(self, base_values):
         """Test that deployment has the main runner container"""
         documents = self.helm_template(base_values)
