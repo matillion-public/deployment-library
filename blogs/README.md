@@ -1,6 +1,6 @@
 # Matillion Runner Deployment Blog Series
 
-Welcome to the comprehensive blog series covering the Matillion Runner Deployment repository. These articles provide in-depth insights into deploying, scaling, monitoring, and securing Matillion Data Productivity Cloud (DPC) runners in production environments.
+Welcome to the comprehensive blog series covering the Matillion Runner Deployment repository. These articles provide in-depth insights into deploying, scaling, monitoring, and securing Matillion Maia runners in production environments.
 
 ## Blog Articles
 
@@ -76,8 +76,8 @@ Operational reference for cloud engineers and solution architects deploying the 
 
 ---
 
-### 6. [Right-sizing Matillion Agents: T-Shirt Sizing Across Orchestrators](./right-sizing-matillion-agents.md)
-**Pick the right CPU/memory for your agent on any cloud, without re-reading every orchestrator's matrix**
+### 6. [Right-sizing Matillion Runners: T-Shirt Sizing Across Orchestrators](./right-sizing-matillion-agents.md)
+**Pick the right CPU/memory for your runner on any cloud, without re-reading every orchestrator's matrix**
 
 A practical guide to the new `runner_size` / `runnerSize` variable that replaces hand-rolled `cpu`/`memory` values across every deployment template:
 - The four t-shirt sizes (small / medium / large / xlarge) and what each one costs
@@ -85,7 +85,7 @@ A practical guide to the new `runner_size` / `runnerSize` variable that replaces
 - When to override the size map and what's safe to set
 - A repeatable approach for picking the right size from existing telemetry
 
-**Target Audience:** Cloud engineers, platform leads, anyone deploying agents into a new environment
+**Target Audience:** Cloud engineers, platform leads, anyone deploying runners into a new environment
 
 ---
 
@@ -107,7 +107,7 @@ Explore **"Monitoring and Observability"** for comprehensive monitoring strategi
 Read **"Network Requirements for Pulling the Runner Image"** to understand image delivery and network access requirements, including private-mirror patterns for zero-egress environments.
 
 ### Picking the Right Resources?
-Read **"Right-sizing Matillion Agents"** before your first deploy or when you suspect throttling/OOMs. Covers the small/medium/large/xlarge sizes, per-orchestrator constraints, and how to validate the choice from telemetry.
+Read **"Right-sizing Matillion Runners"** before your first deploy or when you suspect throttling/OOMs. Covers the small/medium/large/xlarge sizes, per-orchestrator constraints, and how to validate the choice from telemetry.
 
 ### Security-Focused?
 Review **"Security Best Practices"** for defense-in-depth security implementation.
@@ -117,7 +117,7 @@ Review **"Security Best Practices"** for defense-in-depth security implementatio
 ### Common Requirements
 - Basic understanding of containerization and orchestration
 - Familiarity with your chosen cloud platform (AWS, Azure, or Kubernetes)
-- Access to Matillion DPC account credentials
+- Access to Matillion Maia account credentials
 
 ### Platform-Specific Prerequisites
 - **Kubernetes**: Helm 3.x, kubectl, cluster access

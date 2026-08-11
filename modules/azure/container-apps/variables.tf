@@ -41,7 +41,7 @@ variable "account_id" {
 
 variable "agent_id" {
   type        = string
-  description = "Matillion Agent ID (API contract field name — preserved as `agent_id` because it maps to the AGENT_ID env var consumed by the runner image)"
+  description = "Matillion runner/agent ID (API contract field name — preserved as `agent_id` because it maps to the AGENT_ID env var consumed by the runner image)"
 }
 
 variable "client_id" {
@@ -85,7 +85,7 @@ variable "container_acr_id" {
 
 variable "runner_size" {
   type        = string
-  description = "T-shirt size for the agent container: small=1vCPU/4GiB, medium=2vCPU/8GiB, large=4vCPU/16GiB, xlarge=8vCPU/32GiB. Drives container_cpu, container_memory, and workload_profile_type (D4 for small/medium/large, D8 for xlarge)."
+  description = "T-shirt size for the runner container: small=1vCPU/4GiB, medium=2vCPU/8GiB, large=4vCPU/16GiB, xlarge=8vCPU/32GiB. Drives container_cpu, container_memory, and workload_profile_type (D4 for small/medium/large, D8 for xlarge)."
   default     = "small"
   validation {
     condition     = contains(["small", "medium", "large", "xlarge"], var.runner_size)
@@ -131,7 +131,7 @@ variable "zone_redundancy_enabled" {
 
 variable "enable_script_runner" {
   type        = bool
-  description = "Deploy the optional shared script runner Container App alongside the agent"
+  description = "Deploy the optional shared script runner Container App alongside the runner"
   default     = false
 }
 
@@ -177,5 +177,23 @@ variable "extension_library_location" {
 variable "external_driver_location" {
   type        = string
   description = "Optional Azure Blob Storage URL for external JDBC drivers. Set on the runner container only. Leave empty to omit."
+  default     = ""
+}
+
+variable "export_logs" {
+  type        = string
+  description = "Optional flag to enable log export from the runner container to Matillion. Set to 'true' to enable, 'false' to disable. Leave empty to omit."
+  default     = "true"
+}
+
+variable "proxy_protocol_http" {
+  type        = string
+  description = "Optional proxy protocol for HTTP traffic (e.g. 'http'). Leave empty to omit."
+  default     = ""
+}
+
+variable "proxy_protocol_https" {
+  type        = string
+  description = "Optional proxy protocol for HTTPS traffic (e.g. 'https'). Leave empty to omit."
   default     = ""
 }
