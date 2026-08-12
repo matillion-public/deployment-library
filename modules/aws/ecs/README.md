@@ -44,7 +44,7 @@ module "ecs" {
 |------|-------------|------|---------|----------|
 | name | Name for the ECS Fargate cluster | string | "data-insights" | no |
 | account_id | Matillion account ID | string | n/a | yes |
-| agent_id | Matillion Agent ID (API contract field name) | string | n/a | yes |
+| agent_id | Matillion runner/agent ID (API contract field name) | string | n/a | yes |
 | matillion_region | Matillion designer region | string | "eu1" | no |
 | matillion_environment | Matillion environment | string | "" | no |
 | region | AWS region | string | n/a | yes |

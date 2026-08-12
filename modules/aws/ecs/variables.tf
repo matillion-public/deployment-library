@@ -27,7 +27,7 @@ variable "account_id" {
 }
 
 variable "agent_id" {
-  description = "Matillion Agent ID (API contract field name) - This can be acquired from Matillion HUB during the deployment process"
+  description = "Matillion runner/agent ID (API contract field name) - This can be acquired from Matillion HUB during the deployment process"
   type        = string
 }
 
@@ -179,7 +179,7 @@ variable "tags" {
 }
 
 variable "enable_script_runner" {
-  description = "Whether to deploy the maia-script-runner service alongside the agent. Enables Service Connect on both services. NOTE: toggling this on an existing deployment modifies the agent ECS service and triggers a rolling task replacement. IMPORTANT: ECS Service Connect proxy sidecars snapshot the namespace at task launch — if the script-runner alias/port/topology ever changes after the agent tasks are running, the agent tasks must be redeployed to pick up the new alias. This is inherent to Service Connect and cannot be worked around in Terraform."
+  description = "Whether to deploy the maia-script-runner service alongside the runner. Enables Service Connect on both services. NOTE: toggling this on an existing deployment modifies the runner ECS service and triggers a rolling task replacement. IMPORTANT: ECS Service Connect proxy sidecars snapshot the namespace at task launch — if the script-runner alias/port/topology ever changes after the runner tasks are running, the runner tasks must be redeployed to pick up the new alias. This is inherent to Service Connect and cannot be worked around in Terraform."
   type        = bool
   default     = false
 }

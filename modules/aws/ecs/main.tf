@@ -149,11 +149,8 @@ resource "aws_ecs_service" "matillion_dpc_service" {
   task_definition = aws_ecs_task_definition.matillion_dpc_runner.arn
   desired_count   = var.desired_count
 
-  # When Service Connect is enabled, ensure the script-runner is healthy and its
-  # alias is registered in the namespace before launching agent tasks. ECS Service
-  # Connect proxy sidecars snapshot the namespace at task launch — an agent that
-  # starts before the script-runner alias exists will never resolve "script-runner"
-  # until the agent tasks are redeployed.
+  # Ensure the script runner service exists (and has registered its Cloud Map A record)
+  # before launching runner tasks, so "script-runner.<namespace>" resolves on first connect.
   depends_on = [aws_ecs_service.script_runner]
 
   capacity_provider_strategy {
@@ -187,12 +184,9 @@ resource "aws_ecs_service" "matillion_dpc_service" {
     rollback = true
   }
 
-  # No service{} block: the agent joins the namespace as a client only (to resolve script-runner:2222
-  # via Service Connect DNS) without registering itself as a discoverable service.
-  service_connect_configuration {
-    enabled   = var.enable_script_runner
-    namespace = var.enable_script_runner ? aws_service_discovery_http_namespace.cluster_namespace[0].arn : null
-  }
+  # The runner resolves the shared script runner via the Route 53 A record published by AWS Cloud Map
+  # Service Discovery (aws_service_discovery_service.script_runner), so no Service Connect client proxy
+  # is required in the runner task.
   tags = merge(
     var.tags,
     {
@@ -203,17 +197,41 @@ resource "aws_ecs_service" "matillion_dpc_service" {
 
 # ── Script runner resources (enable_script_runner = true) ──────────────────────
 
-resource "aws_service_discovery_http_namespace" "cluster_namespace" {
+resource "aws_service_discovery_private_dns_namespace" "cluster_namespace" {
   count = var.enable_script_runner ? 1 : 0
   name  = join("-", [var.name, "service-connect"])
+  vpc   = var.vpc_id
   tags  = var.tags
+}
+
+# Cloud Map Service Discovery publishes a Route 53 A record (script-runner.<namespace>) that tracks
+# the runner task ENI across replacement, so the endpoint resolves via plain DNS from anywhere in the
+# VPC without depending on a Service Connect Envoy proxy being live in the resolving task.
+resource "aws_service_discovery_service" "script_runner" {
+  count = var.enable_script_runner ? 1 : 0
+  name  = "script-runner"
+
+  dns_config {
+    namespace_id   = aws_service_discovery_private_dns_namespace.cluster_namespace[0].id
+    routing_policy = "MULTIVALUE"
+    dns_records {
+      type = "A"
+      ttl  = 15
+    }
+  }
+
+  health_check_custom_config {
+    failure_threshold = 1
+  }
+
+  tags = var.tags
 }
 
 resource "aws_security_group" "script_runner_security_group" {
   count = var.enable_script_runner ? 1 : 0
 
   name        = join("-", [var.name, "script-runner-sg"])
-  description = "Allow SSH from agent to maia-script-runner"
+  description = "Allow SSH from runner to maia-script-runner"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -322,22 +340,13 @@ resource "aws_ecs_service" "script_runner" {
     rollback = true
   }
 
-  service_connect_configuration {
-    enabled   = true
-    namespace = aws_service_discovery_http_namespace.cluster_namespace[0].arn
-    service {
-      port_name = "ssh"
-      client_alias {
-        dns_name = "script-runner"
-        port     = 2222
-      }
-    }
+  service_registries {
+    registry_arn = aws_service_discovery_service.script_runner[0].arn
   }
 
-  # Block until the script-runner alias is live in the namespace before Terraform
-  # considers this resource complete. Without this, the agent service (which depends_on
-  # this resource) could launch its proxy sidecars before the alias is registered,
-  # causing UnknownHostException on every connection attempt.
+  # Block until the script runner is steady and has registered its Cloud Map A record before Terraform
+  # considers this resource complete, so the runner service (which depends_on this resource) can
+  # resolve script-runner.<namespace> on first connect.
   wait_for_steady_state = true
 
   tags = merge(var.tags, {

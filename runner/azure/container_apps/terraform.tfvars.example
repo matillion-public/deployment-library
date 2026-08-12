@@ -13,6 +13,9 @@ account_id             = "your-matillion-account-id"
 agent_id               = "your-unique-agent-id"
 client_id              = "your-oauth-client-id"
 client_secret          = "your-oauth-client-secret"
+export_logs            = "true"
+# proxy_protocol_http  = "http"
+# proxy_protocol_https = "https"
 
 # Agent sizing — small (default) | medium | large | xlarge
 # small  = 1 vCPU / 4 GiB   on D4

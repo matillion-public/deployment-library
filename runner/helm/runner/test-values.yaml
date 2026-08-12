@@ -16,10 +16,13 @@ dpcAgent:
       proxyHttp: ""
       proxyHttps: ""
       proxyExclude: ""
+      # proxyProtocolHttp: ""
+      # proxyProtocolHttps: ""
       customCertLocation: ""
       # Extension settings
       extensionLibraryLocation: ""
       externalDriverLocation: ""
+      exportLogs: "true"
     image:
       repository: "public.ecr.aws/matillion/etl-agent"
       tag: "current"
