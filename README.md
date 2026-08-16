@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository provides multiple deployment methods for the Matillion Data Productivity Cloud (DPC) Runner, supporting **Kubernetes**, **AWS ECS**, **AWS EKS**, **Azure AKS**, **Azure Container Apps**, and **GCP GKE** environments with comprehensive monitoring and observability features.
+This repository provides multiple deployment methods for the Matillion Maia Runner, supporting **Kubernetes**, **AWS ECS**, **AWS EKS**, **Azure AKS**, **Azure Container Apps**, and **GCP GKE** environments with comprehensive monitoring and observability features.
 
 ## Deployment Options
 
@@ -90,10 +90,10 @@ See [Network Requirements for Pulling the Runner Image](./blogs/runner-image-pul
 The solution uses the following Docker images across different deployment methods:
 
 ### Core Application Images
-- **`public.ecr.aws/matillion/etl-agent:current`** - Main Data Productivity Cloud runner image (AWS deployments)
-- **`public.ecr.aws/matillion/etl-agent:stable`** - Stable Data Productivity Cloud runner image (AWS deployments)
-- **`matillion.azurecr.io/cloud-agent:current`** - Main Data Productivity Cloud runner image (Azure deployments)
-- **`matillion.azurecr.io/cloud-agent:stable`** - Stable Data Productivity Cloud runner image (Azure deployments)
+- **`public.ecr.aws/matillion/etl-agent:current`** - Main Maia runner image (AWS deployments)
+- **`public.ecr.aws/matillion/etl-agent:stable`** - Stable Maia runner image (AWS deployments)
+- **`matillion.azurecr.io/cloud-agent:current`** - Main Maia runner image (Azure deployments)
+- **`matillion.azurecr.io/cloud-agent:stable`** - Stable Maia runner image (Azure deployments)
 
 > **Note**: The AWS and Azure container image artifacts are still published under their original `etl-agent` / `cloud-agent` / `dpc-agent` names — those registry paths are part of the Matillion artifact contract. GCP deployments use the `maia-runner` image in Google Artifact Registry.
 
@@ -152,7 +152,10 @@ For further details reference: [helm readme](https://github.com/matillion-public
 ```bash
 # Clone the repository
 git clone <repository_url>
-cd deployment-library/runner/aws/ecs
+cd deployment-library
+
+# Navigate to ECS deployment
+cd runner/aws/ecs
 
 # Create your terraform.tfvars file
 cp terraform.tfvars.example terraform.tfvars
@@ -242,17 +245,6 @@ cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform plan
 terraform apply
-
-# Configure kubectl
-gcloud container clusters get-credentials $(terraform output -raw cluster_name) \
-  --region <region> --project <project-id>
-
-# Deploy the runner with Helm
-RELEASE_NAME="matillion-runner"
-kubectl create namespace "$RELEASE_NAME"
-helm upgrade --install "$RELEASE_NAME" ../../helm/runner \
-  --namespace "$RELEASE_NAME" \
-  -f ../../helm/runner/values-gcp.yaml
 ```
 
 ## Architecture
@@ -270,13 +262,13 @@ helm upgrade --install "$RELEASE_NAME" ../../helm/runner \
 ```
 
 ### Components
-- **Runner Container**: Main Matillion DPC Runner (with native Prometheus metrics)
+- **Runner Container**: Main Matillion Maia Runner (with native Prometheus metrics)
 - **HPA**: Horizontal Pod Autoscaler for scaling
 - **Service**: Kubernetes service for internal communication
 
 ### Sizing the HPA target
 
-The HPA scales on **in-flight tasks per agent pod** (`hpa.metrics.target.averageValue`), not CPU/memory. Each agent instance has a **hard cap of 20 concurrent tasks**, so `averageValue` must be ≤ 20. We recommend **15–17**: `15` for proactive scaling (spiky workloads), `16` as a balanced default, `17` for reactive scaling (steady workloads). See [`runner/helm/README.md`](runner/helm/README.md#sizing-the-hpa-target-averagevalue) for the full explainer.
+The HPA scales on **in-flight tasks per runner pod** (`hpa.metrics.target.averageValue`), not CPU/memory. Each runner instance has a **hard cap of 20 concurrent tasks**, so `averageValue` must be ≤ 20. We recommend **15–17**: `15` for proactive scaling (spiky workloads), `16` as a balanced default, `17` for reactive scaling (steady workloads). See [`runner/helm/README.md`](runner/helm/README.md#sizing-the-hpa-target-averagevalue) for the full explainer.
 
 ## Metrics and Monitoring
 
@@ -284,7 +276,7 @@ The HPA scales on **in-flight tasks per agent pod** (`hpa.metrics.target.average
 The runner natively exposes Prometheus-compatible metrics at `/actuator/prometheus`:
 
 - **Runner Status**: Running/Stopped state
-- **Runner Connected**: Connection state to the Data Productivity Cloud
+- **Runner Connected**: Connection state to Maia
 - **Active Tasks**: Number of currently executing tasks
 - **Active Requests**: Number of active API requests
 - **Open Sessions**: Number of open database connections

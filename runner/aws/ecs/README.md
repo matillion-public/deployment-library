@@ -1,6 +1,6 @@
 # AWS ECS Deployment for Matillion Runner
 
-This directory contains Terraform configurations for deploying the Matillion DPC Runner using AWS ECS (Elastic Container Service) with Fargate - a serverless compute engine for containers.
+This directory contains Terraform configurations for deploying the Matillion Maia Runner using AWS ECS (Elastic Container Service) with Fargate - a serverless compute engine for containers.
 
 ## Overview
 

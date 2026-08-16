@@ -242,7 +242,7 @@ There is also no Microsoft-supported way for an ACR owner to expose their regist
 
 ## Bundled Prometheus images (Helm-based deployments only)
 
-If you install the optional Prometheus monitoring chart at `agent/helm/prometheus`, your cluster also pulls third-party images from public registries other than the Runner image source:
+If you install the optional Prometheus monitoring chart at `runner/helm/prometheus`, your cluster also pulls third-party images from public registries other than the Runner image source:
 
 | Image | Default registry | Notes |
 |---|---|---|
@@ -257,7 +257,7 @@ The same egress decision tree applies:
 - **Open or whitelisted egress:** permit outbound HTTPS to `docker.io` / `registry-1.docker.io` (and Docker Hub's CDN: `*.cloudflare.docker.com` and `production.cloudflare.docker.com`) and to `gcr.io` (and `storage.googleapis.com` for layer downloads). Confirm exact endpoints from the registry providers' own documentation, as both have evolved over time.
 - **Zero or restricted egress:** mirror these images into the same customer-managed private registry that hosts your Runner image, then override the Helm chart's image references for each component.
 
-The Prometheus Helm chart at `agent/helm/prometheus` exposes image-repository values that can be overridden in your values file. If you are mirroring the Runner image into a private registry for a zero-egress deployment, plan to mirror these images at the same time so the full stack pulls from a single internal source.
+The Prometheus Helm chart at `runner/helm/prometheus` exposes image-repository values that can be overridden in your values file. If you are mirroring the Runner image into a private registry for a zero-egress deployment, plan to mirror these images at the same time so the full stack pulls from a single internal source.
 
 > **Note:** Docker Hub also enforces anonymous pull rate limits that can affect production clusters during scale events even when egress is open. Mirroring to a private registry is a good practice regardless of egress posture for that reason.
 

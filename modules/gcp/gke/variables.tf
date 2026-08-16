@@ -80,7 +80,7 @@ variable "labels" {
 
 variable "k8s_namespace" {
   type        = string
-  description = "Kubernetes namespace the Helm chart is deployed into. Defaults to var.name."
+  description = "Kubernetes namespace the Helm chart is deployed into. Defaults to \"matillion\"."
   default     = ""
 }
 

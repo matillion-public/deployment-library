@@ -44,10 +44,10 @@ dpcAgent:
       agentId: <MatillionAgentId>
       matillionRegion: <MatillionRegion>
       # Proxy + library/cert/driver locations default to empty. The Spring
-      # config + the agent's startup script treat empty values as "not set"
+      # config + the runner's startup script treat empty values as "not set"
       # — leaving the previous "<ProxyHttp>" / "<ExtensionLibraryLocation>"
       # placeholder strings as defaults would land them in the container
-      # verbatim, where the agent's Spring proxy parser then crashes on
+      # verbatim, where the runner's Spring proxy parser then crashes on
       # "expected system property https.proxyPort to be a number but got
       # empty string" and the library/cert hydration loops on
       # "Invalid bucket name <ExtensionLibraryLocation>". Customers who
@@ -55,9 +55,12 @@ dpcAgent:
       proxyHttp: ""
       proxyHttps: ""
       proxyExclude: ""
+      # proxyProtocolHttp: ""
+      # proxyProtocolHttps: ""
       customCertLocation: ""
       extensionLibraryLocation: ""
       externalDriverLocation: ""
+      exportLogs: "true"
       # defaultKeyvault: <KeyVaultName>   # Optional: only required for Azure
       # defaultGcpProject: <GcpProjectId> # Optional: only required for GCP
       # matillionEnv: ""                  # Optional: set to "dev" for non-production environments
@@ -78,7 +81,7 @@ dpcAgent:
   replicas: 2
 
 # Shared Script Runner (opt-in). When enabled, deploys a separate runner pod the
-# agent SSHes into for Script Pushdown (bash / python). Disabled by default —
+# runner SSHes into for Script Pushdown (bash / python). Disabled by default —
 # zero new resources rendered. See DPC-47328 / design §5.2.
 scriptRunner:
   enabled: false
@@ -99,8 +102,8 @@ scriptRunner:
   # Customer-supplied SSH keypair (no template-side keygen). Provide via --set-file:
   #   --set-file scriptRunner.authorizedKeys=./runner_authorized_keys.pub
   #   --set-file scriptRunner.privateKey=./agent_runner_key
-  # authorizedKeys: the public key(s) the runner trusts (the agent's public key).
-  # privateKey:     the agent's private key used to connect to the runner.
+  # authorizedKeys: the public key(s) the script runner trusts (the Maia runner's public key).
+  # privateKey:     the Maia runner's private key used to connect to the script runner.
   authorizedKeys: ""
   privateKey: ""
   # Optional resources override. Leave empty to derive from scriptRunner.size.
@@ -109,7 +112,7 @@ scriptRunner:
   # disk-fill blast radius to the pod — a runaway script is evicted rather than
   # exhausting node ephemeral storage. Raise if scripts stage large files.
   tmpSizeLimit: 5Gi
-  # Runner's own runtime identity (separate from the agent's). One per cloud:
+  # Script runner's own runtime identity (separate from the Maia runner's). One per cloud:
   serviceAccount:
     roleArn: ""              # AWS IRSA role ARN
     clientId: ""             # Azure workload-identity client ID
@@ -136,7 +139,7 @@ hpa:
   minReplicas: 2
   metrics:
     target:
-      # Target in-flight tasks per agent pod. Each agent instance can run a
+      # Target in-flight tasks per runner pod. Each runner instance can run a
       # maximum of 20 concurrent tasks, so this value must not exceed 20.
       # Recommended range: 15-17 (15 = more proactive scaling for spiky
       # workloads, 17 = more reactive scaling for steadier workloads).
@@ -179,9 +182,17 @@ networkPolicy:
 
 # Pod security configuration
 podSecurityContext:
-  sysctls:
-    - name: "net.ipv4.tcp_keepalive_time"
-      value: "30"
+  # Additional kernel sysctls to set on the pod (advanced use).
+  sysctls: []
+  # Network Environment Configuration (optional)
+  # Enable OS-level TCP keepalive on the runner pod. Recommended when connecting
+  # to NetSuite (or other sources that drop idle, long-running connections).
+  # Opt-in: disabled by default so the pod's default behaviour is unchanged.
+  tcpKeepAlive:
+    enabled: false
+    keepaliveTime: 90
+    keepaliveInterval: 15
+    keepaliveProbes: 5
 
 # Node selector configuration
 # Optional: specify node labels to schedule pods on specific nodes

@@ -23,7 +23,7 @@ This repository implements **application-aware autoscaling** using custom metric
 
 These metrics provide a true picture of runner workload and enable more accurate scaling decisions.
 
-> **⚠ Sizing the `averageValue` HPA target.** The HPA examples below scale on **in-flight tasks per agent pod** via `app_active_task_count`. Each agent instance has a **hard cap of 20 concurrent tasks**, so `averageValue` must be ≤ 20 — values above the cap mean the HPA can never reach the target and pods will saturate before scaling triggers. We recommend **15–17**: `15` for proactive scaling (spiky / latency-sensitive workloads), `16` as a balanced default, `17` for reactive scaling (steady workloads). For dev/test pick a much lower value (e.g. `5`) so a handful of tasks triggers a scale event. (`app_active_request_count` and `app_queue_depth` are different metrics with different scales — the 20-task cap does not apply to them.)
+> **⚠ Sizing the `averageValue` HPA target.** The HPA examples below scale on **in-flight tasks per runner pod** via `app_active_task_count`. Each runner instance has a **hard cap of 20 concurrent tasks**, so `averageValue` must be ≤ 20 — values above the cap mean the HPA can never reach the target and pods will saturate before scaling triggers. We recommend **15–17**: `15` for proactive scaling (spiky / latency-sensitive workloads), `16` as a balanced default, `17` for reactive scaling (steady workloads). For dev/test pick a much lower value (e.g. `5`) so a handful of tasks triggers a scale event. (`app_active_request_count` and `app_queue_depth` are different metrics with different scales — the 20-task cap does not apply to them.)
 
 ## Kubernetes Autoscaling: The Gold Standard
 

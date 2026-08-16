@@ -1,6 +1,6 @@
 # AWS Deployments for Matillion Runner
 
-This directory contains Terraform configurations for deploying the Matillion DPC Runner on AWS using two different container orchestration platforms.
+This directory contains Terraform configurations for deploying the Matillion Maia Runner on AWS using two different container orchestration platforms.
 
 ## Deployment Options
 
