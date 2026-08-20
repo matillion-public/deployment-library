@@ -11,6 +11,38 @@ AWS ECS Fargate deployment provides:
 - **Flexible Scaling**: Manual and automatic scaling options
 - **Cost Effective**: Pay only for resources used
 
+### ⚠️ Task draining is limited to 120 seconds on this deployment
+
+This is a real behavioural difference from the Kubernetes deployments, not a
+tuning knob, and it should be understood before choosing ECS for workloads with
+long-running pipelines.
+
+When a task is replaced — a deployment, a scale-in, a planned failover — ECS
+sends SIGTERM and then forcibly kills the container after `stopTimeout`. The
+runner uses that window to finish the pipeline tasks it is already executing.
+
+AWS documents the limit as: *"For tasks that use the Fargate launch type, the max
+stop timeout value is 120 seconds and if the parameter is not specified, the
+default value of 30 seconds is used"*, with *"The valid values for Fargate are
+2-120 seconds"*
+([ContainerDefinition API reference](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ContainerDefinition.html)).
+
+This deployment is Fargate-only (`requires_compatibilities = ["FARGATE"]`), so
+the cap applies with no way around it. Only the EC2 launch type can exceed 120
+seconds, via the `ECS_CONTAINER_STOP_TIMEOUT` container agent variable, and that
+is not the deployment model here.
+
+| Deployment target | Maximum graceful drain | Behaviour on planned replacement |
+|---|---|---|
+| AKS / EKS / GKE (Helm chart) | 43200s (12h), matched to the runner's own shutdown timeout | Lossless — in-flight tasks complete before the pod exits |
+| **ECS Fargate** | **120s, hard limit** | **Lossy for anything still running after 120s — the container is killed and those tasks fail** |
+
+**What this means in practice.** A pipeline still running 120 seconds after a
+deployment starts is killed, not drained. Choose ECS for runners whose tasks are
+short, or accept that every deployment and scale-in event can fail in-flight
+work. Where lossless planned failover is a requirement, use one of the
+Kubernetes targets.
+
 ## Architecture
 
 ```

@@ -54,6 +54,17 @@ variable "enable_cloud_nat" {
   default     = true
 }
 
+variable "existing_network" {
+  type = object({
+    network_id                     = string
+    subnet_id                      = string
+    pod_secondary_range_name       = string
+    services_secondary_range_name = string
+  })
+  description = "Existing VPC network and subnet to deploy into instead of creating new ones. Leave null (default) to create a new VPC and subnet."
+  default     = null
+}
+
 variable "labels" {
   type        = map(string)
   description = "Labels applied to all GCP resources"

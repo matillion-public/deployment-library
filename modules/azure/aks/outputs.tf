@@ -36,6 +36,16 @@ output "key_vault_name" {
   value = azurerm_key_vault.keyvault.name
 }
 
+output "key_vault_id" {
+  value = azurerm_key_vault.keyvault.id
+}
+
+# Feeds modules/azure/runner-identity, which grants each per-tenant identity
+# access to the staging account without going through the shared identity.
+output "storage_account_id" {
+  value = azurerm_storage_account.stagging.id
+}
+
 # Service Principal outputs for Key Vault authentication
 output "runner_sp_client_id" {
   value     = var.service_principal_enabled ? var.service_principal_client_id : ""
