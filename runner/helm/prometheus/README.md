@@ -121,6 +121,64 @@ adapter:
 | `api.type` | Service type | `"ClusterIP"` |
 | `api.ports` | Service ports | `[{"port": 443, "targetPort": 8443}]` |
 
+#### Scrape Target Discovery
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `config.scrapeNamespaces` | Namespaces the runner scrape job discovers pods in. Empty list means all namespaces | `["matillion"]` |
+| `config.scrapePodLabelRegex` | Regex matched against the pod's `app` label | `"matillion-runner-pods"` |
+| `config.prometheusYml` | Complete `prometheus.yml`. When set it is used verbatim and the two settings above are ignored | `""` |
+| `networkPolicy.additionalScrapeNamespaces` | Namespaces beyond Prometheus's own that it is permitted to reach | `[]` |
+| `networkPolicy.runnerPodSelector` | Pod selector applied within those namespaces. `null` admits any pod (`{}` will not clear it — Helm coalesces maps) | `{app: matillion-runner-pods}` |
+
+## Sharing One Prometheus Across Business Units
+
+A single Prometheus can serve every runner on a shared cluster. The adapter maps
+`app_active_task_count` to both `pod` and `namespace`, and the runner HPAs are
+`type: Pods`, so each Deployment scales on its own pods — adding tenants causes
+no cross-talk between them.
+
+Three settings have to line up, and getting them wrong fails quietly rather than
+loudly. A runner Prometheus cannot see, or is discovered but not reachable,
+produces no metric, and the HPA depending on that metric simply sits at
+`minReplicas` with nothing in any log to explain it.
+
+```yaml
+config:
+  # 1. What service discovery looks at. Leave empty for all namespaces.
+  scrapeNamespaces:
+    - bu-grid
+    - bu-retail
+    - bu-trading
+  # 2. Which pods to keep. Each release labels its pods
+  #    `<release>-matillion-runner-pods`, so one literal name will not match
+  #    more than one tenant.
+  scrapePodLabelRegex: ".*matillion-runner-pods"
+
+networkPolicy:
+  # 3. What the Prometheus pod is allowed to reach. The built-in egress rule
+  #    uses a bare podSelector, which is namespace-local — every tenant
+  #    namespace other than Prometheus's own must be named here.
+  additionalScrapeNamespaces:
+    - bu-retail
+    - bu-trading
+```
+
+Verify from the Prometheus pod after rollout — every tenant should appear:
+
+```bash
+kubectl exec -n monitoring deployment/prometheus-stack -c prometheus -- \
+  wget -qO- localhost:9090/api/v1/targets | grep -o '"namespace":"[^"]*"' | sort -u
+```
+
+If a namespace is listed in `scrapeNamespaces` but missing from the target list,
+the pod label regex did not match. If it appears as a target but is permanently
+`down` with a connection timeout, it is missing from
+`networkPolicy.additionalScrapeNamespaces`.
+
+The pod-list RBAC is already a `ClusterRole`, so no permission changes are needed
+to add namespaces.
+
 ## Usage Examples
 
 ### Production Configuration

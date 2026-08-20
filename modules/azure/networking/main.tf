@@ -13,7 +13,7 @@ resource "azurerm_subnet" "subnets" {
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = [cidrsubnet(var.vnet_address_space, var.subnet_configs[count.index].newbits, var.subnet_configs[count.index].netnum)]
 
-  service_endpoints = ["Microsoft.Storage", "Microsoft.KeyVault"]
+  service_endpoints = var.service_endpoints
 
   dynamic "delegation" {
     for_each = var.subnet_configs[count.index].delegation != null ? [var.subnet_configs[count.index].delegation] : []

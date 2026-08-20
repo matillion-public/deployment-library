@@ -24,6 +24,9 @@ spec:
       labels:
         app: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
 {{- include "matillion-runner.scriptRunner.selectorLabels" . | nindent 8 }}
+        {{- with .Values.commonLabels }}
+        {{- include "matillion-runner.commonLabels" $ | nindent 8 }}
+        {{- end }}
         {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
         azure.workload.identity/use: "true"
         {{- end }}
