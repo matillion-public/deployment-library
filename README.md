@@ -41,6 +41,26 @@ This repository provides multiple deployment methods for the Matillion Maia Runn
 - GKE cluster deployment with configurable node pools and machine types
 - GCS bucket and Secret Manager integration
 
+## Per-Runner Secret Scoping
+
+By default each cloud's runner identity is granted secret access at the container
+scope — the whole Key Vault on Azure, the whole project on GCP, the whole account
+on AWS. That is fine for a single tenant and unacceptable once a second business
+unit's credentials share it.
+
+The `runner-identity` modules give each runner its own identity, federated to
+that runner's Kubernetes service account, with access granted one secret at a
+time:
+
+| Cloud | Module | Identity | Per-secret grant |
+|-------|--------|----------|------------------|
+| Azure | [`modules/azure/runner-identity`](modules/azure/runner-identity/readme.md) | UAMI + federated credential | Role assignment scoped to `<vault>/secrets/<name>` |
+| AWS | [`modules/aws/runner-identity`](modules/aws/runner-identity/readme.md) | IAM role + IRSA trust policy | Policy statement scoped to individual secret ARNs |
+| GCP | [`modules/gcp/runner-identity`](modules/gcp/runner-identity/readme.md) | GSA + Workload Identity binding | IAM member on the individual secret |
+
+Each readme documents how to verify the isolation by checking what a runner
+*cannot* read, which is the property that actually matters.
+
 ## Prerequisites
 
 ### For Kubernetes Deployment
