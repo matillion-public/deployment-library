@@ -32,8 +32,11 @@ module "aks" {
   desired_node_count = var.desired_node_count
   is_private_cluster = var.is_private_cluster
 
-  vm_size        = var.vm_size
-  node_disk_size = var.node_disk_size
+  vm_size         = var.vm_size
+  node_disk_size  = var.node_disk_size
+  node_pool_zones = var.node_pool_zones
+
+  storage_account_replication_type = var.storage_account_replication_type
 
   workload_identity_enabled   = var.workload_identity_enabled
   service_principal_enabled   = var.service_principal_enabled

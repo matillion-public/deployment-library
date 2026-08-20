@@ -40,6 +40,31 @@ helm.sh/chart: {{ include "matillion-runner.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- with .Values.commonLabels }}
+{{- include "matillion-runner.commonLabels" $ | nindent 0 }}
+{{- end }}
+{{- end }}
+
+{{/*
+Caller-supplied labels, applied to every resource the chart creates and to the
+runner pods, so a shared cluster can attribute workloads to a business unit
+without the chart knowing anything about tenants.
+
+Deliberately NOT part of matillion-runner.selectorLabels. A Deployment's
+spec.selector is immutable: a label that reaches it turns `helm upgrade` of an
+existing release into an outright failure rather than a rolling update. These
+are additive only, and validated below to keep it that way.
+*/}}
+{{- define "matillion-runner.commonLabels" -}}
+{{- $reserved := list "app" "app.kubernetes.io/name" "app.kubernetes.io/instance" }}
+{{- range $key, $value := .Values.commonLabels }}
+{{- if has $key $reserved }}
+{{- fail (printf "commonLabels may not set %q. That label is part of the Deployment's immutable spec.selector, so overriding it makes `helm upgrade` of an existing release fail instead of rolling. Use a different key — commonLabels are for additive attribution such as business-unit or cost-centre." $key) }}
+{{- end }}
+{{- end }}
+{{- with .Values.commonLabels }}
+{{- toYaml . }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -88,6 +113,22 @@ runnerSize must be one of: small, medium, large, xlarge.
 {{- toYaml $override -}}
 {{- else -}}
 {{- toYaml $sizeMap -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The floor on the runner Deployment's replica count.
+
+When the HPA is enabled it, not dpcAgent.replicas, owns the replica count, so the
+floor is hpa.minReplicas. Used to decide whether a PodDisruptionBudget can safely
+be rendered — a budget over a workload that can legitimately sit at one replica
+permits no voluntary evictions at all and wedges node drains.
+*/}}
+{{- define "matillion-runner.minReplicas" -}}
+{{- if .Values.hpa.enabled -}}
+{{- .Values.hpa.minReplicas | int -}}
+{{- else -}}
+{{- .Values.dpcAgent.replicas | int -}}
 {{- end -}}
 {{- end }}
 

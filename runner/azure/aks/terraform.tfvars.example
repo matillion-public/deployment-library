@@ -31,6 +31,24 @@ vm_size = "Standard_D4s_v4"
 # Node disk size in GB
 node_disk_size = 250
 
+# Availability zones for the default node pool. Without this the pool is
+# zone-unaware and every node, and so every runner replica, can land in one
+# zone — a single zone outage then takes the whole runner down. Recommended for
+# new clusters; pair it with topologySpread.enabled in the Helm values so the
+# replicas actually spread across the zones the nodes now span.
+#
+# Node pool zones are immutable in Azure: setting this on a cluster that already
+# exists forces the default node pool to be REPLACED. On an existing cluster add
+# a new zonal node pool and cordon/drain onto it instead — see
+# modules/azure/aks/readme.md.
+# node_pool_zones = ["1", "2", "3"]
+
+# Staging storage replication. Once the node pool spans zones, LRS storage is
+# the remaining single-zone dependency. ZRS keeps copies in separate zones.
+# Recommended for new deployments; on an account that already holds data this is
+# an Azure conversion, not a Terraform edit.
+storage_account_replication_type = "ZRS"
+
 # ========================================
 # API Server Access
 # ========================================
