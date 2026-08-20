@@ -246,3 +246,31 @@ module "runner" {
 #   alarm_actions                = []
 #   runner_service_indicators    = join(",", ["matillion", "runner", "agent", "dpc", var.name])
 # }
+
+# ---------------------------------------------------------------------------
+# Optional SQS -> DPC pipeline-execution Lambda adapter ("Option A").
+# ---------------------------------------------------------------------------
+module "sqs_dpc_adapter" {
+  count  = var.enable_sqs_pipeline_trigger ? 1 : 0
+  source = "../../../modules/aws/lambda/sqs-dpc-adapter"
+
+  name_prefix = join("-", [var.name, "maia-sqs-adapter"])
+  aws_region  = var.region
+  image_uri   = var.sqs_adapter_image_uri
+  secret_name = var.sqs_adapter_secret_name
+
+  create_queue       = var.sqs_adapter_create_queue
+  queue_name         = var.sqs_adapter_queue_name
+  existing_queue_arn = var.sqs_adapter_existing_queue_arn
+  existing_queue_url = var.sqs_adapter_existing_queue_url
+
+  create_mapping_table        = var.sqs_adapter_create_mapping_table
+  mapping_table_name          = var.sqs_adapter_mapping_table_name
+  existing_mapping_table_name = var.sqs_adapter_existing_mapping_table_name
+  existing_mapping_table_arn  = var.sqs_adapter_existing_mapping_table_arn
+
+  matillion_api_url   = var.sqs_adapter_matillion_api_url
+  matillion_token_url = var.sqs_adapter_matillion_token_url
+
+  tags = var.tags
+}

@@ -350,6 +350,29 @@ The HPA scales runner pods based on `hpa.metrics.target.averageValue` — the **
   - `17` — **reactive** (steady workloads, some queueing acceptable, lower cost)
 - For dev/test GKE clusters, pick a much lower value (e.g. `5`) so small workloads trigger scale events.
 
+#### Zone resilience
+
+The cluster here is regional (`location = var.region`), so node pools already
+span the zones of that region. That alone does not spread the *replicas* —
+without a topology spread constraint the scheduler is free to stack them all in
+one zone. Both chart settings are opt-in:
+
+```yaml
+topologySpread:
+  enabled: true          # spread replicas across zones
+podDisruptionBudget:
+  enabled: true          # stop a node drain taking them all at once
+```
+
+They are only meaningful together: spreading across zones protects against a
+zone outage, the budget protects against maintenance. See
+`runner/helm/README.md` for the full option reference.
+
+Health probes (`readinessProbe`, `livenessProbe`) are also available and default
+to off — read the comments in `values.yaml` before enabling them, particularly
+the relationship between the liveness failure window and the 12-hour termination
+grace period.
+
 ### Application Updates
 
 ```bash
