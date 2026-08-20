@@ -1,6 +1,6 @@
 # AWS EKS Deployment for Matillion Runner
 
-This directory contains Terraform configurations for deploying the Matillion DPC Runner using Amazon EKS (Elastic Kubernetes Service) - a managed Kubernetes service that provides enterprise-grade security, reliability, and scalability.
+This directory contains Terraform configurations for deploying the Matillion Maia Runner using Amazon EKS (Elastic Kubernetes Service) - a managed Kubernetes service that provides enterprise-grade security, reliability, and scalability.
 
 ## Overview
 
@@ -317,7 +317,7 @@ config:
 serviceAccount:
   roleArn: "<service-account-role-arn>"
 
-# Pick a t-shirt size — drives the agent container's requests/limits via the
+# Pick a t-shirt size — drives the runner container's requests/limits via the
 # runnerSizes map in values.yaml. Override individual values with
 # dpcAgent.dpcAgent.resources if needed.
 runnerSize: medium  # small | medium | large | xlarge
@@ -368,9 +368,9 @@ helm install matillion-runner . -f values-production.yaml
 
 ### Sizing the HPA target (`averageValue`)
 
-`hpa.metrics.target.averageValue` is the **target number of in-flight tasks per agent pod** the HPA aims for — not a CPU/memory percentage.
+`hpa.metrics.target.averageValue` is the **target number of in-flight tasks per runner pod** the HPA aims for — not a CPU/memory percentage.
 
-- **Hard cap: 20.** Each agent instance runs a maximum of 20 concurrent tasks. Values above 20 mean the HPA can never reach the target — pods will saturate before the HPA reacts.
+- **Hard cap: 20.** Each runner instance runs a maximum of 20 concurrent tasks. Values above 20 mean the HPA can never reach the target — pods will saturate before the HPA reacts.
 - **Recommended range: 15–17:**
   - `15` — **proactive** (spiky / latency-sensitive workloads, more headroom, higher cost)
   - `16` — **balanced** (recommended default)
@@ -659,7 +659,7 @@ kubectl create cronjob scale-up --image=bitnami/kubectl \
 
 #### Resource Optimization
 
-The chart's `runnerSize` selects from a curated map (see `agent/helm/README.md`):
+The chart's `runnerSize` selects from a curated map (see `runner/helm/README.md`):
 
 | `runnerSize` | Requests | Limits | Recommended EKS node |
 |---|---|---|---|

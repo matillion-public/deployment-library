@@ -26,6 +26,6 @@ output "security_group_id" {
 }
 
 output "script_runner_endpoint" {
-  description = "Service Connect DNS endpoint for the script runner. Configure this in the agent as the SSH target."
+  description = "Service Connect DNS endpoint for the script runner. Configure this in the runner as the SSH target."
   value       = module.runner.script_runner_endpoint
 }

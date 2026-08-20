@@ -30,6 +30,7 @@ spec:
       {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
       annotations:
         azure.workload.identity/service-account-token-expiration: {{ quote .Values.azure.workloadIdentity.tokenExpiration }}
+        azure.workload.identity/inject-proxy-sidecar: "true"
       {{- end }}
     spec:
       serviceAccountName: {{ include "matillion-runner.scriptRunner.fullname" . }}-sa
@@ -76,6 +77,19 @@ spec:
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
+        {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+        lifecycle:
+          postStart:
+            exec:
+              # Unsetting the token file moves az off native federation (which caches a
+              # one-time assertion and goes stale after ~1h) onto ManagedIdentityCredential.
+              # proxy-init's iptables REDIRECT sends the IMDS call to the sidecar, so no
+              # endpoint override is needed. Guard is on the credential type rather than
+              # just a session, matching the agent deployment - this image has no
+              # entrypoint login of its own, but the check must not accept one if it
+              # gains one. Retries because the hook can outrace the proxy.
+              command: ["/bin/sh", "-c", "timeout 90 sh -c 'L=/proc/1/fd/1; : >>$L 2>/dev/null || L=/dev/null; for i in 1 2 3; do az account show --query user.assignedIdentityInfo -o tsv 2>/dev/null | grep -q MSI && exit 0; env -u AZURE_FEDERATED_TOKEN_FILE az login --identity --allow-no-subscriptions >>$L 2>&1 && exit 0; sleep 5; done; exit 1'"]
+        {{- end }}
         env:
         - name: CLOUD_PROVIDER
           value: {{ include "matillion-runner.cloudProvider" . | upper | quote }}
@@ -116,7 +130,7 @@ spec:
           mountPath: /tmp
       volumes:
       # Project only the public authorized_keys into the runner — never the
-      # agent's private key.
+      # runner's private key.
       - name: runner-keys
         secret:
           secretName: {{ include "matillion-runner.scriptRunner.fullname" . }}-keys

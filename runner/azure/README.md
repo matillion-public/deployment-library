@@ -1,6 +1,6 @@
 # Azure AKS Deployment for Matillion Runner
 
-This directory contains Terraform configurations for deploying the Matillion DPC Runner on Azure Kubernetes Service (AKS) with comprehensive monitoring capabilities.
+This directory contains Terraform configurations for deploying the Matillion Maia Runner on Azure Kubernetes Service (AKS) with comprehensive monitoring capabilities.
 
 ## Overview
 

@@ -60,18 +60,18 @@ create_vpc_endpoints = false  # Set to false if you have existing VPC endpoints 
 # Alternative: Set to true to create new VPC endpoints if none exist
 # create_vpc_endpoints = true
 
-# Deployment Mode - Controls how Lambda connects to agents
-# "public"  - Lambda outside VPC, works with agents that have public IPs
-# "private" - Lambda in VPC, works with agents on private IPs only  
+# Deployment Mode - Controls how Lambda connects to runners
+# "public"  - Lambda outside VPC, works with runners that have public IPs
+# "private" - Lambda in VPC, works with runners on private IPs only  
 # "hybrid"  - Lambda outside VPC, tries both public and private IPs (recommended)
 deployment_mode = "hybrid"
 
 # Security Group Rules for Agent Access
-# Set to true if you need to allow internet access to agent ports (for public agents)
+# Set to true if you need to allow internet access to runner ports (for public runners)
 # Only needed when using existing security groups that don't allow the required access
 create_internet_access_rules = false
 
-# For testing with public agents, you might set:
+# For testing with public runners, you might set:
 # create_internet_access_rules = true
 
 # VPC Endpoint DNS Configuration

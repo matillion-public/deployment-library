@@ -25,6 +25,7 @@ spec:
         prometheus.io/scrape: "true"
         {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
         azure.workload.identity/service-account-token-expiration: {{ quote .Values.azure.workloadIdentity.tokenExpiration }}
+        azure.workload.identity/inject-proxy-sidecar: "true"
         {{- end }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" (include "matillion-runner.fullname" .)) }}
@@ -33,11 +34,21 @@ spec:
       {{- else }}
       automountServiceAccountToken: false
       {{- end }}
+      {{- if or (gt (len .Values.podSecurityContext.sysctls) 0) .Values.podSecurityContext.tcpKeepAlive.enabled }}
       securityContext:
-        {{- with .Values.podSecurityContext.sysctls }}
         sysctls:
+        {{- with .Values.podSecurityContext.sysctls }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- if .Values.podSecurityContext.tcpKeepAlive.enabled }}
+        - name: "net.ipv4.tcp_keepalive_time"
+          value: {{ .Values.podSecurityContext.tcpKeepAlive.keepaliveTime | quote }}
+        - name: "net.ipv4.tcp_keepalive_intvl"
+          value: {{ .Values.podSecurityContext.tcpKeepAlive.keepaliveInterval | quote }}
+        - name: "net.ipv4.tcp_keepalive_probes"
+          value: {{ .Values.podSecurityContext.tcpKeepAlive.keepaliveProbes | quote }}
+        {{- end }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -88,7 +99,7 @@ spec:
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
         {{- if .Values.scriptRunner.enabled }}
-        # Hostname the agent SSHes into for Script Pushdown — the short ClusterIP
+        # Hostname the runner SSHes into for Script Pushdown — the short ClusterIP
         # Service name, which resolves within the release's namespace (kube-dns
         # appends the namespace + cluster suffix at lookup time). Cross-namespace
         # callers would need to use the fully qualified <name>.<ns>.svc.<domain>.
@@ -171,6 +182,18 @@ spec:
         - containerPort: 8080
           name: metrics
         securityContext: {}
+        {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+        lifecycle:
+          postStart:
+            exec:
+              # Unsetting the token file moves az off native federation (which caches a
+              # one-time assertion and goes stale after ~1h) onto ManagedIdentityCredential.
+              # proxy-init's iptables REDIRECT sends the IMDS call to the sidecar, so no
+              # endpoint override is needed. Guard is on the credential type, not just a
+              # session: the entrypoint does its own native-federation login and could
+              # otherwise be deferred to. Retries because the hook can outrace the proxy.
+              command: ["/bin/sh", "-c", "timeout 90 sh -c 'L=/proc/1/fd/1; : >>$L 2>/dev/null || L=/dev/null; for i in 1 2 3; do az account show --query user.assignedIdentityInfo -o tsv 2>/dev/null | grep -q MSI && exit 0; env -u AZURE_FEDERATED_TOKEN_FILE az login --identity --allow-no-subscriptions >>$L 2>&1 && exit 0; sleep 5; done; exit 1'"]
+        {{- end }}
         resources:
           {{- include "matillion-runner.resources" . | nindent 10 }}
       volumes:
