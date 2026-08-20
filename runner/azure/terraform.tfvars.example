@@ -19,7 +19,7 @@ is_private_cluster = false                 # Set to true for production
 authorized_ip_ranges = ["0.0.0.0/0"]     # Restrict to specific IPs in production
 
 # Agent Configuration
-runner_replicas = 2                         # Number of agent pods
+runner_replicas = 2                         # Number of runner pods
 metrics_exporter_image_repository = "brbajematillion/metrics-sidecar"
 metrics_exporter_image_tag = "latest"
 

@@ -67,6 +67,64 @@ class TestRunnerChart:
                     return doc
         return None
 
+    def _pod_sysctls(self, values):
+        """Return the pod-level securityContext.sysctls list from the Deployment."""
+        documents = self.helm_template(values)
+        deployment = self.find_document_by_kind(documents, 'Deployment')
+        assert deployment is not None, "Deployment not rendered"
+        pod_spec = deployment['spec']['template']['spec']
+        return pod_spec.get('securityContext', {}).get('sysctls') or []
+
+    def test_tcp_keepalive_disabled_by_default(self, base_values):
+        """TCP keepalive is opt-in: no keepalive sysctls unless explicitly enabled."""
+        names = [s['name'] for s in self._pod_sysctls(base_values)]
+        assert 'net.ipv4.tcp_keepalive_time' not in names
+        assert 'net.ipv4.tcp_keepalive_intvl' not in names
+        assert 'net.ipv4.tcp_keepalive_probes' not in names
+
+    def test_tcp_keepalive_enabled_renders_sysctls(self, base_values):
+        """Enabling the opt-in toggle renders the three keepalive sysctls."""
+        values = dict(base_values)
+        values['podSecurityContext'] = {
+            'sysctls': [],
+            'tcpKeepAlive': {
+                'enabled': True,
+                'keepaliveTime': 90,
+                'keepaliveInterval': 15,
+                'keepaliveProbes': 5,
+            },
+        }
+        by_name = {s['name']: s['value'] for s in self._pod_sysctls(values)}
+        assert by_name.get('net.ipv4.tcp_keepalive_time') == '90'
+        assert by_name.get('net.ipv4.tcp_keepalive_intvl') == '15'
+        assert by_name.get('net.ipv4.tcp_keepalive_probes') == '5'
+
+    def test_security_context_omitted_when_both_disabled(self, base_values):
+        """The pod-level securityContext must be omitted entirely when neither
+        generic sysctls nor the keepalive toggle are set — an empty
+        `securityContext: {}` (or a bare `sysctls:` key) is a needless diff from
+        the pod's default and, on some admission controllers, a policy trip.
+        Regression guard for the deployment.yaml guard condition."""
+        documents = self.helm_template(base_values)
+        deployment = self.find_document_by_kind(documents, 'Deployment')
+        assert deployment is not None, "Deployment not rendered"
+        pod_spec = deployment['spec']['template']['spec']
+        assert 'securityContext' not in pod_spec, (
+            "securityContext should be omitted when no sysctls and keepalive is "
+            f"disabled, got: {pod_spec.get('securityContext')!r}"
+        )
+
+    def test_security_context_rendered_for_generic_sysctls_only(self, base_values):
+        """A generic sysctl (keepalive still disabled) renders securityContext
+        with just that sysctl — the two guard operands are independent."""
+        values = dict(base_values)
+        values['podSecurityContext'] = {
+            'sysctls': [{'name': 'net.core.somaxconn', 'value': '1024'}],
+        }
+        by_name = {s['name']: s['value'] for s in self._pod_sysctls(values)}
+        assert by_name.get('net.core.somaxconn') == '1024'
+        assert 'net.ipv4.tcp_keepalive_time' not in by_name
+
     def test_deployment_has_main_container(self, base_values):
         """Test that deployment has the main runner container"""
         documents = self.helm_template(base_values)
@@ -313,6 +371,69 @@ class TestRunnerChart:
         # Should NOT have role ARN annotation when local is enabled
         annotations = service_account.get('metadata', {}).get('annotations', {})
         assert 'eks.amazonaws.com/role-arn' not in annotations
+
+    def _main_container(self, values):
+        documents = self.helm_template(values)
+        deployment = self.find_document_by_kind(documents, 'Deployment')
+        assert deployment is not None, "Deployment not rendered"
+        return deployment['spec']['template']['spec']['containers'][0]
+
+    def test_no_poststart_for_non_azure(self, base_values):
+        """AWS (and by the same guard, GCP) never render the az-login postStart hook."""
+        container = self._main_container(base_values)
+        assert 'lifecycle' not in container
+
+    def test_no_poststart_when_azure_workload_identity_disabled(self, base_values):
+        """Azure without workload identity enabled (e.g. service principal auth)
+        must not render the postStart hook either — it's WI-specific."""
+        base_values['cloudProvider'] = 'azure'
+        base_values['azure'] = {'workloadIdentity': {'enabled': False}}
+        container = self._main_container(base_values)
+        assert 'lifecycle' not in container
+
+    def test_azure_workload_identity_poststart_login_via_sidecar(self, base_values):
+        """postStart unsets AZURE_FEDERATED_TOKEN_FILE and points az at the proxy
+        sidecar, so it uses ManagedIdentityCredential (no cached secret) rather
+        than native federation, which never re-reads the token file after login."""
+        base_values['cloudProvider'] = 'azure'
+        base_values['azure'] = {'workloadIdentity': {'enabled': True, 'clientId': 'agent-wi-client'}}
+        script = self._main_container(base_values)['lifecycle']['postStart']['exec']['command'][2]
+        assert 'env -u AZURE_FEDERATED_TOKEN_FILE' in script
+        assert 'az login --identity' in script
+        # Native federation must not be used - it's the stale-assertion path.
+        assert '--federated-token' not in script
+        # No endpoint override: proxy-init's iptables REDIRECT already sends the IMDS
+        # call to the sidecar. Pinning a port here would silently break if the
+        # proxy-sidecar-port annotation were ever set.
+        assert 'AZURE_POD_IDENTITY_AUTHORITY_HOST' not in script
+        assert 'localhost:' not in script
+        # The hook must retry - it can outrace the proxy becoming reachable, and a
+        # failed postStart kills the container.
+        assert 'for i in 1 2 3' in script
+        # Idempotency must be keyed on real session state, not a marker file under
+        # /tmp: that's an emptyDir (pod-scoped) so it outlives a container restart,
+        # while the session on the container layer does not - a stale marker would
+        # skip the login and leave the pod permanently unauthenticated.
+        assert 'az account show' in script
+        assert '/tmp/' not in script
+
+    def test_poststart_command_is_fully_timeout_bounded(self, base_values):
+        """The whole hook must be under timeout, not just the login - postStart
+        blocks container startup, and the guard can touch the identity endpoint."""
+        base_values['cloudProvider'] = 'azure'
+        base_values['azure'] = {'workloadIdentity': {'enabled': True, 'clientId': 'agent-wi-client'}}
+        script = self._main_container(base_values)['lifecycle']['postStart']['exec']['command'][2]
+        assert script.startswith('timeout '), script[:40]
+
+    def test_inject_proxy_sidecar_annotation_present(self, base_values):
+        """The sidecar is what serves the ManagedIdentityCredential token requests,
+        so the annotation injecting it must stay - removing it breaks the login."""
+        base_values['cloudProvider'] = 'azure'
+        base_values['azure'] = {'workloadIdentity': {'enabled': True, 'clientId': 'agent-wi-client'}}
+        documents = self.helm_template(base_values)
+        deployment = self.find_document_by_kind(documents, 'Deployment')
+        pod_annotations = deployment['spec']['template']['metadata'].get('annotations', {})
+        assert pod_annotations.get('azure.workload.identity/inject-proxy-sidecar') == 'true'
 
 
 class TestScriptRunner:
@@ -573,3 +694,41 @@ class TestScriptRunner:
         assert annotations['iam.gke.io/gcp-service-account'] == 'runner-wi@p.iam.gserviceaccount.com'
         # GCP WI label distinguishes WI-bound SAs (parallels the agent's pattern).
         assert sa['metadata']['labels']['app.kubernetes.io/gcp-workload-identity'] == 'true'
+
+    def _azure_wi_values(self, base_values, **overrides):
+        base_values['cloudProvider'] = 'azure'
+        base_values['azure'] = {'workloadIdentity': {'enabled': True, 'clientId': 'agent-wi-client'}}
+        values = self.enabled_values(base_values)
+        values['scriptRunner']['serviceAccount'] = {'clientId': 'runner-wi-client'}
+        values['azure']['workloadIdentity'].update(overrides)
+        return values
+
+    def test_runner_no_poststart_when_workload_identity_disabled(self, base_values):
+        """Script-runner never renders the postStart hook outside Azure WI."""
+        documents = self.helm_template(self.enabled_values(base_values))
+        dep = next(d for d in self._runner_docs(documents) if d['kind'] == 'Deployment')
+        assert 'lifecycle' not in dep['spec']['template']['spec']['containers'][0]
+
+    def test_runner_azure_workload_identity_poststart_login_via_sidecar(self, base_values):
+        """Script-runner logs in the same way as the agent — via the proxy sidecar
+        rather than native federation, which goes stale after the assertion expires."""
+        documents = self.helm_template(self._azure_wi_values(base_values))
+        dep = next(d for d in self._runner_docs(documents) if d['kind'] == 'Deployment')
+        script = dep['spec']['template']['spec']['containers'][0]['lifecycle']['postStart']['exec']['command'][2]
+        assert 'env -u AZURE_FEDERATED_TOKEN_FILE' in script
+        assert 'az login --identity' in script
+        assert '--federated-token' not in script
+        # See the agent-side test: no endpoint override, and the hook retries.
+        assert 'AZURE_POD_IDENTITY_AUTHORITY_HOST' not in script
+        assert 'for i in 1 2 3' in script
+        # See the agent-side test: no /tmp marker file, guard on session state.
+        assert 'az account show' in script
+        assert '/tmp/' not in script
+
+    def test_runner_inject_proxy_sidecar_annotation_present(self, base_values):
+        """Same as the agent deployment — the sidecar serves the token requests,
+        so the annotation injecting it must stay."""
+        documents = self.helm_template(self._azure_wi_values(base_values))
+        dep = next(d for d in self._runner_docs(documents) if d['kind'] == 'Deployment')
+        pod_annotations = dep['spec']['template']['metadata'].get('annotations', {})
+        assert pod_annotations.get('azure.workload.identity/inject-proxy-sidecar') == 'true'

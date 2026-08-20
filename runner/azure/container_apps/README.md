@@ -1,6 +1,6 @@
 # Azure Container Apps Deployment for Matillion Runner
 
-This directory contains Terraform configurations for deploying the Matillion DPC Runner using Azure Container Apps - a fully managed serverless container service.
+This directory contains Terraform configurations for deploying the Matillion Maia Runner using Azure Container Apps - a fully managed serverless container service.
 
 ## Overview
 

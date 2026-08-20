@@ -1,6 +1,6 @@
-# Right-sizing Matillion Agents: T-Shirt Sizing Across Orchestrators
+# Right-sizing Matillion Runners: T-Shirt Sizing Across Orchestrators
 
-Picking CPU and memory for a Matillion agent used to mean re-reading three different orchestrator pages every time you stood up a cluster. Fargate has a fixed table of valid `cpu`/`memory` combinations. Azure Container Apps enforces a 1:2 vCPU-to-memory ratio on the Consumption profile and refuses anything else. Kubernetes lets you ask for whatever you want — but if no node has the headroom, your pod sits in `Pending` forever and nothing tells you that's the problem.
+Picking CPU and memory for a Matillion runner used to mean re-reading three different orchestrator pages every time you stood up a cluster. Fargate has a fixed table of valid `cpu`/`memory` combinations. Azure Container Apps enforces a 1:2 vCPU-to-memory ratio on the Consumption profile and refuses anything else. Kubernetes lets you ask for whatever you want — but if no node has the headroom, your pod sits in `Pending` forever and nothing tells you that's the problem.
 
 So this repo now exposes a single `runner_size` (Terraform) / `runnerSize` (Helm) variable with four t-shirt sizes. You pick a size, the templates translate it into whatever the underlying orchestrator actually accepts. The defaults match the previous fixed values — `small` is identical to what was deployed before this change — so existing tfvars files keep working and existing helm releases keep their resource block.
 
@@ -21,8 +21,8 @@ Pick the smallest size that comfortably holds your peak working set. If you don'
 
 | Where you set it | Variable | Default |
 |---|---|---|
-| ECS Fargate Terraform — `agent/aws/ecs/terraform.tfvars` | `runner_size` | `small` |
-| Azure Container Apps Terraform — `agent/azure/container_apps/terraform.tfvars` | `runner_size` | `small` |
+| ECS Fargate Terraform — `runner/aws/ecs/terraform.tfvars` | `runner_size` | `small` |
+| Azure Container Apps Terraform — `runner/azure/container_apps/terraform.tfvars` | `runner_size` | `small` |
 | Helm chart (EKS/AKS/GKE/local) — `values.yaml` or `--set` | `runnerSize` | `small` |
 
 The chart's per-cloud values files (`values-aws.yaml`, `values-azure.yaml`, `values-gcp.yaml`) all default to `small` and explicitly empty `dpcAgent.dpcAgent.resources` so the size map drives the deployment. To bypass the map for one specific install, set `dpcAgent.dpcAgent.resources` directly — that block, when non-empty, replaces the size-derived requests/limits whole.
@@ -92,10 +92,10 @@ The Terraform overrides take precedence over the size map (set both `runner_cpu`
 
 ## Picking the right size from telemetry
 
-If you're already running an agent and want to right-size it:
+If you're already running a runner and want to right-size it:
 
 1. Pull the last two weeks of CPU/memory utilisation from CloudWatch (ECS), Azure Monitor / Log Analytics (ACA, AKS), or `metrics-server` (EKS, GKE).
-2. Look at the **p95** of memory used — not the mean. Memory is the harder constraint; an agent that mean-uses 3 GiB but p95-uses 5 GiB will OOM on `small`.
+2. Look at the **p95** of memory used — not the mean. Memory is the harder constraint; a runner that mean-uses 3 GiB but p95-uses 5 GiB will OOM on `small`.
 3. Look at **CPU throttling time** (`container_cpu_cfs_throttled_seconds_total` for Kubernetes; CloudWatch `CPUUtilization` for ECS). If you're seeing >5% throttling at peak, bump up a size.
 4. If memory is fine and CPU is hot, you can push CPU limits up via the override path without changing memory — though for the t-shirt sizes the simpler answer is usually to step up.
 
@@ -115,7 +115,7 @@ One variable, four sizes, every orchestrator. Pick `small` until your telemetry 
 
 ## See also
 
-- [Helm chart README](../agent/helm/README.md) — full `runnerSize` / `runnerSizes` reference
-- [AWS ECS template README](../agent/aws/ecs/README.md) — ECS-specific sizing notes
-- [Azure Container Apps template README](../agent/azure/container_apps/README.md) — Container Apps workload-profile mapping
-- [Autoscaling Matillion Agents](./autoscaling-matillion-agents.md) — pairs well with sizing: pick the right per-pod size first, then scale replicas on workload metrics
+- [Helm chart README](../runner/helm/README.md) — full `runnerSize` / `runnerSizes` reference
+- [AWS ECS template README](../runner/aws/ecs/README.md) — ECS-specific sizing notes
+- [Azure Container Apps template README](../runner/azure/container_apps/README.md) — Container Apps workload-profile mapping
+- [Autoscaling Matillion Runners](./autoscaling-matillion-agents.md) — pairs well with sizing: pick the right per-pod size first, then scale replicas on workload metrics

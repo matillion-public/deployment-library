@@ -256,6 +256,30 @@ resource "azurerm_container_app" "app" {
           value = var.external_driver_location
         }
       }
+
+      dynamic "env" {
+        for_each = var.export_logs != "" ? [1] : []
+        content {
+          name  = "EXPORT_LOGS"
+          value = var.export_logs
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.proxy_protocol_http != "" ? [1] : []
+        content {
+          name  = "PROXY_PROTOCOL_HTTP"
+          value = var.proxy_protocol_http
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.proxy_protocol_https != "" ? [1] : []
+        content {
+          name  = "PROXY_PROTOCOL_HTTPS"
+          value = var.proxy_protocol_https
+        }
+      }
     }
   }
 
@@ -290,7 +314,7 @@ resource "azurerm_role_assignment" "script_runner_acr_pull" {
 }
 
 # Script runner reads blobs (inputs/artifacts) but never writes back — write-back
-# goes through the agent identity. Reader rather than Contributor is intentional.
+# goes through the runner identity. Reader rather than Contributor is intentional.
 resource "azurerm_role_assignment" "script_runner_storage_blob_data_reader" {
   count                = var.enable_script_runner ? 1 : 0
   scope                = azurerm_storage_account.storage.id

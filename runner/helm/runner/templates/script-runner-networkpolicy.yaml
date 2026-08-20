@@ -15,7 +15,7 @@ spec:
   - Ingress
   - Egress
   ingress:
-  # SSH (and SFTP) on the runner's actual listen port (2222) — only from agent
+  # SSH (and SFTP) on the runner's actual listen port (2222) — only from runner
   # pods. NetworkPolicy ingress rules apply at the pod level, so this is the
   # container's port, not the Service's port mapping.
   - from:
@@ -39,7 +39,7 @@ spec:
     ports:
     - protocol: TCP
       port: 443
-  # Custom egress rules (shared with the agent's allow-list)
+  # Custom egress rules (shared with the runner's allow-list)
   {{- if .Values.networkPolicy.additionalEgressRules }}
   {{- toYaml .Values.networkPolicy.additionalEgressRules | nindent 2 }}
   {{- end }}

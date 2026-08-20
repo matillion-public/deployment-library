@@ -1,6 +1,6 @@
 # How to Deploy the Matillion Runner: Complete Guide
 
-This comprehensive guide walks you through deploying the Matillion Data Productivity Cloud (DPC) Runner using the five supported methods: Kubernetes with Helm, AWS ECS with Terraform, Azure AKS with Terraform, AWS EKS with Terraform, and Azure Container Instances (ACI) with Terraform.
+This comprehensive guide walks you through deploying the Matillion Maia Runner using the five supported methods: Kubernetes with Helm, AWS ECS with Terraform, Azure AKS with Terraform, AWS EKS with Terraform, and Azure Container Instances (ACI) with Terraform.
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ Before starting any deployment, ensure you have:
 ### Prerequisites
 - Helm 3.x installed
 - kubectl configured for your cluster
-- Kubernetes cluster sized for the t-shirt size you plan to deploy (small needs ≥ 2 vCPU / 8 GiB nodes; see [Right-sizing Matillion agents](right-sizing-matillion-agents.md))
+- Kubernetes cluster sized for the t-shirt size you plan to deploy (small needs ≥ 2 vCPU / 8 GiB nodes; see [Right-sizing Matillion runners](right-sizing-matillion-agents.md))
 - For AWS: Either IAM roles (EKS) or AWS credentials (local/minikube)
 - For Azure: Either Workload Identity or Service Principal credentials
 

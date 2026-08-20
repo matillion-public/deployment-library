@@ -79,7 +79,7 @@ resource "aws_iam_role_policy_attachment" "fargate_pod_execution_policy" {
 
 resource "aws_iam_policy" "dpc_policy" {
   name        = join("-", ["DataProductivityCloudAccess", var.random_string_salt])
-  description = "Policy for Data Productivity Cloud with S3, Secrets Manager, Redshift, and IAM permissions"
+  description = "Policy for Maia with S3, Secrets Manager, Redshift, and IAM permissions"
 
   policy = jsonencode({
     "Version" : "2012-10-17",
@@ -158,7 +158,7 @@ data "aws_iam_policy_document" "service_account_assume_role_policy" {
         "system:serviceaccount:matillion:matillion-runner-sa",
         "system:serviceaccount:*:matillion-runner-sa",
         "system:serviceaccount:*:*-script-runner-sa"
-      ] # Agent SA (any namespace) + script-runner SA (any release name / namespace)
+      ] # runner SA (any namespace) + script-runner SA (any release name / namespace)
     }
 
     condition {

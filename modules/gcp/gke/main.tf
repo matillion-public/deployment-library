@@ -5,7 +5,7 @@ locals {
   runner_sa_account_id = "${local.name_prefix}-a-${var.random_string_salt}"
 
   # Workload Identity: fall back to var.name-derived defaults if not explicitly set
-  k8s_namespace                          = var.k8s_namespace != "" ? var.k8s_namespace : var.name
+  k8s_namespace                          = var.k8s_namespace != "" ? var.k8s_namespace : "matillion"
   k8s_service_account_name               = var.k8s_service_account_name != "" ? var.k8s_service_account_name : "${var.name}-sa"
   script_runner_k8s_service_account_name = var.script_runner_k8s_service_account_name != "" ? var.script_runner_k8s_service_account_name : "${var.name}-script-runner-sa"
 
@@ -155,7 +155,7 @@ resource "google_service_account" "runner_workload_sa" {
 }
 
 # Workload Identity binding: Kubernetes SA -> GCP SA
-# Covers both the agent SA and the script-runner SA (same GCP identity, different k8s SAs).
+# Covers both the runner SA and the script-runner SA (same GCP identity, different k8s SAs).
 # The Kubernetes SAs are created by Helm in the namespace matching var.name.
 # depends_on the cluster ensures the Workload Identity pool exists before binding.
 resource "google_service_account_iam_binding" "workload_identity_binding" {

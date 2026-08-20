@@ -1,13 +1,13 @@
 # Matillion Runner Helm Charts
 
-This directory contains Helm charts for deploying the Matillion Data Productivity Cloud (DPC) Runner on Kubernetes with comprehensive monitoring capabilities.
+This directory contains Helm charts for deploying the Matillion Maia Runner on Kubernetes with comprehensive monitoring capabilities.
 
 ## Charts
 
-### `runner/` - Matillion DPC Runner
+### `runner/` - Matillion Maia Runner
 The main Helm chart that deploys the Matillion Runner with native Prometheus metrics support.
 
-### `prometheus/` - Modular Prometheus Stack  
+### `prometheus/` - Modular Prometheus Stack
 Supporting chart for Prometheus metrics collection, custom metrics API, and Prometheus adapter with selective deployment capabilities. Supports integration with external Prometheus servers.
 
 ## Quick Start
@@ -143,10 +143,10 @@ replace before installing. Every token below must be set (unless marked optional
 | Placeholder | Where to get it | Applies to |
 |---|---|---|
 | `<CloudProvider>` | `aws`, `azure`, or `gcp` | all |
-| `<AgentClientId>` | OAuth client ID from the DPC agent registration | all |
-| `<AgentClientSecret>` | OAuth client secret from the DPC agent registration | all |
-| `<MatillionAccountId>` | DPC account ID (Hub → account settings) | all |
-| `<MatillionAgentId>` | DPC agent/runner ID from the agent registration | all |
+| `<AgentClientId>` | OAuth client ID from the Maia runner registration | all |
+| `<AgentClientSecret>` | OAuth client secret from the Maia runner registration | all |
+| `<MatillionAccountId>` | Maia account ID (Hub → account settings) | all |
+| `<MatillionAgentId>` | Maia agent/runner ID from the runner registration | all |
 | `<MatillionRegion>` | `us1` or `eu1` | all |
 | `<ServiceAccountRoleArn>` | AWS IAM role ARN for IRSA (`arn:aws:iam::<account-id>:role/<role-name>`) | AWS |
 | `<AgentImageRepository>` / `<AgentImageTag>` | Agent image location + tag (e.g. `public.ecr.aws/matillion/etl-agent` / `current`) | all |
@@ -297,7 +297,7 @@ harvest node credentials.
 
 To keep general HTTPS egress but explicitly carve out the link-local metadata
 range (belt-and-braces, and useful if you widen egress), use the existing
-`networkPolicy.additionalEgressRules` hook — it is applied to both the agent and
+`networkPolicy.additionalEgressRules` hook — it is applied to both the runner and
 the script-runner NetworkPolicies:
 
 ```yaml
@@ -368,13 +368,13 @@ this table is the deployment-side summary.
 |-----------|-------------|---------|
 | `hpa.maxReplicas` | Maximum replicas | `10` |
 | `hpa.minReplicas` | Minimum replicas | `2` |
-| `hpa.metrics.target.averageValue` | Target in-flight tasks per agent pod | `"16"` |
+| `hpa.metrics.target.averageValue` | Target in-flight tasks per runner pod | `"16"` |
 
 #### Sizing the HPA target (`averageValue`)
 
-`hpa.metrics.target.averageValue` is the **target number of in-flight tasks per agent pod** that the HPA uses to decide when to scale. It is **not** a CPU/memory percentage.
+`hpa.metrics.target.averageValue` is the **target number of in-flight tasks per runner pod** that the HPA uses to decide when to scale. It is **not** a CPU/memory percentage.
 
-- **Hard cap: 20.** Each agent instance can run a maximum of 20 concurrent tasks. Setting `averageValue` above 20 means the HPA can never reach the target — pods will saturate before the HPA reacts, so you'll see queueing rather than scaling.
+- **Hard cap: 20.** Each runner instance can run a maximum of 20 concurrent tasks. Setting `averageValue` above 20 means the HPA can never reach the target — pods will saturate before the HPA reacts, so you'll see queueing rather than scaling.
 - **Recommended range: 15–17**, depending on workload shape:
   - **`15` — proactive scaling.** Best for spiky or latency-sensitive workloads where you want headroom before pods saturate. Adds more pods, higher cost.
   - **`16` — balanced (default).** Good fit for most clients.
@@ -417,7 +417,7 @@ dpcAgent:
 
 ### Resource Limits
 
-Prefer `runnerSize` (see [Agent t-shirt sizes](#agent-t-shirt-sizes)) over hand-rolling resources:
+Prefer `runnerSize` (see [Runner t-shirt sizes](#runner-t-shirt-sizes)) over hand-rolling resources:
 
 ```yaml
 runnerSize: medium  # 2 vCPU / 8 GiB requests, 4 vCPU / 8 GiB limits
@@ -605,7 +605,7 @@ The check script automatically detects which release track the runner is running
 
 - **Support window**: Only the latest release and the one immediately before it are supported for each track
 - **Full SaaS runners** always run on the Current track
-- You select the track when creating the runner and can change it via the [Update an Agent API](https://docs.matillion.com/data-productivity-cloud/agent/docs/agent-updates/)
+- You select the track when creating the runner and can change it via the [Update an Agent API](https://docs.maia.ai/api-reference/agents/update-an-agent)
 - The image URI in your cloud deployment must match the track configured in Matillion
 
 **Image URIs by cloud provider:**
