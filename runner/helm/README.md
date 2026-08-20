@@ -182,6 +182,71 @@ helm install matillion-runner ./runner \
   -f my-overrides.yaml
 ```
 
+### Shared Multi-Tenant Platform
+
+One cluster and one Prometheus can host many independently-scalable runners —
+one Helm release per business unit, each in its own namespace with its own
+identity, secrets and HPA. Onboarding another unit is a values file, not a chart
+change.
+
+```bash
+helm install runner-grid ./runner -n bu-grid --create-namespace \
+  -f runner/values-azure.yaml -f my-values-grid.yaml
+
+helm install runner-retail ./runner -n bu-retail --create-namespace \
+  -f runner/values-azure.yaml -f my-values-retail.yaml
+```
+
+Start from `runner/values-tenant-example.yaml`, which documents what must be
+unique per tenant and what must never be changed.
+
+Tenants do not interfere with each other's scaling: the adapter maps
+`app_active_task_count` to both `pod` and `namespace`, and each runner's HPA is
+`type: Pods`, so every Deployment scales on its own pods.
+
+#### What must be unique per tenant
+
+| Setting | Why |
+|---------|-----|
+| Helm release name and namespace | Every resource name and the pod `app` label derive from the release name |
+| `config.oauthClientId` / `oauthClientSecret` | The runner's own credentials |
+| `dpcAgent.dpcAgent.env.agentId` | Identifies the runner to the control plane |
+| `serviceAccount.name` + cloud identity annotation | The identity is bound to `system:serviceaccount:<namespace>:<name>`. A tenant sharing another's service account inherits its secret access — this fails open, not closed |
+
+#### What must never change
+
+`app`, `app.kubernetes.io/name` and `app.kubernetes.io/instance` form the
+Deployment's `spec.selector`, which Kubernetes treats as immutable. Changing one
+makes `helm upgrade` of an existing release fail rather than roll. `commonLabels`
+rejects these keys for that reason — use your own prefix for attribution:
+
+```yaml
+commonLabels:
+  matillion.com/business-unit: grid
+  matillion.com/cost-centre: "4471"
+```
+
+#### Wiring the shared Prometheus
+
+Set once on the **prometheus** chart, not per tenant. Every tenant namespace has
+to appear in both lists — one controls what service discovery finds, the other
+what the Prometheus pod is permitted to reach, and a namespace missing from
+either means that tenant's HPA sits at `minReplicas` with nothing in any log to
+explain it:
+
+```yaml
+config:
+  scrapeNamespaces: [bu-grid, bu-retail, bu-trading]
+  # Each release labels its pods `<release>-matillion-runner-pods`, so one
+  # literal name will not match more than a single tenant.
+  scrapePodLabelRegex: ".*matillion-runner-pods"
+networkPolicy:
+  additionalScrapeNamespaces: [bu-grid, bu-retail, bu-trading]
+```
+
+See `prometheus/README.md` for how to verify every tenant is actually being
+scraped after rollout.
+
 ### Install Prometheus Monitoring
 
 #### Full Stack Deployment (Default)
