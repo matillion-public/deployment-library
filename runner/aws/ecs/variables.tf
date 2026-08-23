@@ -242,3 +242,88 @@ variable "script_runner_log_retention_days" {
   type        = number
   default     = 30
 }
+
+# ---------------------------------------------------------------------------
+# Optional: SQS -> DPC pipeline-execution Lambda adapter ("Option A").
+# When enabled, deploys an opt-in Lambda that consumes an SQS queue and triggers
+# DPC pipelines. The queue and project-mapping table can be created here or
+# referenced as existing (bring-your-own) resources. Disabled by default so
+# existing deployments are unaffected.
+# ---------------------------------------------------------------------------
+variable "enable_sqs_pipeline_trigger" {
+  description = "Deploy the optional SQS->DPC pipeline-execution Lambda adapter."
+  type        = bool
+  default     = false
+}
+
+variable "sqs_adapter_image_uri" {
+  description = "Container image URI (arm64) for the SQS->DPC adapter Lambda. Required when enable_sqs_pipeline_trigger = true."
+  type        = string
+  default     = ""
+}
+
+variable "sqs_adapter_secret_name" {
+  description = "Name of the pre-existing Secrets Manager secret holding {client_id, client_secret} for DPC OAuth."
+  type        = string
+  default     = "matillion-dpc"
+}
+
+variable "sqs_adapter_create_queue" {
+  description = "Create the source SQS queue (+DLQ). Set false to consume an existing queue via sqs_adapter_existing_queue_arn."
+  type        = bool
+  default     = true
+}
+
+variable "sqs_adapter_queue_name" {
+  description = "Name of the source queue to create (when sqs_adapter_create_queue = true)."
+  type        = string
+  default     = "matillion-dpc-requests"
+}
+
+variable "sqs_adapter_existing_queue_arn" {
+  description = "ARN of an existing SQS queue to consume (when sqs_adapter_create_queue = false)."
+  type        = string
+  default     = ""
+}
+
+variable "sqs_adapter_existing_queue_url" {
+  description = "URL of an existing SQS queue to consume (when sqs_adapter_create_queue = false)."
+  type        = string
+  default     = ""
+}
+
+variable "sqs_adapter_create_mapping_table" {
+  description = "Create the DynamoDB project-mapping table. Set false to use an existing one."
+  type        = bool
+  default     = true
+}
+
+variable "sqs_adapter_mapping_table_name" {
+  description = "Name of the project-mapping table to create (when sqs_adapter_create_mapping_table = true)."
+  type        = string
+  default     = "matillion-project-mappings"
+}
+
+variable "sqs_adapter_existing_mapping_table_name" {
+  description = "Name of an existing project-mapping table (when sqs_adapter_create_mapping_table = false)."
+  type        = string
+  default     = ""
+}
+
+variable "sqs_adapter_existing_mapping_table_arn" {
+  description = "ARN of an existing project-mapping table (when sqs_adapter_create_mapping_table = false)."
+  type        = string
+  default     = ""
+}
+
+variable "sqs_adapter_matillion_api_url" {
+  description = "DPC pipeline-execution API base URL."
+  type        = string
+  default     = "https://eu1.api.matillion.com/dpc/v1"
+}
+
+variable "sqs_adapter_matillion_token_url" {
+  description = "DPC OAuth token endpoint."
+  type        = string
+  default     = "https://id.core.matillion.com/oauth/dpc/token"
+}

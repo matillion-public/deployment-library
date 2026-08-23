@@ -31,6 +31,24 @@ vm_size = "Standard_D4s_v4"
 # Node disk size in GB
 node_disk_size = 250
 
+# Availability zones for the default node pool. Without this the pool is
+# zone-unaware and every node, and so every runner replica, can land in one
+# zone — a single zone outage then takes the whole runner down. Recommended for
+# new clusters; pair it with topologySpread.enabled in the Helm values so the
+# replicas actually spread across the zones the nodes now span.
+#
+# Node pool zones are immutable in Azure: setting this on a cluster that already
+# exists forces the default node pool to be REPLACED. On an existing cluster add
+# a new zonal node pool and cordon/drain onto it instead — see
+# modules/azure/aks/readme.md.
+# node_pool_zones = ["1", "2", "3"]
+
+# Staging storage replication. Once the node pool spans zones, LRS storage is
+# the remaining single-zone dependency. ZRS keeps copies in separate zones.
+# Recommended for new deployments; on an account that already holds data this is
+# an Azure conversion, not a Terraform edit.
+storage_account_replication_type = "ZRS"
+
 # ========================================
 # API Server Access
 # ========================================
@@ -77,3 +95,18 @@ service_principal_enabled = false
 # service_principal_enabled   = true
 # service_principal_client_id = "your-service-principal-client-id"
 # service_principal_secret    = "your-service-principal-secret"
+
+# Autoscaler bounds and tier. Commented out because the module's defaults are the
+# right starting point: floor of one node per zone, ceiling of double
+# desired_node_count, Standard tier (required for AKS cost analysis).
+# min_node_count = 3
+# max_node_count = 12
+# sku_tier       = "Standard"
+
+# Bring your own subnets instead of letting this configuration create a VNet.
+# The networking module is skipped entirely when this is set.
+# existing_subnet_ids = ["/subscriptions/.../resourceGroups/rg-network/providers/Microsoft.Network/virtualNetworks/vnet-shared/subnets/snet-aks"]
+
+# Service endpoints on the created subnets. Add Service Bus if using that queue
+# backend, and Container Registry if images come from a network-restricted ACR.
+# service_endpoints = ["Microsoft.Storage", "Microsoft.KeyVault", "Microsoft.ServiceBus"]

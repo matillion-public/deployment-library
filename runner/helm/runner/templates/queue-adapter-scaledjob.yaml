@@ -1,0 +1,94 @@
+---
+{{- if .Values.queueAdapter.enabled }}
+# Azure Queue (Service Bus) → Maia Foundations pipeline-trigger adapter, run as a
+# KEDA ScaledJob: one Job per scale event drains the queue and exits. Uses the
+# same maia-queue-adapter image and the same azure-servicebus trigger definition
+# as the managed Container App Job path (agent-deployment TF module).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: {{ include "matillion-runner.fullname" . }}-queue-adapter
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "matillion-runner.labels" . | nindent 4 }}
+spec:
+  pollingInterval: {{ .Values.queueAdapter.scaling.pollingInterval }}
+  minReplicaCount: {{ .Values.queueAdapter.scaling.minReplicaCount }}
+  maxReplicaCount: {{ .Values.queueAdapter.scaling.maxReplicaCount }}
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 2
+    template:
+      metadata:
+        labels:
+{{- include "matillion-runner.selectorLabels" . | nindent 10 }}
+          app.kubernetes.io/component: queue-adapter
+          azure.workload.identity/use: "true"
+      spec:
+        serviceAccountName: {{ include "matillion-runner.fullname" . }}-queue-adapter-sa
+        automountServiceAccountToken: true
+        restartPolicy: Never
+        {{- with .Values.nodeSelector }}
+        nodeSelector:
+{{- toYaml . | nindent 10 }}
+        {{- end }}
+        containers:
+          - name: adapter
+            image: "{{ .Values.queueAdapter.image.repository }}{{ if .Values.queueAdapter.image.digest }}@{{ .Values.queueAdapter.image.digest }}{{ else }}:{{ .Values.queueAdapter.image.tag }}{{ end }}"
+            imagePullPolicy: {{ .Values.queueAdapter.image.pullPolicy }}
+            env:
+              - name: AZURE_CLIENT_ID
+                value: {{ .Values.queueAdapter.serviceAccount.clientId | quote }}
+              - name: MATILLION_AZURE_QUEUE_BACKEND
+                value: {{ .Values.queueAdapter.backend | quote }}
+              - name: MATILLION_AZURE_KEY_VAULT_URL
+                value: {{ .Values.queueAdapter.keyVault.url | quote }}
+              - name: MATILLION_SECRET_NAME
+                value: {{ .Values.queueAdapter.keyVault.secretName | quote }}
+              - name: MATILLION_AZURE_STORAGE_ACCOUNT_URL
+                value: {{ .Values.queueAdapter.storage.accountUrl | quote }}
+              - name: MATILLION_AZURE_STORAGE_QUEUE_URL
+                value: {{ .Values.queueAdapter.storage.queueUrl | quote }}
+              - name: MATILLION_PROJECT_MAPPING_TABLE
+                value: {{ .Values.queueAdapter.storage.tableName | quote }}
+              - name: MATILLION_AZURE_SERVICEBUS_NAMESPACE
+                value: {{ .Values.queueAdapter.serviceBus.namespace | quote }}
+              - name: MATILLION_AZURE_QUEUE_NAME
+                value: {{ if eq .Values.queueAdapter.backend "storage" }}{{ .Values.queueAdapter.storage.queueName | quote }}{{ else }}{{ .Values.queueAdapter.serviceBus.queueName | quote }}{{ end }}
+              - name: MATILLION_API_URL
+                value: {{ .Values.queueAdapter.matillionApiUrl | quote }}
+              - name: MATILLION_TOKEN_URL
+                value: {{ .Values.queueAdapter.matillionTokenUrl | quote }}
+            resources:
+{{- toYaml .Values.queueAdapter.resources | nindent 14 }}
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 10001
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+  triggers:
+    {{- if eq .Values.queueAdapter.backend "storage" }}
+    - type: azure-queue
+      metadata:
+        queueName: {{ .Values.queueAdapter.storage.queueName | quote }}
+        accountName: {{ .Values.queueAdapter.storage.accountName | quote }}
+        queueLength: {{ .Values.queueAdapter.scaling.queueLength | quote }}
+      authenticationRef:
+        name: {{ include "matillion-runner.fullname" . }}-queue-adapter-auth
+    {{- else }}
+    - type: azure-servicebus
+      metadata:
+        queueName: {{ .Values.queueAdapter.serviceBus.queueName | quote }}
+        namespace: {{ regexReplaceAll "\\.servicebus\\.windows\\.net$" .Values.queueAdapter.serviceBus.namespace "" | quote }}
+        messageCount: {{ .Values.queueAdapter.scaling.messagesPerExecution | quote }}
+      authenticationRef:
+        name: {{ include "matillion-runner.fullname" . }}-queue-adapter-auth
+    {{- end }}
+{{- end }}

@@ -70,6 +70,8 @@ module "container_apps" {
   container_memory           = var.container_memory
   zone_redundancy_enabled    = var.zone_redundancy_enabled
 
+  storage_account_replication_type = var.storage_account_replication_type
+
   enable_script_runner          = var.enable_script_runner
   script_runner_size            = var.script_runner_size
   script_runner_authorized_keys = var.script_runner_authorized_keys

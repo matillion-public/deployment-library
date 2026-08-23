@@ -261,6 +261,27 @@ is_private_cluster = false
 enable_cloud_nat   = false
 ```
 
+#### Using an Existing VPC and Subnet
+
+Set `existing_network` to deploy into an existing VPC/subnet instead of
+creating new ones:
+
+```hcl
+existing_network = {
+  network_id                     = "your-vpc"
+  subnet_id                      = "your-subnet"
+  pod_secondary_range_name       = "pods"
+  services_secondary_range_name  = "services"
+}
+```
+
+Short names resolve against `project_id`/`region`. If the VPC lives in a
+different project (Shared VPC), use the full self-link instead, e.g.
+`"projects/host-project/global/networks/your-vpc"`.
+
+The subnet must already have pod/service secondary IP ranges (required for
+VPC-native GKE clusters). Cloud NAT, if enabled, attaches to the existing VPC.
+
 ## Outputs
 
 After `terraform apply`, the following outputs are available:
@@ -349,6 +370,29 @@ The HPA scales runner pods based on `hpa.metrics.target.averageValue` — the **
   - `16` — **balanced** (recommended default — see `values-gcp.yaml`)
   - `17` — **reactive** (steady workloads, some queueing acceptable, lower cost)
 - For dev/test GKE clusters, pick a much lower value (e.g. `5`) so small workloads trigger scale events.
+
+#### Zone resilience
+
+The cluster here is regional (`location = var.region`), so node pools already
+span the zones of that region. That alone does not spread the *replicas* —
+without a topology spread constraint the scheduler is free to stack them all in
+one zone. Both chart settings are opt-in:
+
+```yaml
+topologySpread:
+  enabled: true          # spread replicas across zones
+podDisruptionBudget:
+  enabled: true          # stop a node drain taking them all at once
+```
+
+They are only meaningful together: spreading across zones protects against a
+zone outage, the budget protects against maintenance. See
+`runner/helm/README.md` for the full option reference.
+
+Health probes (`readinessProbe`, `livenessProbe`) are also available and default
+to off — read the comments in `values.yaml` before enabling them, particularly
+the relationship between the liveness failure window and the 12-hour termination
+grace period.
 
 ### Application Updates
 

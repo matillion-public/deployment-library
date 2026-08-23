@@ -16,3 +16,31 @@ manual configuration or troubleshooting.
 Shared Script Runner is DISABLED (scriptRunner.enabled=false) — no runner resources
 were created. Set scriptRunner.enabled=true to deploy it.
 {{- end }}
+{{- $grace := int .Values.dpcAgent.dpcAgent.gracePeriodSeconds }}
+{{- if lt $grace 43200 }}
+
+WARNING: terminationGracePeriodSeconds is {{ $grace }}s, below the runner's own
+shutdown timeout of 43200s (12h). A runner pod uses that window to finish the
+pipeline tasks it is already running. At {{ $grace }}s, a node drain, cluster
+upgrade or rolling update will SIGKILL runners that are still working, and those
+tasks fail rather than drain — a planned failover becomes a lossy one.
+
+Set dpcAgent.dpcAgent.gracePeriodSeconds back to 43200 unless losing in-flight
+tasks on every voluntary disruption is a deliberate, accepted trade-off.
+{{- end }}
+{{- $livenessWindow := mul .Values.livenessProbe.periodSeconds .Values.livenessProbe.failureThreshold }}
+{{- if and .Values.livenessProbe.enabled (lt (int $livenessWindow) $grace) }}
+
+WARNING: the liveness probe gives up after {{ printf "%vs (%vs x %v)" $livenessWindow .Values.livenessProbe.periodSeconds .Values.livenessProbe.failureThreshold }},
+which is shorter than the {{ $grace }}s termination grace period. A runner that
+stops answering the probe while draining will be killed before it finishes its
+in-flight tasks, silently undoing the grace period. Raise
+livenessProbe.failureThreshold or periodSeconds so their product exceeds it.
+{{- end }}
+{{- if and .Values.topologySpread.enabled (not .Values.podDisruptionBudget.enabled) }}
+
+NOTE: topologySpread is enabled but podDisruptionBudget is not. Replicas will be
+spread across zones, but nothing stops a node drain evicting all of them at once.
+Enable podDisruptionBudget for the zone-resilience claim to hold during
+maintenance as well as during an outage.
+{{- end }}

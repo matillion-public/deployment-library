@@ -9,7 +9,7 @@ applicationImageTag: ""
 # medium = 2 vCPU req / 8 GiB,  4 vCPU limit / 8 GiB
 # large  = 4 vCPU req / 16 GiB, 8 vCPU limit / 16 GiB
 # xlarge = 8 vCPU req / 32 GiB, 16 vCPU limit / 32 GiB
-# Each size requires a node large enough to schedule the requests; see agent/helm/README.md
+# Each size requires a node large enough to schedule the requests; see runner/helm/README.md
 # for recommended node SKUs per cloud.
 runnerSize: small
 
@@ -74,6 +74,21 @@ dpcAgent:
     # time rather than indefinitely cached on a node. Override per-env (e.g.
     # `Never` for offline / `minikube image load` flows) only when needed.
     imagePullPolicy: Always
+    # How long Kubernetes waits for a terminating runner pod to finish before
+    # sending SIGKILL. 43200s (12h) is not an arbitrary safety margin — it is
+    # matched to the runner's own agent.shutdown.timeout, which is what lets a
+    # pod refuse to die until its in-flight pipeline tasks have completed.
+    #
+    # Lowering this converts a lossless planned failover into a lossy one. A node
+    # drain, cluster upgrade or rolling update will then SIGKILL runners
+    # mid-task, and the tasks they were running fail rather than draining. If a
+    # long drain is unacceptable operationally, the fix is to stop *scheduling*
+    # long tasks onto pods you intend to retire, not to shorten this.
+    #
+    # Two things silently defeat it regardless of what is set here:
+    #   * `kubectl drain --grace-period=N` overrides the pod's value outright.
+    #   * A liveness probe that trips during the drain kills the pod early. The
+    #     probe defaults below are deliberately set beyond this window.
     gracePeriodSeconds: 43200
     # Optional override. Leave empty to derive from runnerSize. Setting any keys here
     # replaces the runnerSize-derived resources whole — set both requests and limits.
@@ -117,6 +132,54 @@ scriptRunner:
     roleArn: ""              # AWS IRSA role ARN
     clientId: ""             # Azure workload-identity client ID
     serviceAccountEmail: ""  # GCP workload-identity SA email
+
+# Health probes for the runner container. Both are opt-in and disabled by
+# default, so the rendered Deployment is unchanged unless you turn them on.
+#
+# `path` defaults to /actuator/health, which the runner exposes (its management
+# endpoints are info, health and prometheus). Builds running Spring Boot's
+# Kubernetes probe groups can use the more precise /actuator/health/readiness
+# and /actuator/health/liveness instead.
+readinessProbe:
+  enabled: false
+  path: /actuator/health
+  port: 8080
+  # A runner registers with the control plane before it will accept work, and on
+  # a cold start that takes a while. Set these too tight and a rolling update
+  # looks hung rather than failing: the new pod never reports Ready, the rollout
+  # stalls at the first replica, and the change that actually works gets rolled
+  # back. 60s + 6 x 10s allows two minutes to come up.
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+  successThreshold: 1
+
+livenessProbe:
+  enabled: false
+  path: /actuator/health
+  port: 8080
+  # Far more forgiving than readiness, on purpose. Readiness failing takes a pod
+  # out of service and is recoverable; liveness failing destroys whatever the
+  # runner was in the middle of. A runner executing 20 concurrent tasks can be
+  # slow to answer without being broken, and restarting it there loses real work
+  # rather than recovering anything.
+  #
+  # periodSeconds x failureThreshold (30 x 1500 = 12.5h) is deliberately longer
+  # than the 43200s termination grace period, so a pod that is legitimately
+  # draining in-flight tasks can never be killed by this probe before it
+  # finishes. Keep that relationship if you change either number — the NOTES
+  # output warns when it is broken.
+  #
+  # The trade-off is explicit: this window makes the probe a backstop against a
+  # permanently wedged JVM rather than a fast recovery mechanism. Tighten it only
+  # for deployments that do not run long tasks, and lower gracePeriodSeconds to
+  # match if you do.
+  initialDelaySeconds: 120
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 1500
+  successThreshold: 1
 
 kubernetesClusterDomain: cluster.local
 hpa:
@@ -194,6 +257,26 @@ podSecurityContext:
     keepaliveInterval: 15
     keepaliveProbes: 5
 
+# Labels added to every resource this chart creates, and to the runner pods.
+# Intended for tenant attribution on a shared cluster — business unit, cost
+# centre, owning team — so one platform can be queried and billed per tenant
+# without the chart knowing anything about tenants.
+#
+# Additive only. `app`, `app.kubernetes.io/name` and `app.kubernetes.io/instance`
+# are rejected: they form the Deployment's spec.selector, which Kubernetes treats
+# as immutable, so overriding one makes `helm upgrade` of an existing release
+# fail outright rather than roll.
+#
+# Example:
+#   commonLabels:
+#     matillion.com/business-unit: grid
+#     matillion.com/cost-centre: "4471"
+commonLabels: {}
+
+# Extra annotations on the runner pods. Merged with the prometheus.io/* scrape
+# annotations the chart already sets.
+podAnnotations: {}
+
 # Node selector configuration
 # Optional: specify node labels to schedule pods on specific nodes
 # Example:
@@ -201,3 +284,97 @@ podSecurityContext:
 #     kubernetes.io/os: linux
 #     node.kubernetes.io/instance-type: m5.large
 nodeSelector: {}
+
+# Optional pod affinity / anti-affinity, passed through to the pod spec verbatim.
+# Absent by default, so the rendered Deployment is unchanged unless you set it.
+affinity: {}
+
+# Spread runner replicas across availability zones. Opt-in — with this disabled
+# the rendered Deployment is identical to earlier chart versions.
+#
+# Zone spread only does anything if the nodes themselves span zones. On EKS the
+# node group already spans the AZs of its subnets, and GKE clusters here are
+# regional, so both are ready as-is. On AKS the node pool must be created with
+# `node_pool_zones` set (modules/azure/aks) — without it every node, and so every
+# replica, lands in one zone.
+topologySpread:
+  enabled: false
+  maxSkew: 1
+  topologyKey: topology.kubernetes.io/zone
+  # ScheduleAnyway is deliberate and should not be changed to DoNotSchedule
+  # without checking the cluster spans zones: DoNotSchedule leaves pods Pending
+  # forever on a single-zone cluster rather than degrading to an uneven spread.
+  whenUnsatisfiable: ScheduleAnyway
+
+# Voluntary-disruption budget for the runner pods. Off by default.
+#
+# A PDB is only rendered when the workload's replica floor is at least 2 (that
+# floor is hpa.minReplicas when the HPA is enabled, otherwise dpcAgent.replicas).
+# A budget over a single-replica workload permits *zero* voluntary evictions, so
+# `kubectl drain` and cluster upgrades hang indefinitely instead of proceeding —
+# enabling it in that configuration is a template error rather than a silent
+# no-op. maxUnavailable is used rather than minAvailable for the same reason: it
+# cannot reach the zero-eviction state as the workload scales.
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
+# Queue → Maia Foundations pipeline-trigger adapter (Azure AKS path).
+# Disabled by default — zero resources rendered. Deploys the maia-queue-adapter
+# image as a KEDA ScaledJob triggered by Azure Service Bus queue depth. Requires
+# the cluster's KEDA addon and Workload Identity addon to be enabled.
+queueAdapter:
+  enabled: false
+  # Which Azure queue to consume: "servicebus" (ordering/dedup/DLQ parity) or
+  # "storage" (Azure Queue Storage, lighter/METL-parity).
+  backend: servicebus
+  image:
+    # Azure: <registry>.azurecr.io/maia-queue-adapter-azure
+    repository: <QueueAdapterImageRepository>
+    tag: current
+    # digest: <QueueAdapterImageDigest>  # Optional: immutable deploys
+    pullPolicy: Always
+  # Workload-identity client ID of the managed identity the adapter runs as. It
+  # needs Key Vault Secrets User on the vault, Storage Table Data Reader on the
+  # mapping table, and for the queue:
+  #   backend: servicebus -> Azure Service Bus Data Receiver on the queue
+  #   backend: storage    -> Storage Queue Data Contributor on the source queue
+  #                          AND on <queueName>-poison
+  # Storage Queue Data Message Processor is not enough on the storage backend:
+  # it cannot re-hide a message for a retry backoff, nor create and write the
+  # poison queue the adapter dead-letters to, so failures redeliver until TTL.
+  #
+  # The identity also needs a second federated credential, for the KEDA operator's
+  # service account (kube-system/keda-operator on the AKS addon). The
+  # TriggerAuthentication below uses podIdentity azure-workload, so it is KEDA —
+  # not the adapter pod — that assumes this identity to read queue depth. Without
+  # it the ScaledJob reports Ready and no job is ever started: messages just
+  # accumulate.
+  serviceAccount:
+    clientId: ""
+  # Service Bus source queue (backend: servicebus).
+  serviceBus:
+    namespace: ""    # <ns>.servicebus.windows.net (fully-qualified)
+    queueName: matillion-maia-requests
+  # Key Vault holding {client_id, client_secret} for Maia Foundations OAuth.
+  keyVault:
+    url: ""          # https://<vault>.vault.azure.net/
+    secretName: matillion-maia
+  # Storage: project-mapping table always; source queue when backend: storage.
+  storage:
+    accountName: ""  # storage account short name (KEDA azure-queue scaler)
+    accountUrl: ""   # https://<acct>.table.core.windows.net (Table endpoint)
+    queueUrl: ""     # https://<acct>.queue.core.windows.net (Queue endpoint, backend: storage)
+    tableName: matillionprojectmappings
+    queueName: matillion-maia-requests
+  matillionApiUrl: "https://eu1.api.matillion.com/dpc/v1"
+  matillionTokenUrl: "https://id.core.matillion.com/oauth/dpc/token"
+  # KEDA scaling.
+  scaling:
+    minReplicaCount: 0
+    maxReplicaCount: 10
+    pollingInterval: 30       # seconds
+    messagesPerExecution: 5   # KEDA messageCount (servicebus)
+    queueLength: 5            # KEDA queueLength (storage)
+  resources:
+    requests: { cpu: "250m", memory: "256Mi" }
+    limits: { cpu: "500m", memory: "512Mi" }

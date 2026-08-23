@@ -29,3 +29,13 @@ output "script_runner_endpoint" {
   description = "Service Connect DNS endpoint for the script runner. Configure this in the runner as the SSH target."
   value       = module.runner.script_runner_endpoint
 }
+
+output "sqs_pipeline_trigger_lambda_arn" {
+  description = "ARN of the optional SQS->DPC adapter Lambda (null when disabled)."
+  value       = var.enable_sqs_pipeline_trigger ? module.sqs_dpc_adapter[0].lambda_function_arn : null
+}
+
+output "sqs_pipeline_trigger_queue_arn" {
+  description = "ARN of the source queue consumed by the adapter (null when disabled)."
+  value       = var.enable_sqs_pipeline_trigger ? module.sqs_dpc_adapter[0].source_queue_arn : null
+}
