@@ -176,7 +176,47 @@ desired_node_count = 5
 runner_replicas = 3
 vm_size = "Standard_D8s_v4"
 node_disk_size = 500
+
+# Spread nodes across availability zones. Without this the pool is zone-unaware
+# and every node — so every runner replica — can land in a single zone.
+node_pool_zones = ["1", "2", "3"]
+
+# Staging storage in more than one zone, to match.
+storage_account_replication_type = "ZRS"
 ```
+
+### Zone Resilience
+
+Unlike EKS (whose node groups span their subnets' AZs) and GKE (regional
+clusters), **an AKS node pool is zone-unaware unless you say otherwise**. Left at
+the default, every node and therefore every runner replica can end up in one
+availability zone, and a single zone outage takes the whole runner down.
+
+Two layers are needed, and neither works alone:
+
+```hcl
+# 1. Terraform — put the nodes in more than one zone.
+node_pool_zones = ["1", "2", "3"]
+```
+
+```yaml
+# 2. Helm — spread the replicas across the zones the nodes now span, and stop a
+#    node drain evicting all of them at once.
+topologySpread:
+  enabled: true
+podDisruptionBudget:
+  enabled: true
+```
+
+Zonal nodes without `topologySpread` still let the scheduler stack every replica
+in one zone; `topologySpread` without zonal nodes has no zones to spread across.
+
+⚠️ **Node pool zones are immutable in Azure.** Setting `node_pool_zones` on a
+cluster that already exists produces a plan that *replaces* the default node
+pool, destroying every node it runs. Do not apply that against a live
+deployment — `modules/azure/aks/readme.md` documents the add-a-zonal-pool-and-
+drain migration, including why the drain must respect the runner's 12-hour
+termination grace period.
 
 ## Monitoring Integration
 

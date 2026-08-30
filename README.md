@@ -12,11 +12,18 @@ This repository provides multiple deployment methods for the Matillion Maia Runn
 - Support for AWS EKS (IAM roles) and local/minikube (direct credentials)
 - Configurable resource limits and autoscaling
 - Security-first approach with non-root containers
+- Availability-zone spread and pod disruption budgets (opt-in)
+- Shared multi-tenant platform: one cluster and one Prometheus serving several
+  business units, each with its own namespace, identity, secrets and HPA — see
+  [Shared Multi-Tenant Platform](runner/helm/README.md#shared-multi-tenant-platform)
 
 ### 2. **AWS ECS with Terraform**
 - Infrastructure as Code with Terraform modules
 - Automated IAM role and secrets management
 - ECS Fargate deployment with configurable resources
+- ⚠️ Graceful task draining is capped at 120s by Fargate, against 12h on the
+  Kubernetes targets. Pipelines still running past that are killed, not drained
+  — see [Task draining](runner/aws/ecs/README.md#️-task-draining-is-limited-to-120-seconds-on-this-deployment)
 
 ### 3. **AWS EKS with Terraform**
 - Infrastructure as Code with Terraform modules
@@ -40,6 +47,26 @@ This repository provides multiple deployment methods for the Matillion Maia Runn
 - Workload Identity for secretless pod authentication to GCP services
 - GKE cluster deployment with configurable node pools and machine types
 - GCS bucket and Secret Manager integration
+
+## Per-Runner Secret Scoping
+
+By default each cloud's runner identity is granted secret access at the container
+scope — the whole Key Vault on Azure, the whole project on GCP, the whole account
+on AWS. That is fine for a single tenant and unacceptable once a second business
+unit's credentials share it.
+
+The `runner-identity` modules give each runner its own identity, federated to
+that runner's Kubernetes service account, with access granted one secret at a
+time:
+
+| Cloud | Module | Identity | Per-secret grant |
+|-------|--------|----------|------------------|
+| Azure | [`modules/azure/runner-identity`](modules/azure/runner-identity/readme.md) | UAMI + federated credential | Role assignment scoped to `<vault>/secrets/<name>` |
+| AWS | [`modules/aws/runner-identity`](modules/aws/runner-identity/readme.md) | IAM role + IRSA trust policy | Policy statement scoped to individual secret ARNs |
+| GCP | [`modules/gcp/runner-identity`](modules/gcp/runner-identity/readme.md) | GSA + Workload Identity binding | IAM member on the individual secret |
+
+Each readme documents how to verify the isolation by checking what a runner
+*cannot* read, which is the property that actually matters.
 
 ## Prerequisites
 
@@ -378,6 +405,7 @@ pytest test_custom_metrics_exporter.py
 
 # Helm chart tests  
 pytest tests/helm/test_runner_chart.py
+pytest tests/helm/test_shared_platform.py
 
 # Integration tests (requires running metrics exporter)
 pytest tests/integration/test_metrics_endpoint.py
