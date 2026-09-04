@@ -33,6 +33,14 @@ replica_count              = 2
 workload_profile_max_count = 1
 zone_redundancy_enabled    = false
 
+# Storage replication. ZRS keeps copies in separate availability zones and is
+# what a zone-redundant environment should be paired with; LRS keeps one copy in
+# one zone. Recommended for new deployments.
+#
+# On a storage account that already holds data this is an Azure conversion, not
+# a Terraform edit — see the module readme before changing it in place.
+storage_account_replication_type = "ZRS"
+
 # Optional: outbound egress control
 # enable_nat_gateway       = false
 # nat_gateway_idle_timeout = 10
