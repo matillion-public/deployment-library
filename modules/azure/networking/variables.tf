@@ -57,3 +57,18 @@ variable "nat_gateway_idle_timeout" {
     error_message = "NAT Gateway idle timeout must be between 4 and 120 minutes."
   }
 }
+
+variable "service_endpoints" {
+  description = <<-EOT
+    Service endpoints enabled on each subnet. Key Vault and Storage are needed
+    wherever those resources restrict access to selected networks: the queue adapter
+    reads its OAuth secret from Key Vault and its project mapping from Table Storage.
+
+    Add "Microsoft.ServiceBus" for the servicebus queue backend, and
+    "Microsoft.ContainerRegistry" where images come from an ACR with restricted
+    network access. Enabling an endpoint here is only half of the arrangement — the
+    target resource's own network rules must also allow this subnet.
+  EOT
+  type        = list(string)
+  default     = ["Microsoft.Storage", "Microsoft.KeyVault"]
+}

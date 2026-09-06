@@ -18,8 +18,8 @@ locals {
     xlarge = { cpu = "8.0", memory = "32Gi", profile = "D8" }
   }
 
-  container_cpu         = coalesce(var.container_cpu, local.runner_size_map[var.runner_size].cpu)
-  container_memory      = coalesce(var.container_memory, local.runner_size_map[var.runner_size].memory)
+  container_cpu    = coalesce(var.container_cpu, local.runner_size_map[var.runner_size].cpu)
+  container_memory = coalesce(var.container_memory, local.runner_size_map[var.runner_size].memory)
   workload_profile_type = coalesce(
     var.workload_profile_type,
     (
@@ -44,11 +44,16 @@ resource "azurerm_log_analytics_workspace" "log_analytics" {
 
 # Storage Account
 resource "azurerm_storage_account" "storage" {
-  name                            = substr(replace(join("", [var.name, "stca", var.random_string_salt]), "-", ""), 0, 24)
-  resource_group_name             = var.resource_group_name
-  location                        = var.location
-  account_tier                    = "Standard"
-  account_replication_type        = "LRS"
+  name                = substr(replace(join("", [var.name, "stca", var.random_string_salt]), "-", ""), 0, 24)
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  account_tier        = "Standard"
+  # LRS keeps a single copy in one zone, which undercuts the zone redundancy the
+  # Container App Environment claims via zone_redundancy_enabled. New
+  # deployments should set ZRS; the default stays LRS so existing state does not
+  # move underneath anyone. See runner/azure/container_apps/README.md for the
+  # conversion path.
+  account_replication_type        = var.storage_account_replication_type
   allow_nested_items_to_be_public = false
   tags                            = var.tags
 }
@@ -285,7 +290,7 @@ resource "azurerm_container_app" "app" {
 
   lifecycle {
     precondition {
-      condition     = var.container_acr_id == null ? true : (
+      condition = var.container_acr_id == null ? true : (
         lower(split(".", split("/", var.container_image_url)[0])[0]) ==
         lower(element(split("/", var.container_acr_id), length(split("/", var.container_acr_id)) - 1))
       )
@@ -349,7 +354,7 @@ resource "azurerm_container_app" "script_runner" {
       error_message = "script_runner_authorized_keys must be set when enable_script_runner = true."
     }
     precondition {
-      condition     = var.script_runner_acr_id == null ? true : (
+      condition = var.script_runner_acr_id == null ? true : (
         lower(split(".", split("/", var.script_runner_image_url)[0])[0]) ==
         lower(element(split("/", var.script_runner_acr_id), length(split("/", var.script_runner_acr_id)) - 1))
       )

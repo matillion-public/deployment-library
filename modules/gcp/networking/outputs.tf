@@ -1,13 +1,13 @@
 output "network_id" {
-  value = google_compute_network.vpc.id
+  value = local.network_id
 }
 
 output "network_name" {
-  value = google_compute_network.vpc.name
+  value = local.create_network ? google_compute_network.vpc[0].name : null
 }
 
 output "subnet_ids" {
-  value = [for subnet in google_compute_subnetwork.subnets : subnet.id]
+  value = [local.subnet_id]
 }
 
 output "subnet_names" {
@@ -15,11 +15,11 @@ output "subnet_names" {
 }
 
 output "pod_secondary_range_name" {
-  value = google_compute_subnetwork.subnets[0].secondary_ip_range[0].range_name
+  value = local.pod_secondary_range_name
 }
 
 output "services_secondary_range_name" {
-  value = google_compute_subnetwork.subnets[0].secondary_ip_range[1].range_name
+  value = local.services_secondary_range_name
 }
 
 output "nat_ip" {
