@@ -7,14 +7,29 @@ data "http" "terraform_runner_external_ip" {
 
 # User Assigned Managed Identity
 resource "azurerm_user_assigned_identity" "aks_identity" {
-  name                = join("-", [var.name, "aks-identity", var.random_string_salt])
+  name                = lookup(var.resource_names, "aks_identity", join("-", [var.name, "aks-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
 }
 
 # Azure Kubernetes Service (AKS) Cluster
+locals {
+  # Default the floor to one node per zone so zone spread is real at rest, and to
+  # 2 when the pool is zone-unaware (a floor of 1 permits no voluntary eviction).
+  min_node_count = coalesce(var.min_node_count, max(2, length(var.node_pool_zones)))
+
+  # Default the ceiling to double the desired size. Raising desired_node_count
+  # raises the floor with it, so headroom is the cheaper dial of the two.
+  max_node_count = coalesce(var.max_node_count, var.desired_node_count * 2)
+}
+
 resource "azurerm_kubernetes_cluster" "aks_cluster" {
-  name                = join("-", [var.name, "aks-cluster", var.random_string_salt])
+  # Cost analysis needs Standard or Premium: on Free the addon cannot be enabled,
+  # so per-namespace and per-deployment spend never reaches Cost Management. Free
+  # also carries no uptime SLA.
+  sku_tier = var.sku_tier
+
+  name                = lookup(var.resource_names, "aks_cluster", join("-", [var.name, "aks-cluster", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -34,10 +49,21 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
     vm_size              = var.vm_size
     os_disk_size_gb      = var.node_disk_size
     auto_scaling_enabled = true
-    min_count            = 2
-    max_count            = var.desired_node_count + 2
-    node_count           = var.desired_node_count
-    vnet_subnet_id       = var.subnet_ids[0]
+    # The floor has to cover every zone the pool spans, or a zone-spread workload
+    # silently has no zone redundancy at the floor: two nodes cover two of three
+    # zones, and topologySpread degrades quietly rather than leaving pods Pending.
+    min_count = local.min_node_count
+    # Headroom in proportion to the pool rather than a flat +2. On a shared cluster
+    # several tenants can scale at once — each runner's HPA plus each queue
+    # adapter's ScaledJob — and a pool that only grows by two nodes leaves pods
+    # Pending, which reads as the platform being slow rather than out of capacity.
+    max_count      = local.max_node_count
+    node_count     = var.desired_node_count
+    vnet_subnet_id = var.subnet_ids[0]
+    # Empty list leaves the pool zone-unaware, which is what existing clusters
+    # already have. Node pool zones are immutable in Azure, so populating this
+    # on a live cluster forces the pool to be replaced.
+    zones = var.node_pool_zones
   }
 
   identity {
@@ -65,7 +91,7 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
 
 # Log Analytics for AKS Logs
 resource "azurerm_log_analytics_workspace" "aks_log_workspace" {
-  name                = join("-", [var.name, "log-workspace", var.random_string_salt])
+  name                = lookup(var.resource_names, "log_workspace", join("-", [var.name, "log-workspace", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
   sku                 = "PerGB2018"
@@ -73,17 +99,21 @@ resource "azurerm_log_analytics_workspace" "aks_log_workspace" {
 
 # Blob Storage Account
 resource "azurerm_storage_account" "stagging" {
-  name                            = substr(lower(join("", ["stagging", var.random_string_salt])), 0, 24)
-  resource_group_name             = var.resource_group_name
-  location                        = var.location
-  account_tier                    = "Standard"
-  account_replication_type        = "LRS"
+  name                = lookup(var.resource_names, "storage_account", substr(lower(join("", ["stagging", var.random_string_salt])), 0, 24))
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  account_tier        = "Standard"
+  # LRS keeps a single copy in one zone. Once the node pool spans zones via
+  # node_pool_zones, staging storage is the remaining single-zone dependency, so
+  # new deployments should set ZRS. The default stays LRS so existing state does
+  # not move underneath anyone.
+  account_replication_type        = var.storage_account_replication_type
   allow_nested_items_to_be_public = false
 }
 
 # Key Vault
 resource "azurerm_key_vault" "keyvault" {
-  name                       = substr(join("-", [var.name, var.random_string_salt]), 0, 24)
+  name                       = lookup(var.resource_names, "key_vault", substr(join("-", [var.name, var.random_string_salt]), 0, 24))
   location                   = var.location
   resource_group_name        = var.resource_group_name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
@@ -123,7 +153,7 @@ resource "azurerm_role_assignment" "key_vault_role" {
 # User Assigned Managed Identity for Runner Workload
 resource "azurerm_user_assigned_identity" "runner_workload_identity" {
   count               = var.workload_identity_enabled ? 1 : 0
-  name                = join("-", [var.name, "runner-workload-identity", var.random_string_salt])
+  name                = lookup(var.resource_names, "runner_identity", join("-", [var.name, "runner-workload-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
 }
@@ -164,7 +194,7 @@ resource "azurerm_role_assignment" "runner_subscription_reader_role" {
 # Federated Identity Credential for Runner Service Account
 resource "azurerm_federated_identity_credential" "runner_federated_credential" {
   count               = var.workload_identity_enabled ? 1 : 0
-  name                = join("-", [var.name, "runner-federated-credential", var.random_string_salt])
+  name                = lookup(var.resource_names, "runner_federated_credential", join("-", [var.name, "runner-federated-credential", var.random_string_salt]))
   resource_group_name = var.resource_group_name
   parent_id           = azurerm_user_assigned_identity.runner_workload_identity[0].id
   audience            = ["api://AzureADTokenExchange"]
@@ -175,7 +205,7 @@ resource "azurerm_federated_identity_credential" "runner_federated_credential" {
 # Federated Identity Credential for Script-Runner Service Account
 resource "azurerm_federated_identity_credential" "script_runner_federated_credential" {
   count               = var.workload_identity_enabled ? 1 : 0
-  name                = join("-", [var.name, "script-runner-federated-credential", var.random_string_salt])
+  name                = lookup(var.resource_names, "script_runner_federated_credential", join("-", [var.name, "script-runner-federated-credential", var.random_string_salt]))
   resource_group_name = var.resource_group_name
   parent_id           = azurerm_user_assigned_identity.runner_workload_identity[0].id
   audience            = ["api://AzureADTokenExchange"]

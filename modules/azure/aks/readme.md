@@ -41,6 +41,7 @@ Defines the input variables used in the Terraform configurations:
 - `appgw_subnet_id`: Subnet ID for Application Gateway
 - `tags`: Tags to apply to resources
 - `desired_node_count`: Desired number of nodes in the AKS cluster
+- `node_pool_zones`: Availability zones for the default node pool (see [Availability zones](#availability-zones))
 - `random_string_salt`: Random string for uniqueness
 - `is_private_cluster`: Boolean to enable private cluster
 - `authorized_ip_ranges`: List of authorized IP ranges for API server
@@ -54,6 +55,62 @@ Defines the outputs of the Terraform configurations:
 - `kubeconfig`: Path to the Kubernetes configuration file
 - `cluster_name`: Name of the AKS cluster
 - `aks_identity_principal_id`: Principal ID of the User Assigned Managed Identity
+
+## Availability zones
+
+The default node pool is created without zones unless `node_pool_zones` is set.
+A zone-unaware pool can place every node — and therefore every runner replica —
+in a single availability zone, so one zone outage takes the whole runner down.
+
+For a **new** cluster, set the zones your region supports and enable pod-level
+spread in the Helm values so the replicas actually use them:
+
+```hcl
+node_pool_zones = ["1", "2", "3"]
+```
+
+```yaml
+# runner/helm/runner values
+topologySpread:
+  enabled: true
+podDisruptionBudget:
+  enabled: true
+```
+
+Node pool zones alone only guarantee the *nodes* span zones; without
+`topologySpread` the scheduler is still free to stack every replica on one node's
+zone. The two changes are only meaningful together.
+
+### Storage replication
+
+`storage_account_replication_type` controls the staging storage account and
+defaults to `LRS`, which keeps a single copy in a single zone. Once the node pool
+spans zones this is the remaining single-zone dependency, so new deployments
+should set `ZRS`.
+
+Changing it on an account that already holds data is an **Azure conversion**, not
+a Terraform edit — use Azure's customer-initiated conversion or a manual
+migration, and only then update the Terraform value so state matches reality.
+Do not let a `terraform apply` be the first thing that attempts it.
+
+### Migrating an existing cluster
+
+**A node pool's zones are immutable in Azure.** Setting `node_pool_zones` on a
+cluster that already exists produces a plan that *replaces* the default node
+pool, which destroys every node it currently runs. Do not apply that plan against
+a live deployment.
+
+The supported path is to add a new zonal pool alongside the existing one and move
+the workload:
+
+1. Add a second `azurerm_kubernetes_cluster_node_pool` with the desired `zones`.
+2. `kubectl cordon` the old nodes so nothing new schedules onto them.
+3. `kubectl drain` them one at a time. Respect the runner's termination grace
+   period — a runner pod may take up to 12 hours to finish in-flight tasks, and
+   draining faster than that turns a lossless failover into a lossy one. Enable
+   `podDisruptionBudget` first so the drain cannot take every replica at once.
+4. Once the old pool is empty, remove it and set `node_pool_zones` on the default
+   pool, confirming with `terraform plan` that nothing else is being replaced.
 
 ## Service Principal Setup
 

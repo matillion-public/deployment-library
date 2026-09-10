@@ -59,6 +59,12 @@ ephemeral_storage_size = 40
 #
 # Optional: ARN of an S3 bucket for extension library hydration
 # script_runner_extension_library_bucket_arn = "arn:aws:s3:::my-extension-library-bucket"
+#
+# Optional: managed policy ARNs attached to the script runner's task role. Scripts run through
+# Script Pushdown assume that role, and it has no AWS permissions by default — so without this
+# (or policies attached out of band to the script_runner_task_role_name output) an aws/boto3 call
+# in a pushed-down script fails with "Unable to locate credentials".
+# script_runner_task_role_policy_arns = ["arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"]
 
 # Optional: Resource tags
 tags = {

@@ -1,0 +1,22 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- $minReplicas := include "matillion-runner.minReplicas" . | int }}
+{{- if lt $minReplicas 2 }}
+{{- fail (printf "podDisruptionBudget.enabled is true but the replica floor is %d. A PodDisruptionBudget over a workload that can sit at one replica permits zero voluntary evictions, so node drains and cluster upgrades hang indefinitely. Raise hpa.minReplicas (or dpcAgent.replicas when hpa.enabled is false) to at least 2, or leave podDisruptionBudget.enabled false." $minReplicas) }}
+{{- end }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "matillion-runner.fullname" . }}-pdb
+  labels:
+    app: {{ include "matillion-runner.fullname" . }}-pods
+    {{- include "matillion-runner.labels" . | nindent 4 }}
+spec:
+  # maxUnavailable rather than minAvailable: it stays satisfiable as the HPA
+  # scales the Deployment, where a fixed minAvailable eventually blocks every
+  # eviction.
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      app: {{ include "matillion-runner.fullname" . }}-pods
+      {{- include "matillion-runner.selectorLabels" . | nindent 6 }}
+{{- end }}

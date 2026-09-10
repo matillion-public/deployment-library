@@ -1,48 +1,60 @@
+locals {
+  create_network = var.existing_network == null
+}
+
 resource "google_compute_network" "vpc" {
-  name                    = join("-", [var.name, "vpc", var.random_string_salt])
+  count                   = local.create_network ? 1 : 0
+  name                    = lookup(var.resource_names, "vpc", join("-", [var.name, "vpc", var.random_string_salt]))
   auto_create_subnetworks = false
   project                 = var.project_id
 }
 
 resource "google_compute_subnetwork" "subnets" {
-  count         = 1
-  name          = join("-", [var.name, "subnet", var.random_string_salt, count.index])
+  count         = local.create_network ? 1 : 0
+  name          = "${lookup(var.resource_names, "subnet", join("-", [var.name, "subnet", var.random_string_salt]))}-${count.index}"
   ip_cidr_range = "10.0.${count.index + 1}.0/24"
   region        = var.region
-  network       = google_compute_network.vpc.id
+  network       = google_compute_network.vpc[0].id
   project       = var.project_id
 
   secondary_ip_range {
-    range_name    = join("-", ["pods", count.index])
+    range_name    = "${lookup(var.resource_names, "pod_secondary_range", "pods")}-${count.index}"
     ip_cidr_range = "10.${count.index + 1}.0.0/16"
   }
 
   secondary_ip_range {
-    range_name    = join("-", ["services", count.index])
+    range_name    = "${lookup(var.resource_names, "services_secondary_range", "services")}-${count.index}"
     ip_cidr_range = "10.${count.index + 10}.0.0/20"
   }
+}
+
+locals {
+  network_id                    = local.create_network ? google_compute_network.vpc[0].id : var.existing_network.network_id
+  subnet_id                     = local.create_network ? google_compute_subnetwork.subnets[0].id : var.existing_network.subnet_id
+  pod_secondary_range_name      = local.create_network ? google_compute_subnetwork.subnets[0].secondary_ip_range[0].range_name : var.existing_network.pod_secondary_range_name
+  services_secondary_range_name = local.create_network ? google_compute_subnetwork.subnets[0].secondary_ip_range[1].range_name : var.existing_network.services_secondary_range_name
 }
 
 # --- Cloud NAT for controlled outbound egress with static IP ---
 
 resource "google_compute_router" "nat_router" {
   count   = var.enable_cloud_nat ? 1 : 0
-  name    = join("-", [var.name, "nat-router", var.random_string_salt])
-  network = google_compute_network.vpc.id
+  name    = lookup(var.resource_names, "nat_router", join("-", [var.name, "nat-router", var.random_string_salt]))
+  network = local.network_id
   region  = var.region
   project = var.project_id
 }
 
 resource "google_compute_address" "nat_ip" {
   count   = var.enable_cloud_nat ? 1 : 0
-  name    = join("-", [var.name, "nat-ip", var.random_string_salt])
+  name    = lookup(var.resource_names, "nat_ip", join("-", [var.name, "nat-ip", var.random_string_salt]))
   region  = var.region
   project = var.project_id
 }
 
 resource "google_compute_router_nat" "cloud_nat" {
   count                              = var.enable_cloud_nat ? 1 : 0
-  name                               = join("-", [var.name, "cloud-nat", var.random_string_salt])
+  name                               = lookup(var.resource_names, "cloud_nat", join("-", [var.name, "cloud-nat", var.random_string_salt]))
   router                             = google_compute_router.nat_router[0].name
   region                             = var.region
   project                            = var.project_id

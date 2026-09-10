@@ -1,3 +1,8 @@
+locals {
+  # Either the subnets the caller brought, or the ones the networking module made.
+  subnet_ids = length(var.existing_subnet_ids) > 0 ? var.existing_subnet_ids : module.networking[0].subnet_ids
+}
+
 resource "random_string" "salt" {
   length           = 6
   special          = false
@@ -5,7 +10,12 @@ resource "random_string" "salt" {
 }
 
 module "networking" {
-  source                   = "../../../modules/azure/networking"
+  source = "../../../modules/azure/networking"
+  # Skipped entirely when the caller supplies subnets: an enterprise landing zone
+  # is usually owned by a network team, and Terraform that insists on creating its
+  # own VNet cannot be run there at all.
+  count = length(var.existing_subnet_ids) == 0 ? 1 : 0
+
   name                     = var.name
   location                 = var.location
   resource_group_name      = var.resource_group_name
@@ -13,6 +23,7 @@ module "networking" {
   enable_nat_gateway       = var.enable_nat_gateway
   nat_gateway_idle_timeout = var.nat_gateway_idle_timeout
   vnet_address_space       = var.vnet_address_space
+  service_endpoints        = var.service_endpoints
   tags                     = var.tags
 
 }
@@ -25,15 +36,26 @@ module "aks" {
   location            = var.location
   resource_group_name = var.resource_group_name
 
-  subnet_ids = module.networking.subnet_ids
+  subnet_ids = local.subnet_ids
 
   authorized_ip_ranges = var.authorized_ip_ranges
 
   desired_node_count = var.desired_node_count
   is_private_cluster = var.is_private_cluster
 
-  vm_size        = var.vm_size
-  node_disk_size = var.node_disk_size
+  vm_size         = var.vm_size
+  node_disk_size  = var.node_disk_size
+  node_pool_zones = var.node_pool_zones
+
+  # Autoscaler bounds and cluster tier. The module defaults are sensible — a floor
+  # of one node per zone, a ceiling of double desired_node_count, Standard tier —
+  # but without these passthroughs a caller using this root cannot override any of
+  # them, which is the whole point of having added them.
+  min_node_count = var.min_node_count
+  max_node_count = var.max_node_count
+  sku_tier       = var.sku_tier
+
+  storage_account_replication_type = var.storage_account_replication_type
 
   workload_identity_enabled   = var.workload_identity_enabled
   service_principal_enabled   = var.service_principal_enabled
@@ -41,7 +63,7 @@ module "aks" {
   service_principal_secret    = var.service_principal_secret
 
   enable_nat_gateway    = var.enable_nat_gateway
-  nat_gateway_public_ip = module.networking.nat_gateway_public_ip
+  nat_gateway_public_ip = try(module.networking[0].nat_gateway_public_ip, null)
 
   tags = var.tags
 
