@@ -79,6 +79,31 @@ variable "node_disk_size" {
   default     = 250
 }
 
+# Empty by default so existing clusters plan clean. Azure treats a node pool's
+# zones as immutable, so setting this on a cluster that already exists forces the
+# default node pool to be REPLACED — see readme.md for the migration path.
+variable "storage_account_replication_type" {
+  type        = string
+  description = "Replication for the staging storage account. ZRS spreads copies across availability zones and is what pairs with a zonal node pool; LRS keeps one copy in one zone. Defaults to LRS so existing deployments plan clean — set ZRS on new deployments. Changing this on an account that already holds data is an Azure conversion, not a Terraform edit."
+  default     = "LRS"
+
+  validation {
+    condition     = contains(["LRS", "ZRS", "GRS", "GZRS", "RAGRS", "RAGZRS"], var.storage_account_replication_type)
+    error_message = "storage_account_replication_type must be one of LRS, ZRS, GRS, GZRS, RAGRS, RAGZRS."
+  }
+}
+
+variable "node_pool_zones" {
+  type        = list(string)
+  description = "Availability zones for the default node pool, e.g. [\"1\", \"2\", \"3\"]. Empty (the default) leaves the pool zone-unaware, meaning every node — and so every runner replica — can land in a single zone. Set this on new clusters; changing it on an existing one forces node pool replacement."
+  default     = []
+
+  validation {
+    condition     = length(var.node_pool_zones) != 1
+    error_message = "node_pool_zones with a single zone gives no zone redundancy while still forcing pool replacement to change later. Use at least two zones, or leave it empty."
+  }
+}
+
 variable "workload_identity_enabled" {
   type        = bool
   description = "Enable Azure Workload Identity for the runner workload (requires OIDC issuer)"
@@ -115,4 +140,37 @@ variable "nat_gateway_public_ip" {
   type        = string
   description = "Public IP of the NAT Gateway. When set with a public cluster, it is appended to authorized_ip_ranges so node kubelet traffic egressing through the NAT can reach the API server."
   default     = null
+}
+variable "min_node_count" {
+  description = "Autoscaler floor for the default node pool. Defaults to one node per zone in node_pool_zones, or 2 when the pool is zone-unaware. Note this floor is billed continuously, and that a floor below the zone count means zone spread is not satisfied at rest."
+  type        = number
+  default     = null
+}
+
+variable "max_node_count" {
+  description = "Autoscaler ceiling for the default node pool. Defaults to twice desired_node_count. Size this against how many tenants can scale simultaneously — the ceiling costs nothing until it is used, whereas raising desired_node_count raises the billed floor."
+  type        = number
+  default     = null
+}
+
+variable "sku_tier" {
+  description = "Cluster tier. Standard is required to enable AKS cost analysis (az aks update --enable-cost-analysis), which is what attributes spend per namespace and per deployment on a shared cluster. Free carries no uptime SLA."
+  type        = string
+  default     = "Standard"
+
+  validation {
+    condition     = contains(["Free", "Standard", "Premium"], var.sku_tier)
+    error_message = "sku_tier must be Free, Standard or Premium."
+  }
+}
+
+variable "resource_names" {
+  description = <<-EOT
+    Resource key to explicit name, overriding the generated default. Intended to be
+    fed the `names` output of modules/azure/naming, which builds them from a token
+    convention. Any key left out keeps its existing generated name, so an empty map
+    is exactly today's behaviour.
+  EOT
+  type        = map(string)
+  default     = {}
 }

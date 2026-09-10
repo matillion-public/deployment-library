@@ -150,12 +150,12 @@ kubectl get nodes
 # Navigate to the Helm chart directory
 cd ../../helm/runner
 
-# Create the runner namespace (should match the `name` Terraform variable)
-kubectl create namespace matillion-runner
+# Create the runner namespace
+kubectl create namespace matillion
 
 # Install using the GCP values file
 helm install matillion-runner . \
-  --namespace matillion-runner \
+  --namespace matillion \
   --values values-gcp.yaml \
   --set gcp.workloadIdentity.serviceAccountEmail="$(cd ../../../runner/gcp/gke && terraform output -raw runner_workload_sa_email)" \
   --set config.oauthClientId="<your-client-id>" \
@@ -169,13 +169,13 @@ helm install matillion-runner . \
 
 ```bash
 # Check pod status
-kubectl get pods -n matillion-runner
+kubectl get pods -n matillion
 
 # View pod logs
-kubectl logs -l app.kubernetes.io/name=matillion-runner -n matillion-runner
+kubectl logs -l app.kubernetes.io/name=matillion-runner -n matillion
 
 # Check HPA status
-kubectl get hpa -n matillion-runner
+kubectl get hpa -n matillion
 ```
 
 ## Configuration Options
@@ -219,7 +219,7 @@ master_ipv4_cidr_block = "172.16.0.0/28"
 GKE Workload Identity allows pods to authenticate to GCP APIs without managing service account keys. The Terraform module:
 
 1. Creates a GCP Service Account (`runner_workload_sa`)
-2. Binds it to the Kubernetes Service Account created by Helm (`<name>/<name>-sa`)
+2. Binds it to the Kubernetes Service Account created by Helm (`matillion/matillion-runner-sa` by default, independent of `var.name`)
 3. Grants the GCP SA access to Secret Manager and GCS
 
 The Helm chart adds the required annotation to the Kubernetes Service Account:
@@ -260,6 +260,27 @@ VPC
 is_private_cluster = false
 enable_cloud_nat   = false
 ```
+
+#### Using an Existing VPC and Subnet
+
+Set `existing_network` to deploy into an existing VPC/subnet instead of
+creating new ones:
+
+```hcl
+existing_network = {
+  network_id                     = "your-vpc"
+  subnet_id                      = "your-subnet"
+  pod_secondary_range_name       = "pods"
+  services_secondary_range_name  = "services"
+}
+```
+
+Short names resolve against `project_id`/`region`. If the VPC lives in a
+different project (Shared VPC), use the full self-link instead, e.g.
+`"projects/host-project/global/networks/your-vpc"`.
+
+The subnet must already have pod/service secondary IP ranges (required for
+VPC-native GKE clusters). Cloud NAT, if enabled, attaches to the existing VPC.
 
 ## Outputs
 
@@ -332,11 +353,11 @@ gcloud secrets versions add <secret-id> --data-file=<file>
 
 ```bash
 # Manual pod scaling
-kubectl scale deployment matillion-runner-app --replicas=5 -n matillion-runner
+kubectl scale deployment matillion-runner-app --replicas=5 -n matillion
 
 # View HPA status
-kubectl get hpa -n matillion-runner
-kubectl describe hpa matillion-runner-hpa -n matillion-runner
+kubectl get hpa -n matillion
+kubectl describe hpa matillion-runner-hpa -n matillion
 ```
 
 #### Sizing the HPA target (`averageValue`)
@@ -350,30 +371,53 @@ The HPA scales runner pods based on `hpa.metrics.target.averageValue` — the **
   - `17` — **reactive** (steady workloads, some queueing acceptable, lower cost)
 - For dev/test GKE clusters, pick a much lower value (e.g. `5`) so small workloads trigger scale events.
 
+#### Zone resilience
+
+The cluster here is regional (`location = var.region`), so node pools already
+span the zones of that region. That alone does not spread the *replicas* —
+without a topology spread constraint the scheduler is free to stack them all in
+one zone. Both chart settings are opt-in:
+
+```yaml
+topologySpread:
+  enabled: true          # spread replicas across zones
+podDisruptionBudget:
+  enabled: true          # stop a node drain taking them all at once
+```
+
+They are only meaningful together: spreading across zones protects against a
+zone outage, the budget protects against maintenance. See
+`runner/helm/README.md` for the full option reference.
+
+Health probes (`readinessProbe`, `livenessProbe`) are also available and default
+to off — read the comments in `values.yaml` before enabling them, particularly
+the relationship between the liveness failure window and the 12-hour termination
+grace period.
+
 ### Application Updates
 
 ```bash
 # Rolling update
 helm upgrade matillion-runner . \
-  --namespace matillion-runner \
+  --namespace matillion \
   --reuse-values \
   --set dpcAgent.dpcAgent.image.tag="v2.0.0"
 
 # Monitor rollout
-kubectl rollout status deployment/matillion-runner-app -n matillion-runner
+kubectl rollout status deployment/matillion-runner-app -n matillion
 ```
 
 ### Troubleshooting
 
 ```bash
 # Check pod status and events
-kubectl describe pod <pod-name> -n matillion-runner
+kubectl describe pod <pod-name> -n matillion
 
 # View pod logs
-kubectl logs <pod-name> -c matillion-runner-pods -n matillion-runner
+kubectl logs <pod-name> -c matillion-runner-pods -n matillion
 
 # Check Workload Identity is working
-kubectl exec -it <pod-name> -n matillion-runner -- \
+kubectl exec -it <pod-name> -n matillion -- \
   curl -H "Metadata-Flavor: Google" \
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email"
 ```
@@ -382,8 +426,8 @@ kubectl exec -it <pod-name> -n matillion-runner -- \
 
 ```bash
 # Uninstall Helm release
-helm uninstall matillion-runner -n matillion-runner
-kubectl delete namespace matillion-runner
+helm uninstall matillion-runner -n matillion
+kubectl delete namespace matillion
 
 # Destroy infrastructure
 terraform destroy

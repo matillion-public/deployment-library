@@ -80,19 +80,19 @@ variable "labels" {
 
 variable "k8s_namespace" {
   type        = string
-  description = "Kubernetes namespace the Helm chart is deployed into. Defaults to \"matillion\"."
+  description = "Kubernetes namespace the Helm chart is deployed into. Defaults to \"matillion\". Not tied to var.name."
   default     = ""
 }
 
 variable "k8s_service_account_name" {
   type        = string
-  description = "Kubernetes service account name created by the Helm chart. Defaults to <name>-sa."
+  description = "Kubernetes service account name created by the Helm chart. Defaults to \"matillion-runner-sa\". Not tied to var.name."
   default     = ""
 }
 
 variable "script_runner_k8s_service_account_name" {
   type        = string
-  description = "Kubernetes service account name for the script-runner pod. Must match the Helm chart fullname output. Defaults to <name>-script-runner-sa."
+  description = "Kubernetes service account name for the script-runner pod. Defaults to \"matillion-runner-script-runner-sa\". Not tied to var.name."
   default     = ""
 }
 
