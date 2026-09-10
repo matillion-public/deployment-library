@@ -51,6 +51,58 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+The Prometheus server config.
+
+An explicit config.prometheusYml wins outright — that key used to hold the whole
+file, so anyone overriding it must keep getting exactly what they asked for
+rather than a version this template has quietly recomposed. Only when it is
+empty is the config built from config.scrapeNamespaces and
+config.scrapePodLabelRegex.
+*/}}
+{{- define "prometheus.prometheusYml" -}}
+{{- if .Values.config.prometheusYml -}}
+{{- .Values.config.prometheusYml -}}
+{{- else -}}
+global:
+  scrape_interval: 5s
+scrape_configs:
+  - job_name: 'matillion-runner'
+    kubernetes_sd_configs:
+      - role: pod
+{{- with .Values.config.scrapeNamespaces }}
+        namespaces:
+          names:
+{{- range . }}
+            - {{ . }}
+{{- end }}
+{{- end }}
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: {{ .Values.config.scrapePodLabelRegex }}
+      - source_labels: [__meta_kubernetes_pod_ip]
+        target_label: __address__
+        replacement: $1:8080
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __scheme__
+        replacement: http
+      - target_label: __metrics_path__
+        replacement: /actuator/prometheus
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        target_label: name
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+        target_label: instance
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+        target_label: component
+{{- end -}}
+{{- end }}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "prometheus.serviceAccountName" -}}

@@ -137,3 +137,14 @@ resource "aws_iam_role_policy" "script_runner_task_role_policy" {
     Statement = local.script_runner_policy_statements
   })
 }
+
+# Scripts pushed down to the runner assume this task role, so anything they need
+# in AWS has to be granted here — the extension-library grant above covers the
+# runner's own hydration and nothing else. Default stays deny-everything: with no
+# ARNs supplied, for_each is empty and no attachment is created. (DPC-55696)
+resource "aws_iam_role_policy_attachment" "script_runner_task_role_managed" {
+  for_each = var.enable_script_runner ? toset(var.script_runner_task_role_policy_arns) : toset([])
+
+  role       = aws_iam_role.script_runner_task_role[0].name
+  policy_arn = each.value
+}

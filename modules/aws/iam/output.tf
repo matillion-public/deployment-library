@@ -10,3 +10,8 @@ output "script_runner_task_role_arn" {
   description = "ARN of the script runner task role. Empty string when enable_script_runner is false."
   value       = var.enable_script_runner ? aws_iam_role.script_runner_task_role[0].arn : ""
 }
+
+output "script_runner_task_role_name" {
+  description = "Name of the script runner task role, for attaching IAM policies out of band instead of through script_runner_task_role_policy_arns. Empty string when enable_script_runner is false."
+  value       = var.enable_script_runner ? aws_iam_role.script_runner_task_role[0].name : ""
+}

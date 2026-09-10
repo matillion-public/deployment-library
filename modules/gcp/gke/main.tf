@@ -4,10 +4,10 @@ locals {
   node_sa_account_id   = "${local.name_prefix}-n-${var.random_string_salt}"
   runner_sa_account_id = "${local.name_prefix}-a-${var.random_string_salt}"
 
-  # Workload Identity: fall back to var.name-derived defaults if not explicitly set
+  # Fixed to match the Helm chart's default release name, not var.name — see README Workload Identity section.
   k8s_namespace                          = var.k8s_namespace != "" ? var.k8s_namespace : "matillion"
-  k8s_service_account_name               = var.k8s_service_account_name != "" ? var.k8s_service_account_name : "${var.name}-sa"
-  script_runner_k8s_service_account_name = var.script_runner_k8s_service_account_name != "" ? var.script_runner_k8s_service_account_name : "${var.name}-script-runner-sa"
+  k8s_service_account_name               = var.k8s_service_account_name != "" ? var.k8s_service_account_name : "matillion-runner-sa"
+  script_runner_k8s_service_account_name = var.script_runner_k8s_service_account_name != "" ? var.script_runner_k8s_service_account_name : "matillion-runner-script-runner-sa"
 
   # Flat map of bucket/role pairs for extra GCS bucket permissions
   runner_extra_bucket_roles = {
