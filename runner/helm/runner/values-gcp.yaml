@@ -37,7 +37,7 @@ dpcAgent:
     image:
       repository: "europe-docker.pkg.dev/maia-492711/maia-runners/maia-runner"
       tag: "current"
-    imagePullPolicy: IfNotPresent
+    imagePullPolicy: Always  # Required: 'current' is a rolling tag; Always ensures latest image is pulled
     gracePeriodSeconds: 43200
     # Resources derived from .Values.runnerSize. Set this map to override.
     resources: {}

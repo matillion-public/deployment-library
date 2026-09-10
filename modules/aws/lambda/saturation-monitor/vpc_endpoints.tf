@@ -6,7 +6,7 @@
 # Security group for VPC endpoints
 resource "aws_security_group" "vpc_endpoints" {
   count       = var.vpc_config != null && var.create_vpc_endpoints ? 1 : 0
-  name        = "${var.name}-vpc-endpoints-sg"
+  name        = lookup(var.resource_names, "vpc_endpoints_security_group", "${var.name}-vpc-endpoints-sg")
   description = "Security group for VPC endpoints"
   vpc_id      = var.vpc_config.vpc_id
 
@@ -29,7 +29,7 @@ resource "aws_security_group" "vpc_endpoints" {
   }
 
   tags = {
-    Name = "${var.name}-vpc-endpoints-sg"
+    Name = lookup(var.resource_names, "vpc_endpoints_security_group", "${var.name}-vpc-endpoints-sg")
   }
 }
 
@@ -68,7 +68,7 @@ resource "aws_vpc_endpoint" "ecs" {
   })
 
   tags = {
-    Name = "${var.name}-ecs-endpoint"
+    Name = lookup(var.resource_names, "vpc_endpoint_ecs", "${var.name}-ecs-endpoint")
   }
 }
 
@@ -102,7 +102,7 @@ resource "aws_vpc_endpoint" "cloudwatch" {
   })
 
   tags = {
-    Name = "${var.name}-cloudwatch-endpoint"
+    Name = lookup(var.resource_names, "vpc_endpoint_cloudwatch", "${var.name}-cloudwatch-endpoint")
   }
 }
 
@@ -122,7 +122,7 @@ resource "aws_vpc_endpoint" "logs" {
   }
 
   tags = {
-    Name = "${var.name}-logs-endpoint"
+    Name = lookup(var.resource_names, "vpc_endpoint_logs", "${var.name}-logs-endpoint")
   }
 }
 
