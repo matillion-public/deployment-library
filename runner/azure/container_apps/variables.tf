@@ -118,6 +118,12 @@ variable "zone_redundancy_enabled" {
   default     = true
 }
 
+variable "storage_account_replication_type" {
+  type        = string
+  description = "Replication for the storage account. ZRS spreads copies across availability zones and is the setting that matches zone_redundancy_enabled; LRS keeps one copy in one zone. Defaults to LRS so existing deployments plan clean — set ZRS on new deployments."
+  default     = "LRS"
+}
+
 variable "enable_nat_gateway" {
   type        = bool
   description = "Enable NAT Gateway for controlled outbound egress"

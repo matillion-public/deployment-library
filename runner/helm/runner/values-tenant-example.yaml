@@ -1,0 +1,113 @@
+---
+# Example values for one tenant on a shared runner platform.
+#
+# The model: one Kubernetes cluster, one Prometheus, and one Helm release per
+# business unit. Each release gets its own namespace, its own identity, its own
+# secrets and its own HPA, so business units scale independently and cannot read
+# each other's credentials. Onboarding another unit is a copy of this file — no
+# chart change, no new module.
+#
+#   helm install runner-grid runner/helm/runner \
+#     -n bu-grid --create-namespace \
+#     -f values-azure.yaml -f values-tenant-grid.yaml
+#
+# Layer this on top of the cloud template (values-aws.yaml / values-azure.yaml /
+# values-gcp.yaml) rather than replacing it.
+#
+# ---------------------------------------------------------------------------
+# MUST be unique per tenant
+# ---------------------------------------------------------------------------
+#   * The Helm release name and namespace (passed on the command line above).
+#     Every resource name and the pod `app` label derive from the release name,
+#     so distinct release names are what keep tenants from colliding.
+#   * config.oauthClientId / oauthClientSecret — the runner's own credentials.
+#   * dpcAgent.dpcAgent.env.agentId — identifies this runner to the control plane.
+#   * serviceAccount.name and the cloud identity annotation. The identity is
+#     bound to `system:serviceaccount:<namespace>:<serviceAccountName>`, so a
+#     tenant sharing another tenant's service account inherits its secret access.
+#     This is the setting that makes per-tenant secret scoping real; getting it
+#     wrong silently grants more access rather than failing.
+#
+# ---------------------------------------------------------------------------
+# MUST NOT be changed
+# ---------------------------------------------------------------------------
+#   * The `app`, `app.kubernetes.io/name` and `app.kubernetes.io/instance`
+#     labels. They form the Deployment's spec.selector, which Kubernetes treats
+#     as immutable — changing one makes `helm upgrade` of an existing release
+#     fail outright instead of rolling. commonLabels rejects them for this
+#     reason. Add attribution under your own prefix instead.
+# ---------------------------------------------------------------------------
+
+# Tenant identity. Applied to every resource and to the runner pods, so the
+# shared platform can be queried, alerted on and billed per business unit.
+commonLabels:
+  matillion.com/business-unit: grid
+  matillion.com/cost-centre: "4471"
+
+# Runner credentials — unique per tenant.
+config:
+  oauthClientId: "<AgentClientId>"
+  oauthClientSecret: "<AgentClientSecret>"
+
+serviceAccount:
+  # Distinct per tenant. Must match the subject of this tenant's federated
+  # credential / IRSA trust policy in Terraform.
+  name: runner-grid-sa
+
+dpcAgent:
+  dpcAgent:
+    env:
+      accountId: <MatillionAccountId>
+      agentId: <MatillionAgentId>
+      matillionRegion: <MatillionRegion>
+
+# Sizing is per tenant — that is the point of separate releases.
+runnerSize: medium
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    target:
+      averageValue: "16"
+      type: AverageValue
+
+# Zone resilience. Both are needed together: topologySpread decides where
+# replicas land, podDisruptionBudget stops a node drain taking them all at once.
+# On AKS these only do anything if the node pool was created with
+# node_pool_zones set (see modules/azure/aks/readme.md).
+topologySpread:
+  enabled: true
+podDisruptionBudget:
+  enabled: true
+
+# Optional. Off by default because a readiness probe that is too tight makes a
+# rolling update look hung, and a liveness probe that is too tight kills a runner
+# that is legitimately draining. Read the comments in values.yaml before
+# changing any of the thresholds.
+readinessProbe:
+  enabled: false
+livenessProbe:
+  enabled: false
+
+networkPolicy:
+  enabled: true
+  # Namespace the shared Prometheus runs in.
+  prometheusNamespace: monitoring
+
+# ---------------------------------------------------------------------------
+# Shared Prometheus, for reference — set on the *prometheus* chart, once, not
+# per tenant. Every tenant namespace has to appear in both lists or that
+# tenant's HPA silently never scales:
+#
+#   config:
+#     scrapeNamespaces: [bu-grid, bu-retail, bu-trading]
+#     scrapePodLabelRegex: ".*matillion-runner-pods"
+#   networkPolicy:
+#     additionalScrapeNamespaces: [bu-grid, bu-retail, bu-trading]
+#
+# The adapter maps app_active_task_count to pod and namespace and the HPAs are
+# type: Pods, so tenants sharing one Prometheus do not affect each other's
+# scaling.
+# ---------------------------------------------------------------------------

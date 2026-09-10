@@ -1,5 +1,5 @@
 resource "azurerm_virtual_network" "vnet" {
-  name                = join("-", [var.name, "vnet", var.random_string_salt])
+  name                = lookup(var.resource_names, "vnet", join("-", [var.name, "vnet", var.random_string_salt]))
   address_space       = [var.vnet_address_space]
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -7,13 +7,16 @@ resource "azurerm_virtual_network" "vnet" {
 }
 
 resource "azurerm_subnet" "subnets" {
-  count                = length(var.subnet_configs)
-  name                 = join("-", [var.name, "subnet", var.random_string_salt, count.index])
+  count = length(var.subnet_configs)
+  name = coalesce(
+    var.subnet_configs[count.index].name,
+    join("-", [var.name, "subnet", var.random_string_salt, count.index])
+  )
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = [cidrsubnet(var.vnet_address_space, var.subnet_configs[count.index].newbits, var.subnet_configs[count.index].netnum)]
 
-  service_endpoints = ["Microsoft.Storage", "Microsoft.KeyVault"]
+  service_endpoints = var.service_endpoints
 
   dynamic "delegation" {
     for_each = var.subnet_configs[count.index].delegation != null ? [var.subnet_configs[count.index].delegation] : []
@@ -28,7 +31,7 @@ resource "azurerm_subnet" "subnets" {
 }
 
 resource "azurerm_network_security_group" "nsg" {
-  name                = join("-", [var.name, "runner-nsg", var.random_string_salt])
+  name                = lookup(var.resource_names, "nsg", join("-", [var.name, "runner-nsg", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -60,7 +63,7 @@ resource "azurerm_subnet_network_security_group_association" "subnet_nsg" {
 
 resource "azurerm_public_ip" "nat_gateway_ip" {
   count               = var.enable_nat_gateway ? 1 : 0
-  name                = join("-", [var.name, "nat-pip", var.random_string_salt])
+  name                = lookup(var.resource_names, "nat_public_ip", join("-", [var.name, "nat-pip", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
   allocation_method   = "Static"
@@ -71,7 +74,7 @@ resource "azurerm_public_ip" "nat_gateway_ip" {
 
 resource "azurerm_nat_gateway" "main" {
   count                   = var.enable_nat_gateway ? 1 : 0
-  name                    = join("-", [var.name, "nat-gw", var.random_string_salt])
+  name                    = lookup(var.resource_names, "nat_gateway", join("-", [var.name, "nat-gw", var.random_string_salt]))
   location                = var.location
   resource_group_name     = var.resource_group_name
   sku_name                = "Standard"

@@ -17,7 +17,7 @@ locals {
 resource "aws_s3_bucket" "staging_bucket" {
   count = var.create_bucket == true ? 1 : 0
 
-  bucket = lower(join("-", [var.name, "stagging-bucket"]))
+  bucket = lookup(var.resource_names, "staging_bucket", lower(join("-", [var.name, "stagging-bucket"])))
   tags   = var.tags
 }
 
@@ -34,7 +34,7 @@ resource "aws_s3_bucket_policy" "staging_bucket_policy" {
 }
 
 resource "aws_security_group" "ecs_security_group" {
-  name        = join("-", [var.name, "matillion-runner-security-group"])
+  name        = lookup(var.resource_names, "ecs_security_group", join("-", [var.name, "matillion-runner-security-group"]))
   description = "Allow http to client host"
   vpc_id      = var.vpc_id
 
@@ -48,7 +48,7 @@ resource "aws_security_group" "ecs_security_group" {
 }
 
 resource "aws_ecs_cluster" "matillion_dpc_cluster" {
-  name = join("-", [var.name, "cluster"])
+  name = lookup(var.resource_names, "ecs_cluster", join("-", [var.name, "cluster"]))
 
   setting {
     name  = "containerInsights"
@@ -63,26 +63,26 @@ resource "aws_ecs_cluster" "matillion_dpc_cluster" {
   tags = merge(
     var.tags,
     {
-      Name = join("-", [var.name, "cluster"])
+      Name = lookup(var.resource_names, "ecs_cluster", join("-", [var.name, "cluster"]))
     }
   )
 }
 
 resource "aws_cloudwatch_log_group" "matillion_dpc_runner_task_logs" {
 
-  name              = "/ecs/${var.name}-task"
+  name              = lookup(var.resource_names, "ecs_task_log_group", "/ecs/${var.name}-task")
   retention_in_days = 30
   tags = merge(
     var.tags,
     {
-      Name = "/ecs/${var.name}-task"
+      Name = lookup(var.resource_names, "ecs_task_log_group", "/ecs/${var.name}-task")
     }
   )
 }
 
 resource "aws_ecs_task_definition" "matillion_dpc_runner" {
 
-  family = join("-", [var.name, "task"])
+  family = lookup(var.resource_names, "ecs_task_family", join("-", [var.name, "task"]))
 
   container_definitions = templatefile("${path.module}/templates/matillion-task-definition.json.tmpl", {
     name                       = join("-", [var.name, "task-definition"])
@@ -137,14 +137,14 @@ resource "aws_ecs_task_definition" "matillion_dpc_runner" {
   tags = merge(
     var.tags,
     {
-      Name = join("-", [var.name, "task-definition"])
+      Name = lookup(var.resource_names, "ecs_task_family", join("-", [var.name, "task-definition"]))
     }
   )
 }
 
 resource "aws_ecs_service" "matillion_dpc_service" {
 
-  name            = join("-", [var.name, "service"])
+  name            = lookup(var.resource_names, "ecs_service", join("-", [var.name, "service"]))
   cluster         = aws_ecs_cluster.matillion_dpc_cluster.id
   task_definition = aws_ecs_task_definition.matillion_dpc_runner.arn
   desired_count   = var.desired_count
@@ -190,7 +190,7 @@ resource "aws_ecs_service" "matillion_dpc_service" {
   tags = merge(
     var.tags,
     {
-      Name = join("-", [var.name, "service"])
+      Name = lookup(var.resource_names, "ecs_service", join("-", [var.name, "service"]))
     }
   )
 }
@@ -199,7 +199,7 @@ resource "aws_ecs_service" "matillion_dpc_service" {
 
 resource "aws_service_discovery_private_dns_namespace" "cluster_namespace" {
   count = var.enable_script_runner ? 1 : 0
-  name  = join("-", [var.name, "service-connect"])
+  name  = lookup(var.resource_names, "service_discovery_namespace", join("-", [var.name, "service-connect"]))
   vpc   = var.vpc_id
   tags  = var.tags
 }
@@ -230,7 +230,7 @@ resource "aws_service_discovery_service" "script_runner" {
 resource "aws_security_group" "script_runner_security_group" {
   count = var.enable_script_runner ? 1 : 0
 
-  name        = join("-", [var.name, "script-runner-sg"])
+  name        = lookup(var.resource_names, "script_runner_security_group", join("-", [var.name, "script-runner-sg"]))
   description = "Allow SSH from runner to maia-script-runner"
   vpc_id      = var.vpc_id
 
@@ -249,24 +249,24 @@ resource "aws_security_group" "script_runner_security_group" {
   }
 
   tags = merge(var.tags, {
-    Name = join("-", [var.name, "script-runner-sg"])
+    Name = lookup(var.resource_names, "script_runner_security_group", join("-", [var.name, "script-runner-sg"]))
   })
 }
 
 resource "aws_cloudwatch_log_group" "script_runner_task_logs" {
   count = var.enable_script_runner ? 1 : 0
 
-  name              = "/ecs/${var.name}-script-runner-task"
+  name              = lookup(var.resource_names, "script_runner_log_group", "/ecs/${var.name}-script-runner-task")
   retention_in_days = var.script_runner_log_retention_days
   tags = merge(var.tags, {
-    Name = "/ecs/${var.name}-script-runner-task"
+    Name = lookup(var.resource_names, "script_runner_log_group", "/ecs/${var.name}-script-runner-task")
   })
 }
 
 resource "aws_ecs_task_definition" "script_runner" {
   count = var.enable_script_runner ? 1 : 0
 
-  family = join("-", [var.name, "script-runner-task"])
+  family = lookup(var.resource_names, "script_runner_task_family", join("-", [var.name, "script-runner-task"]))
 
   container_definitions = templatefile("${path.module}/templates/maia-script-runner-task-definition.json.tmpl", {
     name                       = var.name
@@ -290,7 +290,7 @@ resource "aws_ecs_task_definition" "script_runner" {
   }
 
   tags = merge(var.tags, {
-    Name = join("-", [var.name, "script-runner-task"])
+    Name = lookup(var.resource_names, "script_runner_task_family", join("-", [var.name, "script-runner-task"]))
   })
 
   lifecycle {
@@ -308,7 +308,7 @@ resource "aws_ecs_task_definition" "script_runner" {
 resource "aws_ecs_service" "script_runner" {
   count = var.enable_script_runner ? 1 : 0
 
-  name            = join("-", [var.name, "script-runner"])
+  name            = lookup(var.resource_names, "script_runner_service", join("-", [var.name, "script-runner"]))
   cluster         = aws_ecs_cluster.matillion_dpc_cluster.id
   task_definition = aws_ecs_task_definition.script_runner[0].arn
   desired_count   = var.script_runner_desired_count
@@ -350,6 +350,6 @@ resource "aws_ecs_service" "script_runner" {
   wait_for_steady_state = true
 
   tags = merge(var.tags, {
-    Name = join("-", [var.name, "script-runner"])
+    Name = lookup(var.resource_names, "script_runner_service", join("-", [var.name, "script-runner"]))
   })
 }
