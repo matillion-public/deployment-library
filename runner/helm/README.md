@@ -126,12 +126,20 @@ helm template matillion-runner ./runner \
 >     serviceAccountEmail: "<name>@<project>.iam.gserviceaccount.com"   # if the script runner is enabled
 > ```
 >
-> **Alternatives (static credentials instead of workload identity)** — if your
-> cluster can't use cloud-native identity, disable it and supply credentials directly:
+> **Alternatives (an identity other than per-workload)** — if your cluster can't
+> use cloud-native workload identity, name the alternative explicitly. Turning
+> workload identity off without naming one makes rendering **fail**, rather than
+> installing a runner with no cloud identity at all:
 > - **AWS** — set `aws.local.enabled: true` and provide `aws.local.region` /
 >   `accessKeyId` / `secretAccessKey` (leave `serviceAccount.roleArn` unset).
-> - **Azure** — set `azure.workloadIdentity.enabled: false` and
->   `azure.servicePrincipal.enabled: true` with `clientId` / `clientSecret` / `tenantId`.
+> - **Azure** — set `azure.workloadIdentity.enabled: false` and either
+>   `azure.servicePrincipal.enabled: true` with `clientId` / `clientSecret` /
+>   `tenantId`, or `azure.nodeIdentity.enabled: true` to inherit the AKS node
+>   pool's kubelet managed identity.
+> - **GCP** — set `gcp.workloadIdentity.enabled: false` and
+>   `gcp.nodeIdentity.enabled: true` to inherit the GKE node pool's service
+>   account. There is no static-key equivalent, and this is not recommended —
+>   see [Cloud identity is mandatory](#cloud-identity-is-mandatory).
 > - **Local / dev** — start from `values-local.yaml`, which wires up static
 >   credentials for all providers for out-of-cluster testing.
 
@@ -181,6 +189,71 @@ helm install matillion-runner ./runner \
   -f my-values.yaml \
   -f my-overrides.yaml
 ```
+
+### Shared Multi-Tenant Platform
+
+One cluster and one Prometheus can host many independently-scalable runners —
+one Helm release per business unit, each in its own namespace with its own
+identity, secrets and HPA. Onboarding another unit is a values file, not a chart
+change.
+
+```bash
+helm install runner-grid ./runner -n bu-grid --create-namespace \
+  -f runner/values-azure.yaml -f my-values-grid.yaml
+
+helm install runner-retail ./runner -n bu-retail --create-namespace \
+  -f runner/values-azure.yaml -f my-values-retail.yaml
+```
+
+Start from `runner/values-tenant-example.yaml`, which documents what must be
+unique per tenant and what must never be changed.
+
+Tenants do not interfere with each other's scaling: the adapter maps
+`app_active_task_count` to both `pod` and `namespace`, and each runner's HPA is
+`type: Pods`, so every Deployment scales on its own pods.
+
+#### What must be unique per tenant
+
+| Setting | Why |
+|---------|-----|
+| Helm release name and namespace | Every resource name and the pod `app` label derive from the release name |
+| `config.oauthClientId` / `oauthClientSecret` | The runner's own credentials |
+| `dpcAgent.dpcAgent.env.agentId` | Identifies the runner to the control plane |
+| `serviceAccount.name` + cloud identity annotation | The identity is bound to `system:serviceaccount:<namespace>:<name>`. A tenant sharing another's service account inherits its secret access — this fails open, not closed |
+
+#### What must never change
+
+`app`, `app.kubernetes.io/name` and `app.kubernetes.io/instance` form the
+Deployment's `spec.selector`, which Kubernetes treats as immutable. Changing one
+makes `helm upgrade` of an existing release fail rather than roll. `commonLabels`
+rejects these keys for that reason — use your own prefix for attribution:
+
+```yaml
+commonLabels:
+  matillion.com/business-unit: grid
+  matillion.com/cost-centre: "4471"
+```
+
+#### Wiring the shared Prometheus
+
+Set once on the **prometheus** chart, not per tenant. Every tenant namespace has
+to appear in both lists — one controls what service discovery finds, the other
+what the Prometheus pod is permitted to reach, and a namespace missing from
+either means that tenant's HPA sits at `minReplicas` with nothing in any log to
+explain it:
+
+```yaml
+config:
+  scrapeNamespaces: [bu-grid, bu-retail, bu-trading]
+  # Each release labels its pods `<release>-matillion-runner-pods`, so one
+  # literal name will not match more than a single tenant.
+  scrapePodLabelRegex: ".*matillion-runner-pods"
+networkPolicy:
+  additionalScrapeNamespaces: [bu-grid, bu-retail, bu-trading]
+```
+
+See `prometheus/README.md` for how to verify every tenant is actually being
+scraped after rollout.
 
 ### Install Prometheus Monitoring
 
@@ -234,6 +307,10 @@ helm install prometheus ./prometheus --namespace prometheus \
 | `aws.local.region` | AWS Region (when local enabled) | `"us-west-2"` |
 | `aws.local.accessKeyId` | AWS Access Key ID (when local enabled) | `"AKIA..."` |
 | `aws.local.secretAccessKey` | AWS Secret Access Key (when local enabled) | `"secret..."` |
+| `gcp.workloadIdentity.serviceAccountEmail` | GCP SA email (required for GKE) — `terraform output -raw runner_workload_sa_email` | `"runner@proj.iam.gserviceaccount.com"` |
+| `azure.workloadIdentity.clientId` | Managed-identity client ID (required for AKS) | `"00000000-0000-..."` |
+
+Every cloud requires an identity. See [Cloud identity is mandatory](#cloud-identity-is-mandatory).
 
 ### Optional Configuration
 
@@ -435,6 +512,35 @@ dpcAgent:
 
 ### Cloud Provider Specific
 
+#### Cloud identity is mandatory
+
+The runner needs an identity in your cloud to reach Secret Manager / Key Vault /
+Secrets Manager and object storage. The chart cannot create that identity — it
+only annotates the Kubernetes ServiceAccount so the cloud can match it to one
+you created. Get the annotation wrong or skip it and the install still succeeds;
+the runner fails later, on its first call, which reads as a Matillion problem
+rather than a deployment one.
+
+So each provider has exactly one sanctioned way to opt out of per-workload
+identity, and rendering **fails** if none is named:
+
+| Provider | Default | The one alternative |
+|---|---|---|
+| AWS | `serviceAccount.roleArn` (IRSA) | `aws.local.enabled: true` — static access keys |
+| Azure | `azure.workloadIdentity.clientId` | `azure.servicePrincipal.enabled: true`, or `azure.nodeIdentity.enabled: true` for the AKS kubelet identity |
+| GCP | `gcp.workloadIdentity.serviceAccountEmail` | `gcp.nodeIdentity.enabled: true` — the GKE node pool's service account |
+
+`nodeIdentity` on either cloud means the pod inherits the *node's* identity from
+the instance metadata service: shared with every other pod on that node, and
+scoped to whatever the node pool was granted. It is an escape hatch for
+clusters that were built that way, not a recommendation.
+
+The post-install NOTES print the commands to verify the binding actually took
+effect — the annotation being present proves nothing on its own, because the
+other half of the binding lives in IAM. For GKE specifically, including how to
+bind an identity to a runner that is already installed, see
+[`runner/gcp/gke/README.md`](../gcp/gke/README.md).
+
 #### AWS EKS with IAM Roles
 ```yaml
 cloudProvider: "aws"
@@ -471,6 +577,30 @@ azure:
     clientSecret: "your-service-principal-secret"
     tenantId: "your-azure-tenant-id"
 ```
+
+#### GCP GKE with Workload Identity
+```yaml
+cloudProvider: "gcp"
+gcp:
+  workloadIdentity:
+    enabled: true
+    # terraform output -raw runner_workload_sa_email
+    serviceAccountEmail: "matillion-runner@your-project.iam.gserviceaccount.com"
+```
+
+#### GCP GKE inheriting the node pool's service account
+```yaml
+cloudProvider: "gcp"
+gcp:
+  workloadIdentity:
+    enabled: false
+  nodeIdentity:
+    enabled: true
+```
+Only for node pools running `--workload-metadata=GCE_METADATA`. The runner gets
+whatever the node pool's service account has, which for the default compute SA
+does not include the Secret Manager and GCS grants it needs. Prefer Workload
+Identity; see `runner/gcp/gke/README.md`, "Identity is not optional".
 
 ## Testing
 

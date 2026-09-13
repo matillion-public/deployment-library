@@ -50,6 +50,18 @@ variable "node_disk_size" {
   default     = 250
 }
 
+variable "storage_account_replication_type" {
+  type        = string
+  description = "Replication for the staging storage account. ZRS spreads copies across availability zones and is what pairs with a zonal node pool; LRS keeps one copy in one zone. Defaults to LRS so existing deployments plan clean — set ZRS on new deployments."
+  default     = "LRS"
+}
+
+variable "node_pool_zones" {
+  type        = list(string)
+  description = "Availability zones for the default node pool, e.g. [\"1\", \"2\", \"3\"]. Empty (the default) leaves the pool zone-unaware, meaning every node — and so every runner replica — can land in a single zone. Set this on new clusters; changing it on an existing one forces node pool replacement."
+  default     = []
+}
+
 variable "workload_identity_enabled" {
   type        = bool
   description = "Enable Azure Workload Identity for the runner workload (requires OIDC issuer)"
@@ -92,4 +104,34 @@ variable "nat_gateway_idle_timeout" {
   type        = number
   description = "NAT Gateway idle timeout in minutes (between 4 and 120)"
   default     = 10
+}
+
+variable "min_node_count" {
+  description = "Autoscaler floor for the default node pool. Null defaults to one node per zone in node_pool_zones, or 2 when the pool is zone-unaware. This floor runs continuously, so it is the part of the pool that is always billed."
+  type        = number
+  default     = null
+}
+
+variable "max_node_count" {
+  description = "Autoscaler ceiling for the default node pool. Null defaults to double desired_node_count. Size it against how many tenants can scale at once — the ceiling costs nothing until it is used, unlike desired_node_count, which raises the billed floor."
+  type        = number
+  default     = null
+}
+
+variable "sku_tier" {
+  description = "Cluster tier: Free, Standard or Premium. Standard is required to enable AKS cost analysis (az aks update --enable-cost-analysis), which attributes spend per namespace and per deployment on a cluster shared between tenants. Free carries no uptime SLA."
+  type        = string
+  default     = "Standard"
+}
+
+variable "existing_subnet_ids" {
+  description = "Subnets to place the AKS node pool in, when the VNet is managed outside this configuration — the usual case in an enterprise landing zone where a network team owns it. Leave empty to have the networking module create a VNet, subnets and optional NAT gateway. The subnets must already allow outbound access to the Azure control plane and to the container registries the nodes pull from."
+  type        = list(string)
+  default     = []
+}
+
+variable "service_endpoints" {
+  description = "Service endpoints on the created subnets. Storage and Key Vault are always needed; add Microsoft.ServiceBus for that queue backend, and Microsoft.ContainerRegistry for a network-restricted ACR. Ignored when existing_subnet_ids is set, since the subnet is then not managed here."
+  type        = list(string)
+  default     = ["Microsoft.Storage", "Microsoft.KeyVault"]
 }
