@@ -384,10 +384,22 @@ class TestRunnerChart:
         assert 'lifecycle' not in container
 
     def test_no_poststart_when_azure_workload_identity_disabled(self, base_values):
-        """Azure without workload identity enabled (e.g. service principal auth)
-        must not render the postStart hook either — it's WI-specific."""
+        """Azure without workload identity enabled (here, service principal auth)
+        must not render the postStart hook either — it's WI-specific.
+
+        The service principal has to be switched on for this to be a real
+        configuration: since DPC-55764 the chart refuses to render an Azure
+        deployment with no identity source at all."""
         base_values['cloudProvider'] = 'azure'
-        base_values['azure'] = {'workloadIdentity': {'enabled': False}}
+        base_values['azure'] = {
+            'workloadIdentity': {'enabled': False},
+            'servicePrincipal': {
+                'enabled': True,
+                'clientId': 'sp-client',
+                'clientSecret': 'sp-secret',
+                'tenantId': 'sp-tenant',
+            },
+        }
         container = self._main_container(base_values)
         assert 'lifecycle' not in container
 
@@ -732,3 +744,261 @@ class TestScriptRunner:
         dep = next(d for d in self._runner_docs(documents) if d['kind'] == 'Deployment')
         pod_annotations = dep['spec']['template']['metadata'].get('annotations', {})
         assert pod_annotations.get('azure.workload.identity/inject-proxy-sidecar') == 'true'
+
+
+class TestCloudIdentityGuard:
+    """DPC-55764 — a deployment must never end up with no cloud identity at all.
+
+    AWS has always enforced this (`serviceAccount.roleArn` is `required` unless
+    `aws.local.enabled` names an alternative). GCP and Azure only checked their
+    identity value inside the `workloadIdentity.enabled` branch, so turning the
+    flag off skipped the check and installed a runner that could not reach the
+    cloud — the 2026-08-28 GKE failure. Each provider now keeps exactly one
+    sanctioned opt-out, and it has to be named.
+    """
+
+    @pytest.fixture
+    def base_values(self):
+        return {
+            'cloudProvider': 'aws',
+            'config': {'oauthClientId': 'id', 'oauthClientSecret': 'secret'},
+            'serviceAccount': {'roleArn': 'arn:aws:iam::123456789012:role/agent'},
+            'dpcAgent': {
+                'dpcAgent': {
+                    'env': {
+                        'accountId': '12345',
+                        'agentId': 'test-agent-id',
+                        'matillionRegion': 'us1',
+                    },
+                    'image': {'repository': 'nginx', 'tag': 'latest'},
+                }
+            },
+            'hpa': {'maxReplicas': 10, 'metrics': {'target': {'averageValue': '50'}}},
+        }
+
+    # reuse TestRunnerChart's render + lookup helpers
+    helm_template = TestRunnerChart.helm_template
+    find_document_by_kind = TestRunnerChart.find_document_by_kind
+
+    def render_error(self, values):
+        """Render, asserting it fails, and return the message helm printed."""
+        with pytest.raises(subprocess.CalledProcessError) as exc:
+            self.helm_template(values)
+        return exc.value.stderr
+
+    def _sa_annotations(self, values):
+        documents = self.helm_template(values)
+        sa = self.find_document_by_kind(documents, 'ServiceAccount')
+        assert sa is not None, "ServiceAccount not rendered"
+        return sa.get('metadata', {}).get('annotations') or {}
+
+    def test_gcp_workload_identity_off_without_alternative_fails(self, base_values):
+        """The Zebra case: `enabled: false` is the obvious way past the missing-email
+        error, and used to install a runner with no identity and no warning."""
+        base_values['cloudProvider'] = 'gcp'
+        base_values['gcp'] = {'workloadIdentity': {'enabled': False}}
+
+        message = self.render_error(base_values)
+
+        # Names the consequence, not just the misconfiguration.
+        assert 'no GCP identity' in message
+        assert 'fails at runtime, after a successful install' in message
+        # Points at both ways out, and at the terraform output that supplies the email.
+        assert 'runner_workload_sa_email' in message
+        assert 'gcp.nodeIdentity.enabled=true' in message
+
+    def test_gcp_node_identity_is_the_one_sanctioned_opt_out(self, base_values):
+        """Naming the alternative renders — with no annotation, which is the point:
+        the pod is deliberately taking the node pool's identity."""
+        base_values['cloudProvider'] = 'gcp'
+        base_values['gcp'] = {
+            'workloadIdentity': {'enabled': False},
+            'nodeIdentity': {'enabled': True},
+        }
+
+        annotations = self._sa_annotations(base_values)
+        assert 'iam.gke.io/gcp-service-account' not in annotations
+
+    def test_gcp_workload_identity_on_still_requires_the_email(self, base_values):
+        """The pre-existing `required` is untouched — the guard adds a path, it does
+        not replace the one that already worked."""
+        base_values['cloudProvider'] = 'gcp'
+        base_values['gcp'] = {'workloadIdentity': {'enabled': True, 'serviceAccountEmail': ''}}
+
+        message = self.render_error(base_values)
+        assert 'gcp.workloadIdentity.serviceAccountEmail is required' in message
+
+    def test_gcp_workload_identity_happy_path_unchanged(self, base_values):
+        base_values['cloudProvider'] = 'gcp'
+        base_values['gcp'] = {
+            'workloadIdentity': {
+                'enabled': True,
+                'serviceAccountEmail': 'runner@proj.iam.gserviceaccount.com',
+            }
+        }
+
+        annotations = self._sa_annotations(base_values)
+        assert annotations['iam.gke.io/gcp-service-account'] == 'runner@proj.iam.gserviceaccount.com'
+
+    def test_azure_workload_identity_and_service_principal_both_off_fails(self, base_values):
+        """Azure had the same shape as GCP, so it gets the same guard."""
+        base_values['cloudProvider'] = 'azure'
+        base_values['azure'] = {'workloadIdentity': {'enabled': False}}
+
+        message = self.render_error(base_values)
+        assert 'no Azure identity' in message
+        assert 'azure.servicePrincipal' in message
+        assert 'azure.nodeIdentity.enabled=true' in message
+
+    def test_azure_service_principal_satisfies_the_guard(self, base_values):
+        """The alternative Azure already had keeps working without a new flag."""
+        base_values['cloudProvider'] = 'azure'
+        base_values['azure'] = {
+            'workloadIdentity': {'enabled': False},
+            'servicePrincipal': {
+                'enabled': True,
+                'clientId': 'sp-client',
+                'clientSecret': 'sp-secret',
+                'tenantId': 'sp-tenant',
+            },
+        }
+
+        annotations = self._sa_annotations(base_values)
+        assert 'azure.workload.identity/client-id' not in annotations
+
+    def test_azure_node_identity_satisfies_the_guard(self, base_values):
+        base_values['cloudProvider'] = 'azure'
+        base_values['azure'] = {
+            'workloadIdentity': {'enabled': False},
+            'nodeIdentity': {'enabled': True},
+        }
+
+        annotations = self._sa_annotations(base_values)
+        assert 'azure.workload.identity/client-id' not in annotations
+
+    def test_aws_irsa_and_local_paths_are_unaffected(self, base_values):
+        """The guard must not reach AWS: its own `required` already covers it, and a
+        second check would break the local-credentials path."""
+        assert self._sa_annotations(base_values)['eks.amazonaws.com/role-arn'] \
+            == 'arn:aws:iam::123456789012:role/agent'
+
+        base_values['aws'] = {
+            'local': {
+                'enabled': True,
+                'region': 'us-west-2',
+                'accessKeyId': 'AKIAEXAMPLE',
+                'secretAccessKey': 'example-secret-key',
+            }
+        }
+        base_values['serviceAccount'] = {}
+        assert 'eks.amazonaws.com/role-arn' not in self._sa_annotations(base_values)
+
+    def test_shipped_provider_values_files_all_satisfy_the_guard(self):
+        """values-azure.yaml / values-gcp.yaml / values-local.yaml must not be the
+        thing that trips the guard we just added."""
+        for values_file in ('values-azure.yaml', 'values-gcp.yaml', 'values-local.yaml'):
+            result = subprocess.run(
+                ['helm', 'template', 'test-release', 'runner/helm/runner',
+                 '-f', os.path.join('runner/helm/runner', values_file)],
+                capture_output=True, text=True,
+            )
+            assert 'identity' not in result.stderr, f"{values_file}: {result.stderr}"
+
+
+class TestAzureSubscriptionId:
+    """DPCT-2352 — the chart used to emit `AZURE_SUBSCRIPTION_ID`, a name the agent
+    has never bound. The agent reads `AZURE_DEFAULT_SUBSCRIPTION_ID`
+    (`agent.azure.subscription.id` in cloud-component-runner's
+    application-blob-storage.yaml), so `azure.subscriptionId` was inert and there
+    was no supported way to pin the subscription on AKS. Left unpinned the agent
+    falls back to whichever subscription ARM returns first, which is not stable in
+    a multi-subscription tenant and can empty the Key Vault picker.
+
+    The value was also nested inside the `workloadIdentity.enabled` branch, so
+    service-principal and node-identity deployments never received it at all.
+    """
+
+    @pytest.fixture
+    def base_values(self):
+        return {
+            'cloudProvider': 'azure',
+            'config': {'oauthClientId': 'id', 'oauthClientSecret': 'secret'},
+            'azure': {'workloadIdentity': {'enabled': True, 'clientId': 'wi-client'}},
+            'dpcAgent': {
+                'dpcAgent': {
+                    'env': {
+                        'accountId': '12345',
+                        'agentId': 'test-agent-id',
+                        'matillionRegion': 'us1',
+                    },
+                    'image': {'repository': 'nginx', 'tag': 'latest'},
+                }
+            },
+            'hpa': {'maxReplicas': 10, 'metrics': {'target': {'averageValue': '50'}}},
+        }
+
+    helm_template = TestRunnerChart.helm_template
+    find_document_by_kind = TestRunnerChart.find_document_by_kind
+
+    def _agent_env(self, values):
+        """Return the agent container's env as a {name: value} mapping."""
+        documents = self.helm_template(values)
+        deployment = self.find_document_by_kind(documents, 'Deployment')
+        assert deployment is not None, "Deployment not rendered"
+        container = deployment['spec']['template']['spec']['containers'][0]
+        return {e['name']: e.get('value') for e in container.get('env', [])}
+
+    def test_emits_the_name_the_agent_actually_binds(self, base_values):
+        base_values['azure']['subscriptionId'] = 'sub-abc'
+
+        env = self._agent_env(base_values)
+        assert env['AZURE_DEFAULT_SUBSCRIPTION_ID'] == 'sub-abc'
+
+    def test_retains_the_legacy_name_for_user_scripts(self, base_values):
+        """The old name never reached the agent, but scripts in the container may
+        read it, so removing it outright would be a breaking change."""
+        base_values['azure']['subscriptionId'] = 'sub-abc'
+
+        env = self._agent_env(base_values)
+        assert env['AZURE_SUBSCRIPTION_ID'] == 'sub-abc'
+
+    def test_reaches_service_principal_deployments(self, base_values):
+        """Previously nested under workloadIdentity.enabled, so this path got nothing."""
+        base_values['azure'] = {
+            'workloadIdentity': {'enabled': False},
+            'servicePrincipal': {
+                'enabled': True,
+                'clientId': 'sp-client',
+                'clientSecret': 'sp-secret',
+                'tenantId': 'sp-tenant',
+            },
+            'subscriptionId': 'sub-abc',
+        }
+
+        env = self._agent_env(base_values)
+        assert env['AZURE_DEFAULT_SUBSCRIPTION_ID'] == 'sub-abc'
+
+    def test_reaches_node_identity_deployments(self, base_values):
+        base_values['azure'] = {
+            'workloadIdentity': {'enabled': False},
+            'nodeIdentity': {'enabled': True},
+            'subscriptionId': 'sub-abc',
+        }
+
+        env = self._agent_env(base_values)
+        assert env['AZURE_DEFAULT_SUBSCRIPTION_ID'] == 'sub-abc'
+
+    def test_omitted_entirely_when_unset(self, base_values):
+        """Unset must stay unset — an empty string would pin the agent to nothing
+        rather than letting it fall back to enumerating subscriptions."""
+        env = self._agent_env(base_values)
+        assert 'AZURE_DEFAULT_SUBSCRIPTION_ID' not in env
+        assert 'AZURE_SUBSCRIPTION_ID' not in env
+
+    def test_not_emitted_for_non_azure_providers(self, base_values):
+        base_values['cloudProvider'] = 'aws'
+        base_values['serviceAccount'] = {'roleArn': 'arn:aws:iam::123456789012:role/agent'}
+        base_values['azure'] = {'subscriptionId': 'sub-abc'}
+
+        env = self._agent_env(base_values)
+        assert 'AZURE_DEFAULT_SUBSCRIPTION_ID' not in env

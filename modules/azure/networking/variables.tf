@@ -26,6 +26,7 @@ variable "vnet_address_space" {
 
 variable "subnet_configs" {
   type = list(object({
+    name    = optional(string)
     newbits = number
     netnum  = number
     delegation = optional(object({
@@ -36,7 +37,7 @@ variable "subnet_configs" {
       })
     }))
   }))
-  description = "List of subnet configurations using cidrsubnet(vnet_address_space, newbits, netnum). Defaults to two /24 subnets for AKS."
+  description = "List of subnet configurations using cidrsubnet(vnet_address_space, newbits, netnum). Defaults to two /24 subnets for AKS. Set name per subnet to follow your own convention — each subnet carries a different purpose, so one template cannot name them all."
   default = [
     { newbits = 8, netnum = 1, delegation = null },
     { newbits = 8, netnum = 2, delegation = null }
@@ -56,4 +57,30 @@ variable "nat_gateway_idle_timeout" {
     condition     = var.nat_gateway_idle_timeout >= 4 && var.nat_gateway_idle_timeout <= 120
     error_message = "NAT Gateway idle timeout must be between 4 and 120 minutes."
   }
+}
+
+variable "service_endpoints" {
+  description = <<-EOT
+    Service endpoints enabled on each subnet. Key Vault and Storage are needed
+    wherever those resources restrict access to selected networks: the queue adapter
+    reads its OAuth secret from Key Vault and its project mapping from Table Storage.
+
+    Add "Microsoft.ServiceBus" for the servicebus queue backend, and
+    "Microsoft.ContainerRegistry" where images come from an ACR with restricted
+    network access. Enabling an endpoint here is only half of the arrangement — the
+    target resource's own network rules must also allow this subnet.
+  EOT
+  type        = list(string)
+  default     = ["Microsoft.Storage", "Microsoft.KeyVault"]
+}
+
+variable "resource_names" {
+  description = <<-EOT
+    Resource key to explicit name, overriding the generated default. Intended to be
+    fed the `names` output of modules/azure/naming, which builds them from a token
+    convention. Any key left out keeps its existing generated name, so an empty map
+    is exactly today's behaviour.
+  EOT
+  type        = map(string)
+  default     = {}
 }

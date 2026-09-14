@@ -2,8 +2,8 @@
 # Creates S3 bucket and DynamoDB table for Terraform state management
 
 locals {
-  bucket_name     = "${var.account_id}-terraform-states"
-  lock_table_name = "${var.account_id}-terraform-locks"
+  bucket_name     = lookup(var.resource_names, "state_bucket", "${var.account_id}-terraform-states")
+  lock_table_name = lookup(var.resource_names, "state_lock_table", "${var.account_id}-terraform-locks")
 }
 
 # S3 bucket for storing Terraform state
