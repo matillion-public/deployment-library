@@ -1,9 +1,12 @@
 terraform {
-  # Uncomment the backend block below to use Azure Blob Storage for remote state
+  # Uncomment the backend block below to use Azure Blob Storage for remote state.
+  # All three names come from modules/azure/state-management — take them from its
+  # backend_config output rather than typing them, since resource_names can change
+  # any of the three and a mismatch here fails terraform init.
   # backend "azurerm" {
-  #   resource_group_name  = "your-terraform-state-rg"
-  #   storage_account_name = "yourterraformstatesa"
-  #   container_name       = "terraform-states"
+  #   resource_group_name  = "<state_management.backend_config.resource_group_name>"
+  #   storage_account_name = "<state_management.backend_config.storage_account_name>"
+  #   container_name       = "<state_management.backend_config.container_name>"
   #   key                  = "container-apps/terraform.tfstate"
   # }
 

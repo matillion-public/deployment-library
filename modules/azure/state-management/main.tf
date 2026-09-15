@@ -9,7 +9,7 @@ locals {
 
 # Resource group for state management resources
 resource "azurerm_resource_group" "state_management" {
-  name     = "${var.resource_group_prefix}-terraform-state"
+  name     = lookup(var.resource_names, "state_resource_group", "${var.resource_group_prefix}-terraform-state")
   location = var.location
 
   tags = merge(var.tags, {
@@ -20,7 +20,7 @@ resource "azurerm_resource_group" "state_management" {
 
 # Storage account for Terraform state
 resource "azurerm_storage_account" "terraform_state" {
-  name                     = local.storage_account_name_clean
+  name                     = lookup(var.resource_names, "state_storage_account", local.storage_account_name_clean)
   resource_group_name      = azurerm_resource_group.state_management.name
   location                 = azurerm_resource_group.state_management.location
   account_tier             = "Standard"
@@ -36,13 +36,30 @@ resource "azurerm_storage_account" "terraform_state" {
     Purpose   = "TerraformState"
     ManagedBy = "Terraform"
   })
+
+  # This account holds every state blob for the deployment, and name is force-new.
+  # Renaming it through resource_names on a live platform would otherwise plan a
+  # destroy and recreate of the backend's own storage. Remove this block only for a
+  # deliberate teardown.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Storage container for state files
 resource "azurerm_storage_container" "terraform_state" {
-  name                  = "terraform-states"
+  # The backend's container_name must match this exactly — it is rendered from the
+  # backend_config output rather than hardcoded, so the two cannot drift. Changing
+  # it on a deployed platform is a state migration, not a rename.
+  name                  = lookup(var.resource_names, "state_container", "terraform-states")
   storage_account_name  = azurerm_storage_account.terraform_state.name
   container_access_type = "private"
+
+  # Holds every state blob, and name is force-new. Remove this block only for a
+  # deliberate teardown.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Role assignment to allow deployment principal access to storage
