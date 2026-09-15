@@ -3,7 +3,7 @@
 
 resource "aws_security_group" "lambda_sg" {
   count       = var.vpc_config != null && length(try(var.vpc_config.security_group_ids, [])) == 0 ? 1 : 0
-  name        = "${var.name}-saturation-monitor-lambda-sg"
+  name        = lookup(var.resource_names, "saturation_lambda_sg", "${var.name}-saturation-monitor-lambda-sg")
   description = "Security group for ECS Runner Saturation Monitor Lambda"
   vpc_id      = var.vpc_config.vpc_id
 
@@ -35,7 +35,7 @@ resource "aws_security_group" "lambda_sg" {
   }
 
   tags = {
-    Name = "${var.name}-saturation-monitor-lambda-sg"
+    Name = lookup(var.resource_names, "saturation_lambda_sg", "${var.name}-saturation-monitor-lambda-sg")
   }
 }
 

@@ -18,8 +18,8 @@ locals {
     xlarge = { cpu = "8.0", memory = "32Gi", profile = "D8" }
   }
 
-  container_cpu         = coalesce(var.container_cpu, local.runner_size_map[var.runner_size].cpu)
-  container_memory      = coalesce(var.container_memory, local.runner_size_map[var.runner_size].memory)
+  container_cpu    = coalesce(var.container_cpu, local.runner_size_map[var.runner_size].cpu)
+  container_memory = coalesce(var.container_memory, local.runner_size_map[var.runner_size].memory)
   workload_profile_type = coalesce(
     var.workload_profile_type,
     (
@@ -34,7 +34,7 @@ locals {
 
 # Log Analytics Workspace
 resource "azurerm_log_analytics_workspace" "log_analytics" {
-  name                = join("-", [var.name, "log-workspace", var.random_string_salt])
+  name                = lookup(var.resource_names, "log_workspace", join("-", [var.name, "log-workspace", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
   sku                 = "PerGB2018"
@@ -44,18 +44,23 @@ resource "azurerm_log_analytics_workspace" "log_analytics" {
 
 # Storage Account
 resource "azurerm_storage_account" "storage" {
-  name                            = substr(replace(join("", [var.name, "stca", var.random_string_salt]), "-", ""), 0, 24)
-  resource_group_name             = var.resource_group_name
-  location                        = var.location
-  account_tier                    = "Standard"
-  account_replication_type        = "LRS"
+  name                = lookup(var.resource_names, "storage_account", substr(replace(join("", [var.name, "stca", var.random_string_salt]), "-", ""), 0, 24))
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  account_tier        = "Standard"
+  # LRS keeps a single copy in one zone, which undercuts the zone redundancy the
+  # Container App Environment claims via zone_redundancy_enabled. New
+  # deployments should set ZRS; the default stays LRS so existing state does not
+  # move underneath anyone. See runner/azure/container_apps/README.md for the
+  # conversion path.
+  account_replication_type        = var.storage_account_replication_type
   allow_nested_items_to_be_public = false
   tags                            = var.tags
 }
 
 # Key Vault
 resource "azurerm_key_vault" "keyvault" {
-  name                       = substr(join("-", [var.name, "kv", var.random_string_salt]), 0, 24)
+  name                       = lookup(var.resource_names, "key_vault", substr(join("-", [var.name, "kv", var.random_string_salt]), 0, 24))
   location                   = var.location
   resource_group_name        = var.resource_group_name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
@@ -74,7 +79,7 @@ resource "azurerm_key_vault" "keyvault" {
 
 # User Assigned Managed Identity
 resource "azurerm_user_assigned_identity" "managed_identity" {
-  name                = join("-", [var.name, "ca-identity", var.random_string_salt])
+  name                = lookup(var.resource_names, "container_app_identity", join("-", [var.name, "ca-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
@@ -133,7 +138,7 @@ resource "azurerm_role_assignment" "key_vault_reader" {
 
 # Container App Environment
 resource "azurerm_container_app_environment" "env" {
-  name                = join("-", [var.name, "env", var.random_string_salt])
+  name                = lookup(var.resource_names, "container_app_environment", join("-", [var.name, "env", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
@@ -152,7 +157,7 @@ resource "azurerm_container_app_environment" "env" {
 
 # Container App
 resource "azurerm_container_app" "app" {
-  name                         = join("-", [var.name, "app", var.random_string_salt])
+  name                         = lookup(var.resource_names, "container_app", join("-", [var.name, "app", var.random_string_salt]))
   resource_group_name          = var.resource_group_name
   container_app_environment_id = azurerm_container_app_environment.env.id
   revision_mode                = "Single"
@@ -285,7 +290,7 @@ resource "azurerm_container_app" "app" {
 
   lifecycle {
     precondition {
-      condition     = var.container_acr_id == null ? true : (
+      condition = var.container_acr_id == null ? true : (
         lower(split(".", split("/", var.container_image_url)[0])[0]) ==
         lower(element(split("/", var.container_acr_id), length(split("/", var.container_acr_id)) - 1))
       )
@@ -298,7 +303,7 @@ resource "azurerm_container_app" "app" {
 
 resource "azurerm_user_assigned_identity" "script_runner_identity" {
   count               = var.enable_script_runner ? 1 : 0
-  name                = join("-", [var.name, "ca-runner-identity", var.random_string_salt])
+  name                = lookup(var.resource_names, "script_runner_identity", join("-", [var.name, "ca-runner-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
@@ -332,7 +337,7 @@ resource "azurerm_role_assignment" "script_runner_key_vault_secrets_user" {
 resource "azurerm_container_app" "script_runner" {
   count = var.enable_script_runner ? 1 : 0
 
-  name                         = join("-", [var.name, "script-runner", var.random_string_salt])
+  name                         = lookup(var.resource_names, "script_runner_app", join("-", [var.name, "script-runner", var.random_string_salt]))
   resource_group_name          = var.resource_group_name
   container_app_environment_id = azurerm_container_app_environment.env.id
   revision_mode                = "Single"
@@ -349,7 +354,7 @@ resource "azurerm_container_app" "script_runner" {
       error_message = "script_runner_authorized_keys must be set when enable_script_runner = true."
     }
     precondition {
-      condition     = var.script_runner_acr_id == null ? true : (
+      condition = var.script_runner_acr_id == null ? true : (
         lower(split(".", split("/", var.script_runner_image_url)[0])[0]) ==
         lower(element(split("/", var.script_runner_acr_id), length(split("/", var.script_runner_acr_id)) - 1))
       )

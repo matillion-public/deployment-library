@@ -1,0 +1,16 @@
+---
+{{- if .Values.queueAdapter.enabled }}
+# KEDA authenticates the Service Bus queue-depth scaler via Azure Workload
+# Identity (no connection string), matching the adapter pod's own auth.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "matillion-runner.fullname" . }}-queue-adapter-auth
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "matillion-runner.labels" . | nindent 4 }}
+spec:
+  podIdentity:
+    provider: azure-workload
+    identityId: {{ required "queueAdapter.serviceAccount.clientId is required when queueAdapter.enabled" .Values.queueAdapter.serviceAccount.clientId | quote }}
+{{- end }}
