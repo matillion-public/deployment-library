@@ -129,6 +129,17 @@ variable "zone_redundancy_enabled" {
   default     = true
 }
 
+variable "storage_account_replication_type" {
+  type        = string
+  description = "Replication for the storage account. ZRS spreads copies across availability zones and is the setting that matches zone_redundancy_enabled; LRS keeps one copy in one zone. Defaults to LRS so existing deployments plan clean — set ZRS on new deployments. Changing this on a storage account that already holds data is an Azure conversion, not a Terraform edit."
+  default     = "LRS"
+
+  validation {
+    condition     = contains(["LRS", "ZRS", "GRS", "GZRS", "RAGRS", "RAGZRS"], var.storage_account_replication_type)
+    error_message = "storage_account_replication_type must be one of LRS, ZRS, GRS, GZRS, RAGRS, RAGZRS."
+  }
+}
+
 variable "enable_script_runner" {
   type        = bool
   description = "Deploy the optional shared script runner Container App alongside the runner"
@@ -196,4 +207,15 @@ variable "proxy_protocol_https" {
   type        = string
   description = "Optional proxy protocol for HTTPS traffic (e.g. 'https'). Leave empty to omit."
   default     = ""
+}
+
+variable "resource_names" {
+  description = <<-EOT
+    Resource key to explicit name, overriding the generated default. Intended to be
+    fed the `names` output of modules/azure/naming, which builds them from a token
+    convention. Any key left out keeps its existing generated name, so an empty map
+    is exactly today's behaviour.
+  EOT
+  type        = map(string)
+  default     = {}
 }

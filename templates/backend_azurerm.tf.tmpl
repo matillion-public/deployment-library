@@ -4,7 +4,7 @@ terraform {
   backend "azurerm" {
     resource_group_name  = "${resource_group_name}"
     storage_account_name = "${storage_account_name}"
-    container_name       = "terraform-states"
+    container_name       = "${container_name}"
     key                  = "${deployment_type}/${region}/${cluster_name}/terraform.tfstate"
     
     # Use managed identity for authentication

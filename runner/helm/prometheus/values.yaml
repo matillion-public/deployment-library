@@ -82,39 +82,55 @@ api:
       targetPort: 8443
   type: ClusterIP
 config:
-  prometheusYml: |-
-    global:
-      scrape_interval: 5s
-    scrape_configs:
-      - job_name: 'matillion-runner'
-        kubernetes_sd_configs:
-          - role: pod
-            namespaces:
-              names:
-                - matillion
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_label_app]
-            action: keep
-            regex: matillion-runner-pods
-          - source_labels: [__meta_kubernetes_pod_ip]
-            target_label: __address__
-            replacement: $1:8080
-          - source_labels: [__address__]
-            target_label: __param_target
-          - target_label: __scheme__
-            replacement: http
-          - target_label: __metrics_path__
-            replacement: /actuator/prometheus
-          - source_labels: [__meta_kubernetes_namespace]
-            target_label: namespace
-          - source_labels: [__meta_kubernetes_pod_name]
-            target_label: pod
-          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
-            target_label: name
-          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
-            target_label: instance
-          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
-            target_label: component
+  # Namespaces the runner scrape job discovers pods in.
+  #
+  # One Prometheus can serve every business unit on a shared cluster: the
+  # adapter maps app_active_task_count to both `pod` and `namespace`, and the
+  # runner HPAs are `type: Pods`, so each Deployment scales on its own pods with
+  # no cross-talk between tenants. What is required is that Prometheus can see
+  # them — a runner in a namespace missing from this list is never scraped, and
+  # its HPA then sits at minReplicas with no error anywhere to explain why.
+  #
+  # An empty list means every namespace: the pod-list RBAC is already a
+  # ClusterRole, so this needs no further permissions. Prefer an explicit list
+  # where the set of tenants is known.
+  scrapeNamespaces:
+    - matillion
+  # Regex matched against the pod's `app` label. Each runner release labels its
+  # pods `<release>-matillion-runner-pods`, so a shared Prometheus generally
+  # wants a pattern such as `.*matillion-runner-pods` rather than the single
+  # literal name a one-tenant cluster can get away with.
+  scrapePodLabelRegex: matillion-runner-pods
+  # Full escape hatch: set this to a complete prometheus.yml and it is used
+  # verbatim, ignoring scrapeNamespaces and scrapePodLabelRegex above. Left
+  # empty the config is composed from those two settings instead. Anything
+  # already overriding this key keeps working exactly as before.
+  prometheusYml: ""
+
+# Egress NetworkPolicy for the Prometheus pod.
+#
+# This and config.scrapeNamespaces have to agree. They are separate settings
+# because they are enforced by different things: scrapeNamespaces controls what
+# service discovery *finds*, this controls what the pod is permitted to
+# *reach*. Discovering a target the policy blocks yields an empty metric rather
+# than an error, so the mismatch shows up only as an HPA that quietly stops
+# scaling.
+networkPolicy:
+  # Namespaces beyond Prometheus's own that it may scrape into. Empty by
+  # default, leaving the rendered policy unchanged. The existing rule uses a
+  # bare podSelector, which matches only the release's own namespace — so a
+  # shared Prometheus needs every other tenant's runner namespace listed here.
+  additionalScrapeNamespaces: []
+  # Pod selector applied within those namespaces. Service discovery filters on
+  # the config.scrapePodLabelRegex pattern, but NetworkPolicy selectors cannot
+  # express a regex. Where tenants use differing release names, set this to
+  # `null` to admit any pod in the listed namespaces and let service discovery
+  # do the filtering.
+  #
+  # `null`, not `{}` — Helm coalesces maps, so an empty map leaves this default
+  # in place rather than clearing it.
+  runnerPodSelector:
+    app: matillion-runner-pods
 kubernetesClusterDomain: cluster.local
 prometheus:
   enabled: true  # LEGACY: Individual control (DEPRECATED - use modules.prometheus.enabled instead)
