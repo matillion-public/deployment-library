@@ -2,7 +2,7 @@
 # This file is dynamically generated during deployment
 terraform {
   backend "s3" {
-    bucket         = "${account_id}-terraform-states"
+    bucket         = "${bucket}"
     key            = "${deployment_type}/${region}/${cluster_name}/terraform.tfstate"
     region         = "${region}"
     
@@ -10,7 +10,7 @@ terraform {
     encrypt        = true
     
     # DynamoDB table for state locking
-    dynamodb_table = "${account_id}-terraform-locks"
+    dynamodb_table = "${dynamodb_table}"
   }
   
   required_providers {

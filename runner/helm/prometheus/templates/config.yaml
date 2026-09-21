@@ -6,5 +6,5 @@ metadata:
   labels:
   {{- include "prometheus.labels" . | nindent 4 }}
 data:
-  prometheus.yml: {{ .Values.config.prometheusYml | toYaml | indent 1 }}
+  prometheus.yml: {{ include "prometheus.prometheusYml" . | toYaml | indent 1 }}
 {{- end }}

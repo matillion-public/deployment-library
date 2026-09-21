@@ -126,12 +126,20 @@ helm template matillion-runner ./runner \
 >     serviceAccountEmail: "<name>@<project>.iam.gserviceaccount.com"   # if the script runner is enabled
 > ```
 >
-> **Alternatives (static credentials instead of workload identity)** — if your
-> cluster can't use cloud-native identity, disable it and supply credentials directly:
+> **Alternatives (an identity other than per-workload)** — if your cluster can't
+> use cloud-native workload identity, name the alternative explicitly. Turning
+> workload identity off without naming one makes rendering **fail**, rather than
+> installing a runner with no cloud identity at all:
 > - **AWS** — set `aws.local.enabled: true` and provide `aws.local.region` /
 >   `accessKeyId` / `secretAccessKey` (leave `serviceAccount.roleArn` unset).
-> - **Azure** — set `azure.workloadIdentity.enabled: false` and
->   `azure.servicePrincipal.enabled: true` with `clientId` / `clientSecret` / `tenantId`.
+> - **Azure** — set `azure.workloadIdentity.enabled: false` and either
+>   `azure.servicePrincipal.enabled: true` with `clientId` / `clientSecret` /
+>   `tenantId`, or `azure.nodeIdentity.enabled: true` to inherit the AKS node
+>   pool's kubelet managed identity.
+> - **GCP** — set `gcp.workloadIdentity.enabled: false` and
+>   `gcp.nodeIdentity.enabled: true` to inherit the GKE node pool's service
+>   account. There is no static-key equivalent, and this is not recommended —
+>   see [Cloud identity is mandatory](#cloud-identity-is-mandatory).
 > - **Local / dev** — start from `values-local.yaml`, which wires up static
 >   credentials for all providers for out-of-cluster testing.
 
@@ -182,6 +190,71 @@ helm install matillion-runner ./runner \
   -f my-overrides.yaml
 ```
 
+### Shared Multi-Tenant Platform
+
+One cluster and one Prometheus can host many independently-scalable runners —
+one Helm release per business unit, each in its own namespace with its own
+identity, secrets and HPA. Onboarding another unit is a values file, not a chart
+change.
+
+```bash
+helm install runner-grid ./runner -n bu-grid --create-namespace \
+  -f runner/values-azure.yaml -f my-values-grid.yaml
+
+helm install runner-retail ./runner -n bu-retail --create-namespace \
+  -f runner/values-azure.yaml -f my-values-retail.yaml
+```
+
+Start from `runner/values-tenant-example.yaml`, which documents what must be
+unique per tenant and what must never be changed.
+
+Tenants do not interfere with each other's scaling: the adapter maps
+`app_active_task_count` to both `pod` and `namespace`, and each runner's HPA is
+`type: Pods`, so every Deployment scales on its own pods.
+
+#### What must be unique per tenant
+
+| Setting | Why |
+|---------|-----|
+| Helm release name and namespace | Every resource name and the pod `app` label derive from the release name |
+| `config.oauthClientId` / `oauthClientSecret` | The runner's own credentials |
+| `dpcAgent.dpcAgent.env.agentId` | Identifies the runner to the control plane |
+| `serviceAccount.name` + cloud identity annotation | The identity is bound to `system:serviceaccount:<namespace>:<name>`. A tenant sharing another's service account inherits its secret access — this fails open, not closed |
+
+#### What must never change
+
+`app`, `app.kubernetes.io/name` and `app.kubernetes.io/instance` form the
+Deployment's `spec.selector`, which Kubernetes treats as immutable. Changing one
+makes `helm upgrade` of an existing release fail rather than roll. `commonLabels`
+rejects these keys for that reason — use your own prefix for attribution:
+
+```yaml
+commonLabels:
+  matillion.com/business-unit: grid
+  matillion.com/cost-centre: "4471"
+```
+
+#### Wiring the shared Prometheus
+
+Set once on the **prometheus** chart, not per tenant. Every tenant namespace has
+to appear in both lists — one controls what service discovery finds, the other
+what the Prometheus pod is permitted to reach, and a namespace missing from
+either means that tenant's HPA sits at `minReplicas` with nothing in any log to
+explain it:
+
+```yaml
+config:
+  scrapeNamespaces: [bu-grid, bu-retail, bu-trading]
+  # Each release labels its pods `<release>-matillion-runner-pods`, so one
+  # literal name will not match more than a single tenant.
+  scrapePodLabelRegex: ".*matillion-runner-pods"
+networkPolicy:
+  additionalScrapeNamespaces: [bu-grid, bu-retail, bu-trading]
+```
+
+See `prometheus/README.md` for how to verify every tenant is actually being
+scraped after rollout.
+
 ### Install Prometheus Monitoring
 
 #### Full Stack Deployment (Default)
@@ -229,11 +302,90 @@ helm install prometheus ./prometheus --namespace prometheus \
 | `dpcAgent.dpcAgent.env.matillionRegion` | Matillion region | `"us1"` |
 | `config.oauthClientId` | OAuth client ID | `"client-123"` |
 | `config.oauthClientSecret` | OAuth client secret | `"secret-456"` |
-| `serviceAccount.roleArn` | AWS IAM role ARN (required for EKS) | `"arn:aws:iam::..."` |
+| `serviceAccount.roleArn` | AWS IAM role ARN (required when `credentialSource` is `irsa`) | `"arn:aws:iam::..."` |
+| `aws.region` | AWS region for the agent and script runner, on every credential source | `"eu-west-1"` |
 | `aws.local.enabled` | Enable direct AWS credentials | `false` |
 | `aws.local.region` | AWS Region (when local enabled) | `"us-west-2"` |
 | `aws.local.accessKeyId` | AWS Access Key ID (when local enabled) | `"AKIA..."` |
 | `aws.local.secretAccessKey` | AWS Secret Access Key (when local enabled) | `"secret..."` |
+| `gcp.workloadIdentity.serviceAccountEmail` | GCP SA email (required for GKE) — `terraform output -raw runner_workload_sa_email` | `"runner@proj.iam.gserviceaccount.com"` |
+| `azure.workloadIdentity.clientId` | Managed-identity client ID (required for AKS) | `"00000000-0000-..."` |
+| `azure.subscriptionId` | Subscription for ARM lookups (Key Vault / storage listing). Pin it on multi-subscription tenants — `az account show --query id -o tsv` | `"00000000-0000-..."` |
+
+Every cloud requires an identity. See [Cloud identity is mandatory](#cloud-identity-is-mandatory).
+
+### AWS credential source
+
+`serviceAccount.credentialSource` selects where the pods get their AWS
+credentials. AWS only — Azure and GCP are selected by
+`azure.workloadIdentity.enabled` / `gcp.workloadIdentity.enabled`.
+
+| Value | What the chart renders | Use when |
+|---|---|---|
+| `irsa` *(default when unset)* | `eks.amazonaws.com/role-arn` annotation on the service account. Requires `serviceAccount.roleArn`. | Standard EKS with IRSA — what the Terraform in `runner/aws/eks` provisions. |
+| `node` | No annotation and no injected credentials. The AWS SDK falls through its provider chain to IMDS and picks up the EC2 node instance profile. | The cluster's platform layer assigns AWS permissions per **node** rather than per service account — DuploCloud, and clusters predating IRSA. |
+| `static` | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` from a chart-managed secret, from `aws.local.*`. | Local development. Prefer `node` in any cluster whose nodes carry an instance profile. |
+
+`aws.local.enabled: true` still means `static` and keeps working untouched.
+Setting it alongside a `credentialSource` of anything other than `static` is
+rejected at render time rather than resolved by precedence.
+
+#### Region is separate from credentials
+
+None of the three sources supplies a region. IRSA and the node profile deliver
+credentials only, and the AWS SDKs treat region as an independent concern — so a
+pod can hold entirely valid credentials and still fail at client construction
+with `NoRegionError`. Set `aws.region` if anything relies on the environment for
+it.
+
+Script Pushdown is the usual case: the runner image forwards `AWS_REGION` and
+`AWS_DEFAULT_REGION` into every SSH session through `~/.ssh/environment`, so a
+pushed-down script that does not set a region itself has nothing to fall back
+on. `aws.region` covers the agent and the script runner on every credential
+source; `aws.local.region` is used as a fallback when set, so static callers do
+not have to state it twice. Left empty, no region variables are rendered.
+
+#### `node` has to be selected explicitly
+
+Blanking `serviceAccount.roleArn` does **not** get you the node instance
+profile. While the annotation is present the EKS pod identity webhook injects
+`AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE` into the pod, and the
+web-identity provider sits **ahead of IMDS** in the AWS credential chain. An
+annotation naming a role the pod cannot assume therefore fails outright rather
+than degrading to the node profile — the annotation has to be *absent*, not
+merely unused. That is why this is an explicit switch and not an inference from
+an empty `roleArn`.
+
+With `credentialSource: node` the runner's AWS permissions are whatever the
+nodes it lands on already hold, shared with every other pod on those nodes, and
+invisible to this chart. Confirm the instance profile grants at least:
+
+- `s3:ListAllMyBuckets` — account-wide by construction. The staging-bucket
+  picker enumerates buckets and the API takes no resource constraint, so this
+  cannot be scoped to one bucket. It returns bucket *names* only.
+- `s3:ListBucket`, `s3:GetObject`, `s3:GetBucketLocation` on the buckets used
+  for staging and for `EXTENSION_LIBRARY_LOCATION`.
+
+`helm install` / `helm upgrade` prints a NOTES warning whenever the resolved
+source is not `irsa`, and a second one if a now-inert `roleArn` is still set.
+
+#### Binding to a service account the chart does not own
+
+`serviceAccount.create: false` renders no ServiceAccount object and no
+annotations; the pods bind to `serviceAccount.name` as it already exists. Use it
+where the platform layer creates its own per-tenant accounts. The identity that
+account carries is then managed entirely outside the release, and `helm upgrade`
+cannot correct it. `scriptRunner.serviceAccount.create` / `.name` do the same for
+the Script Pushdown runner.
+
+```yaml
+# DuploCloud-managed EKS: platform-owned SA, node instance profile.
+serviceAccount:
+  create: false
+  name: duploservices-mytenant
+  credentialSource: node
+  roleArn: ""
+```
 
 ### Optional Configuration
 
@@ -267,6 +419,93 @@ dpcAgent:
       requests: { cpu: "1500m", memory: "6Gi" }
       limits:   { cpu: "3",     memory: "6Gi" }
 ```
+
+### Third-party Python libraries from an image you control
+
+The documented way to add Python libraries to a runner is to stage them in
+object storage and point `EXTENSION_LIBRARY_LOCATION` at the prefix; the
+entrypoint copies them into `/usr/lib/pythonLibs` at startup. That prefix is an
+interpreter-loaded code path, so write access to it is effectively code
+execution in the runner — a supply-chain surface some security reviews will not
+accept regardless of bucket policy and encryption at rest.
+
+`extraVolumes` / `extraVolumeMounts` / `initContainers` are the alternative:
+hydrate `/usr/lib/pythonLibs` from an image you build, sign and scan yourself,
+with no object storage in the path. Both runner images already treat that
+directory as runtime-populated and already have it on the interpreter's import
+path — the agent via `SAAS_ETL_PYTHON_2_AND_3_PYTHONPATH`, the Script Pushdown
+runner via a `.pth` file asserted at image build time — so this needs no
+application-side change and no `sys.path` manipulation in your scripts.
+
+Build an image whose only job is to carry the wheels:
+
+```dockerfile
+FROM python:3.12-slim AS build
+# manylinux2014_x86_64 wheels only — the runner is linux/amd64 (Ubuntu 24.04,
+# Python 3.12). Building on macOS or Windows pulls incompatible binaries.
+RUN pip install --target=/libs --platform=manylinux2014_x86_64 \
+      --only-binary=:all: opensearch-py
+
+# Keep a shell in the final image: the init container below copies with `cp`.
+# A `scratch` base carries the wheels in fewer bytes but then the copy has to be
+# done by something else — the runner image's own tooling, or a busybox sidecar.
+FROM python:3.12-slim
+COPY --from=build /libs /libs
+USER 65534
+```
+
+Then hydrate a shared `emptyDir` from it:
+
+```yaml
+initContainers:
+  - name: python-libs
+    image: registry.example.com/our-python-libs:1.4.0   # pin a tag, never :latest
+    imagePullPolicy: Always
+    command: ["sh", "-c", "cp -a /libs/. /hydrate/"]
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits:   { cpu: "500m", memory: "512Mi" }
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: ["ALL"]
+    volumeMounts:
+      - { name: python-libs, mountPath: /hydrate }
+
+extraVolumes:
+  - { name: python-libs, emptyDir: {} }
+
+extraVolumeMounts:
+  - { name: python-libs, mountPath: /usr/lib/pythonLibs }
+```
+
+`scriptRunner.initContainers`, `scriptRunner.extraVolumes` and
+`scriptRunner.extraVolumeMounts` take the same three blocks for the Script
+Pushdown runner. They are deliberately separate from the runner's — the two
+workloads hydrate independently, and the Script Pushdown pod is usually where
+you want the heavier library sets, since it does not delay the runner that
+schedules pipelines.
+
+Notes and constraints:
+
+- **`runAsNonRoot: true` requires the image to declare a non-root user.** The
+  `USER 65534` line above is what satisfies it; without a numeric `USER` in the
+  image, the kubelet rejects the pod at admission rather than at build time.
+- **The `resources` and `securityContext` blocks above are not decoration.**
+  Without them the rendered pod fails `CKV_K8S_10`–`13` and `CKV_K8S_30` in
+  checkov. As written, the init container adds zero findings over the same
+  release without it.
+- **A failing init container is a hard outage**, not a degraded runner — the pod
+  will not start until it exits 0. Prefer `cp -a` over anything that can
+  partially succeed.
+- **Nothing validates the mount paths.** Mounting over `/tmp` or `/etc/config`
+  will break the runner in ways the new mount gets blamed for.
+- **`EXTENSION_LIBRARY_LOCATION` and this pattern both target the same
+  directory.** Use one or the other; if both are set the entrypoint's download
+  lands on top of the hydrated files.
+
 ## Shared Script Runner — Security Hardening (Customer-Hosted)
 
 The opt-in Shared Script Runner (`scriptRunner.enabled: true`) executes
@@ -435,6 +674,35 @@ dpcAgent:
 
 ### Cloud Provider Specific
 
+#### Cloud identity is mandatory
+
+The runner needs an identity in your cloud to reach Secret Manager / Key Vault /
+Secrets Manager and object storage. The chart cannot create that identity — it
+only annotates the Kubernetes ServiceAccount so the cloud can match it to one
+you created. Get the annotation wrong or skip it and the install still succeeds;
+the runner fails later, on its first call, which reads as a Matillion problem
+rather than a deployment one.
+
+So each provider has exactly one sanctioned way to opt out of per-workload
+identity, and rendering **fails** if none is named:
+
+| Provider | Default | The one alternative |
+|---|---|---|
+| AWS | `serviceAccount.roleArn` (IRSA) | `aws.local.enabled: true` — static access keys |
+| Azure | `azure.workloadIdentity.clientId` | `azure.servicePrincipal.enabled: true`, or `azure.nodeIdentity.enabled: true` for the AKS kubelet identity |
+| GCP | `gcp.workloadIdentity.serviceAccountEmail` | `gcp.nodeIdentity.enabled: true` — the GKE node pool's service account |
+
+`nodeIdentity` on either cloud means the pod inherits the *node's* identity from
+the instance metadata service: shared with every other pod on that node, and
+scoped to whatever the node pool was granted. It is an escape hatch for
+clusters that were built that way, not a recommendation.
+
+The post-install NOTES print the commands to verify the binding actually took
+effect — the annotation being present proves nothing on its own, because the
+other half of the binding lives in IAM. For GKE specifically, including how to
+bind an identity to a runner that is already installed, see
+[`runner/gcp/gke/README.md`](../gcp/gke/README.md).
+
 #### AWS EKS with IAM Roles
 ```yaml
 cloudProvider: "aws"
@@ -471,6 +739,30 @@ azure:
     clientSecret: "your-service-principal-secret"
     tenantId: "your-azure-tenant-id"
 ```
+
+#### GCP GKE with Workload Identity
+```yaml
+cloudProvider: "gcp"
+gcp:
+  workloadIdentity:
+    enabled: true
+    # terraform output -raw runner_workload_sa_email
+    serviceAccountEmail: "matillion-runner@your-project.iam.gserviceaccount.com"
+```
+
+#### GCP GKE inheriting the node pool's service account
+```yaml
+cloudProvider: "gcp"
+gcp:
+  workloadIdentity:
+    enabled: false
+  nodeIdentity:
+    enabled: true
+```
+Only for node pools running `--workload-metadata=GCE_METADATA`. The runner gets
+whatever the node pool's service account has, which for the default compute SA
+does not include the Secret Manager and GCS grants it needs. Prefer Workload
+Identity; see `runner/gcp/gke/README.md`, "Identity is not optional".
 
 ## Testing
 
