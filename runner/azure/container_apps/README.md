@@ -225,6 +225,28 @@ container_memory      = "8Gi"
 | `replica_count` | `2` | Fixed number of running replicas (no auto-scaling) |
 | `container_image_url` | `matillion.azurecr.io/cloud-agent:current` | Runner container image |
 | `zone_redundancy_enabled` | `true` | Zone redundancy for the environment |
+| `storage_account_replication_type` | `LRS` | Storage replication. `ZRS` spreads copies across availability zones — see below |
+
+### Storage Replication
+
+`zone_redundancy_enabled` covers the Container App Environment, not the storage
+account behind it. With the default `LRS` the account keeps a single copy in a
+single zone, so a zone-redundant environment still has a single-zone storage
+dependency. `ZRS` closes that gap and is the recommended setting for new
+deployments:
+
+```hcl
+zone_redundancy_enabled          = true
+storage_account_replication_type = "ZRS"
+```
+
+The default remains `LRS` so existing deployments plan clean rather than having
+their storage changed by an unrelated apply.
+
+**On an account that already holds data this is an Azure conversion, not a
+Terraform edit.** Use Azure's customer-initiated conversion or a manual
+migration, then update the Terraform value so state matches reality. Do not let
+a `terraform apply` be the first thing that attempts it.
 
 ### Networking
 

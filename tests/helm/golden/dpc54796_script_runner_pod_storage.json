@@ -1,0 +1,35 @@
+{
+  "initContainers": null,
+  "serviceAccountName": "test-release-matillion-runner-script-runner-sa",
+  "volumeMounts": [
+    {
+      "mountPath": "/etc/matillion/runner-keys",
+      "name": "runner-keys",
+      "readOnly": true
+    },
+    {
+      "mountPath": "/tmp",
+      "name": "tmp-volume"
+    }
+  ],
+  "volumes": [
+    {
+      "name": "runner-keys",
+      "secret": {
+        "items": [
+          {
+            "key": "runner_authorized_keys",
+            "path": "runner_authorized_keys"
+          }
+        ],
+        "secretName": "test-release-matillion-runner-script-runner-keys"
+      }
+    },
+    {
+      "emptyDir": {
+        "sizeLimit": "5Gi"
+      },
+      "name": "tmp-volume"
+    }
+  ]
+}

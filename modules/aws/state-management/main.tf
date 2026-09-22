@@ -2,12 +2,15 @@
 # Creates S3 bucket and DynamoDB table for Terraform state management
 
 locals {
-  bucket_name     = "${var.account_id}-terraform-states"
-  lock_table_name = "${var.account_id}-terraform-locks"
+  bucket_name     = lookup(var.resource_names, "state_bucket", "${var.account_id}-terraform-states")
+  lock_table_name = lookup(var.resource_names, "state_lock_table", "${var.account_id}-terraform-locks")
 }
 
 # S3 bucket for storing Terraform state
 resource "aws_s3_bucket" "terraform_state" {
+  # The backend's bucket must match this exactly — it is rendered from the
+  # backend_config output rather than rebuilt from account_id, so the two cannot
+  # drift. Changing it on a deployed platform is a state migration, not a rename.
   bucket = local.bucket_name
 
   tags = {
@@ -15,6 +18,13 @@ resource "aws_s3_bucket" "terraform_state" {
     Purpose     = "TerraformState"
     Environment = var.environment
     ManagedBy   = "Terraform"
+  }
+
+  # Holds every state file for the deployment, and bucket is force-new. Renaming it
+  # through resource_names would otherwise plan a destroy and recreate of the
+  # backend's own storage. Remove this block only for a deliberate teardown.
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -63,6 +73,13 @@ resource "aws_dynamodb_table" "terraform_locks" {
     Purpose     = "TerraformLocking"
     Environment = var.environment
     ManagedBy   = "Terraform"
+  }
+
+  # name is force-new here too, and losing the lock table mid-migration is how two
+  # applies end up racing the same state. Remove this block only for a deliberate
+  # teardown.
+  lifecycle {
+    prevent_destroy = true
   }
 }
 

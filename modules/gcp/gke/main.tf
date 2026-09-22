@@ -1,13 +1,13 @@
 locals {
   # GCP service account IDs must be 6-30 chars, lowercase letters, numbers, hyphens only
   name_prefix          = substr(lower(replace(var.name, "_", "-")), 0, 16)
-  node_sa_account_id   = "${local.name_prefix}-n-${var.random_string_salt}"
-  runner_sa_account_id = "${local.name_prefix}-a-${var.random_string_salt}"
+  node_sa_account_id   = lookup(var.resource_names, "node_service_account", "${local.name_prefix}-n-${var.random_string_salt}")
+  runner_sa_account_id = lookup(var.resource_names, "runner_workload_service_account", "${local.name_prefix}-a-${var.random_string_salt}")
 
-  # Workload Identity: fall back to var.name-derived defaults if not explicitly set
+  # Fixed to match the Helm chart's default release name, not var.name — see README Workload Identity section.
   k8s_namespace                          = var.k8s_namespace != "" ? var.k8s_namespace : "matillion"
-  k8s_service_account_name               = var.k8s_service_account_name != "" ? var.k8s_service_account_name : "${var.name}-sa"
-  script_runner_k8s_service_account_name = var.script_runner_k8s_service_account_name != "" ? var.script_runner_k8s_service_account_name : "${var.name}-script-runner-sa"
+  k8s_service_account_name               = var.k8s_service_account_name != "" ? var.k8s_service_account_name : "matillion-runner-sa"
+  script_runner_k8s_service_account_name = var.script_runner_k8s_service_account_name != "" ? var.script_runner_k8s_service_account_name : "matillion-runner-script-runner-sa"
 
   # Flat map of bucket/role pairs for extra GCS bucket permissions
   runner_extra_bucket_roles = {
@@ -28,7 +28,7 @@ locals {
 
 # GKE Cluster
 resource "google_container_cluster" "gke_cluster" {
-  name     = join("-", [var.name, "gke-cluster", var.random_string_salt])
+  name     = lookup(var.resource_names, "gke_cluster", join("-", [var.name, "gke-cluster", var.random_string_salt]))
   location = var.region
   project  = var.project_id
 
@@ -78,7 +78,7 @@ resource "google_container_cluster" "gke_cluster" {
 
 # Separately managed node pool
 resource "google_container_node_pool" "runner_nodes" {
-  name     = join("-", [var.name, "node-pool", var.random_string_salt])
+  name     = lookup(var.resource_names, "node_pool", join("-", [var.name, "node-pool", var.random_string_salt]))
   location = var.region
   cluster  = google_container_cluster.gke_cluster.name
   project  = var.project_id
@@ -108,7 +108,7 @@ resource "google_container_node_pool" "runner_nodes" {
 
     labels = var.labels
 
-    tags = [join("-", [var.name, "gke-node"])]
+    tags = [lookup(var.resource_names, "gke_node_network_tag", join("-", [var.name, "gke-node"]))]
 
     shielded_instance_config {
       enable_secure_boot          = true
@@ -170,7 +170,7 @@ resource "google_service_account_iam_binding" "workload_identity_binding" {
 
 # GCS Bucket for runner staging storage
 resource "google_storage_bucket" "staging" {
-  name          = lower(join("-", [var.name, "staging", var.random_string_salt]))
+  name          = lookup(var.resource_names, "staging_bucket", lower(join("-", [var.name, "staging", var.random_string_salt])))
   location      = var.region
   project       = var.project_id
   force_destroy = false
@@ -192,7 +192,7 @@ resource "google_storage_bucket_iam_member" "runner_storage_admin" {
 
 # Secret Manager secret for runner credentials
 resource "google_secret_manager_secret" "runner_secret" {
-  secret_id = join("-", [var.name, "runner-secret", var.random_string_salt])
+  secret_id = lookup(var.resource_names, "runner_secret", join("-", [var.name, "runner-secret", var.random_string_salt]))
   project   = var.project_id
 
   replication {
@@ -214,7 +214,11 @@ resource "google_secret_manager_secret_iam_member" "runner_secret_version_manage
 # Matillion UI. No built-in GCP role grants these without also granting delete/destroy, so a
 # custom role is used.
 resource "google_project_iam_custom_role" "runner_secret_creator" {
-  role_id     = replace("${local.runner_sa_account_id}_secret_creator", "-", "_")
+  # A role id rejects hyphens. The replace() is only the fallback for a deployment
+  # that sets no convention — modules/gcp/naming generates this key in its
+  # underscore form, so a convention-supplied name is never rewritten after the
+  # uniqueness check has run against it.
+  role_id     = lookup(var.resource_names, "runner_secret_creator_role", replace("${local.runner_sa_account_id}_secret_creator", "-", "_"))
   title       = "Runner Secret Creator for ${var.name}"
   description = "Allows the runner SA to create secrets, add their initial version, and set secret-level IAM policies in Secret Manager."
   project     = var.project_id

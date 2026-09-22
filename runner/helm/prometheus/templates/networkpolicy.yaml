@@ -90,6 +90,26 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
+  {{- /*
+  A bare podSelector is namespace-local, so the rule above only reaches runners
+  sharing Prometheus's namespace. Every other tenant's namespace needs naming
+  explicitly, or service discovery finds its pods and the scrape is then dropped
+  by the policy.
+  */}}
+  {{- range .Values.networkPolicy.additionalScrapeNamespaces }}
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ . }}
+      {{- with $.Values.networkPolicy.runnerPodSelector }}
+      podSelector:
+        matchLabels:
+          {{- toYaml . | nindent 10 }}
+      {{- end }}
+    ports:
+    - protocol: TCP
+      port: 8080
+  {{- end }}
   - to: []
     ports:
     - protocol: TCP

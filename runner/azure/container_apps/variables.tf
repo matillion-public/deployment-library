@@ -118,6 +118,12 @@ variable "zone_redundancy_enabled" {
   default     = true
 }
 
+variable "storage_account_replication_type" {
+  type        = string
+  description = "Replication for the storage account. ZRS spreads copies across availability zones and is the setting that matches zone_redundancy_enabled; LRS keeps one copy in one zone. Defaults to LRS so existing deployments plan clean — set ZRS on new deployments."
+  default     = "LRS"
+}
+
 variable "enable_nat_gateway" {
   type        = bool
   description = "Enable NAT Gateway for controlled outbound egress"
@@ -205,3 +211,53 @@ variable "proxy_protocol_https" {
   default     = ""
 }
 
+
+###############################################################################
+# Resource naming.                                                            #
+#                                                                             #
+# Leave naming_tokens null and every resource keeps the name this root         #
+# generates today. Set it to adopt an organisation's naming standard; see      #
+# modules/azure/naming/README.md for the token and format model.               #
+###############################################################################
+
+variable "naming_tokens" {
+  description = <<-EOT
+    Tokens substituted into the resource-name formats — the switch that turns
+    naming on. Null (the default) keeps today's generated names, which matters
+    because a naming module fed empty tokens would generate bare type codes and
+    rename every resource in an existing deployment.
+  EOT
+  type = object({
+    bu        = optional(string, "")
+    env       = optional(string, "")
+    env_short = optional(string, "")
+    region    = optional(string, "")
+    purpose   = optional(string, "")
+    instance  = optional(string, "")
+  })
+  default = null
+}
+
+variable "naming_formats" {
+  description = "Format string per name form, passed to modules/azure/naming. Ignored when naming_tokens is null."
+  type        = map(string)
+  default     = {}
+}
+
+variable "naming_resource_specs" {
+  description = "Per-resource spec overrides, merged per attribute into the built-in table. Ignored when naming_tokens is null."
+  type = map(object({
+    type       = optional(string)
+    form       = optional(string)
+    max_length = optional(number)
+    lower      = optional(bool)
+    purpose    = optional(string)
+  }))
+  default = {}
+}
+
+variable "naming_overrides" {
+  description = "Final resource names by key, bypassing the formats entirely. Ignored when naming_tokens is null."
+  type        = map(string)
+  default     = {}
+}

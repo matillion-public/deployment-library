@@ -16,3 +16,142 @@ manual configuration or troubleshooting.
 Shared Script Runner is DISABLED (scriptRunner.enabled=false) — no runner resources
 were created. Set scriptRunner.enabled=true to deploy it.
 {{- end }}
+{{- $grace := int .Values.dpcAgent.dpcAgent.gracePeriodSeconds }}
+{{- if lt $grace 43200 }}
+
+WARNING: terminationGracePeriodSeconds is {{ $grace }}s, below the runner's own
+shutdown timeout of 43200s (12h). A runner pod uses that window to finish the
+pipeline tasks it is already running. At {{ $grace }}s, a node drain, cluster
+upgrade or rolling update will SIGKILL runners that are still working, and those
+tasks fail rather than drain — a planned failover becomes a lossy one.
+
+Set dpcAgent.dpcAgent.gracePeriodSeconds back to 43200 unless losing in-flight
+tasks on every voluntary disruption is a deliberate, accepted trade-off.
+{{- end }}
+{{- $livenessWindow := mul .Values.livenessProbe.periodSeconds .Values.livenessProbe.failureThreshold }}
+{{- if and .Values.livenessProbe.enabled (lt (int $livenessWindow) $grace) }}
+
+WARNING: the liveness probe gives up after {{ printf "%vs (%vs x %v)" $livenessWindow .Values.livenessProbe.periodSeconds .Values.livenessProbe.failureThreshold }},
+which is shorter than the {{ $grace }}s termination grace period. A runner that
+stops answering the probe while draining will be killed before it finishes its
+in-flight tasks, silently undoing the grace period. Raise
+livenessProbe.failureThreshold or periodSeconds so their product exceeds it.
+{{- end }}
+{{- if and .Values.topologySpread.enabled (not .Values.podDisruptionBudget.enabled) }}
+
+NOTE: topologySpread is enabled but podDisruptionBudget is not. Replicas will be
+spread across zones, but nothing stops a node drain evicting all of them at once.
+Enable podDisruptionBudget for the zone-resilience claim to hold during
+maintenance as well as during an outage.
+{{- end }}
+{{- $provider := include "matillion-runner.cloudProvider" . }}
+{{- $saName := include "matillion-runner.serviceAccountName" . }}
+{{- if eq $provider "gcp" }}
+{{- if .Values.gcp.workloadIdentity.enabled }}
+
+VERIFY WORKLOAD IDENTITY. The chart annotated the ServiceAccount; that is only
+half the binding. The other half is an IAM policy binding on the GCP service
+account, which lives in your project, not in this release — a missing or
+misspelled one is invisible until the first Secret Manager or GCS call fails.
+Confirm all three:
+
+  # 1. The annotation the chart wrote
+  kubectl get sa {{ $saName }} -n {{ .Release.Namespace }} \
+    -o jsonpath='{.metadata.annotations.iam\.gke\.io/gcp-service-account}{"\n"}'
+
+  # 2. The matching binding in GCP (must list this cluster's KSA)
+  gcloud iam service-accounts get-iam-policy {{ .Values.gcp.workloadIdentity.serviceAccountEmail }} \
+    --flatten='bindings[].members' --filter='bindings.role:roles/iam.workloadIdentityUser' \
+    --format='value(bindings.members)'
+  # expected: serviceAccount:<PROJECT>.svc.id.goog[{{ .Release.Namespace }}/{{ $saName }}]
+
+  # 3. What the pod actually gets (the real test)
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "matillion-runner.fullname" . }}-app -- \
+    curl -sH 'Metadata-Flavor: Google' \
+    http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email
+
+Step 3 returning the node pool's default compute SA, rather than
+{{ .Values.gcp.workloadIdentity.serviceAccountEmail }}, means Workload Identity is not enabled on the
+node pool and the annotation is being ignored. See runner/gcp/gke/README.md.
+{{- else }}
+
+WARNING: this runner has NO WORKLOAD IDENTITY. gcp.nodeIdentity.enabled=true, so
+the pod inherits the GKE node pool's service account from the metadata server
+instead of getting one of its own. Every pod on that node pool shares it, and
+its permissions are whatever the node pool was given — typically the default
+compute SA, which is both broader than the runner needs and missing the Secret
+Manager and GCS grants the runner does need.
+
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "matillion-runner.fullname" . }}-app -- \
+    curl -sH 'Metadata-Flavor: Google' \
+    http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email
+
+To move to per-workload identity, bind one after the fact — no reinstall needed:
+see runner/gcp/gke/README.md, "Binding an identity to a runner already installed".
+{{- end }}
+{{- else if eq $provider "azure" }}
+{{- if .Values.azure.workloadIdentity.enabled }}
+
+VERIFY WORKLOAD IDENTITY. As on GCP, the chart writes the annotation and the
+federated credential lives in Entra ID, outside this release:
+
+  kubectl get sa {{ $saName }} -n {{ .Release.Namespace }} \
+    -o jsonpath='{.metadata.annotations.azure\.workload\.identity/client-id}{"\n"}'
+
+  az identity federated-credential list \
+    --identity-name <your-managed-identity> --resource-group <your-rg> \
+    --query "[].{subject:subject,issuer:issuer}" -o table
+  # subject must be: system:serviceaccount:{{ .Release.Namespace }}:{{ $saName }}
+
+A pod with the annotation but no matching federated credential starts cleanly
+and fails on its first Key Vault or Storage call.
+{{- else if .Values.azure.nodeIdentity.enabled }}
+
+WARNING: this runner has NO WORKLOAD IDENTITY. azure.nodeIdentity.enabled=true,
+so the pod inherits the AKS node pool's kubelet managed identity over IMDS —
+shared with every pod on the node, and scoped to whatever the node pool was
+granted rather than to the runner.
+{{- end }}
+{{- else if eq $provider "aws" }}
+{{- $credSource := include "matillion-runner.aws.credentialSource" . }}
+{{- if eq $credSource "irsa" }}
+
+VERIFY IRSA. The chart wrote the role annotation; the trust policy on the role
+is in your account, not in this release:
+
+  kubectl get sa {{ $saName }} -n {{ .Release.Namespace }} \
+    -o jsonpath='{.metadata.annotations.eks\.amazonaws\.com/role-arn}{"\n"}'
+
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "matillion-runner.fullname" . }}-app -- \
+    aws sts get-caller-identity
+  # must report the assumed role above, not the node instance role
+{{- else if eq $credSource "node" }}
+
+NOTE: AWS credentials come from the EC2 node instance profile
+(serviceAccount.credentialSource=node). No role-arn annotation was written, so
+the runner's AWS permissions are whatever the nodes it lands on already hold —
+which it shares with every other pod on those nodes, and which this chart cannot
+see or narrow. Confirm the instance profile grants at least s3:ListAllMyBuckets
+(account-wide; the staging-bucket picker enumerates buckets and the API takes no
+resource constraint) plus s3:ListBucket, s3:GetObject and s3:GetBucketLocation on
+the buckets used for staging and for EXTENSION_LIBRARY_LOCATION.
+{{- else if eq $credSource "static" }}
+
+NOTE: AWS credentials are long-lived access keys held in the
+{{ include "matillion-runner.fullname" . }}-aws-local secret. If these nodes carry an instance profile,
+serviceAccount.credentialSource=node gives the same access with no stored secret.
+{{- end }}
+{{- if and (ne $credSource "irsa") .Values.serviceAccount.roleArn (not (hasPrefix "<" .Values.serviceAccount.roleArn)) }}
+
+NOTE: serviceAccount.roleArn is set but ignored, because credentialSource is
+{{ $credSource }} rather than irsa. Nothing assumes that role. Remove it to avoid
+implying the runner has permissions it does not have.
+{{- end }}
+{{- end }}
+{{- if not .Values.serviceAccount.create }}
+
+NOTE: serviceAccount.create=false — the chart did not create
+"{{ include "matillion-runner.serviceAccountName" . }}" and did not annotate it. The pods bind to it as it
+already exists, so its identity, and any cloud-provider annotations on it, are
+managed outside this release. `helm upgrade` cannot fix a wrong identity here.
+{{- end }}

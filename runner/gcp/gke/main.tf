@@ -15,6 +15,8 @@ module "networking" {
   random_string_salt = lower(random_string.salt.result)
   enable_cloud_nat   = var.enable_cloud_nat
   tags               = var.labels
+
+  existing_network = var.existing_network
 }
 
 module "gke" {
