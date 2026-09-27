@@ -24,7 +24,7 @@ resource "local_file" "lambda_function_py" {
 
 # IAM role for Lambda function
 resource "aws_iam_role" "lambda_role" {
-  name = "${var.name}-saturation-monitor-lambda-role"
+  name = lookup(var.resource_names, "saturation_lambda_role", "${var.name}-saturation-monitor-lambda-role")
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -40,13 +40,13 @@ resource "aws_iam_role" "lambda_role" {
   })
 
   tags = {
-    Name = "${var.name}-saturation-monitor-lambda-role"
+    Name = lookup(var.resource_names, "saturation_lambda_role", "${var.name}-saturation-monitor-lambda-role")
   }
 }
 
 # IAM policy for Lambda function
 resource "aws_iam_policy" "lambda_policy" {
-  name        = "${var.name}-saturation-monitor-lambda-policy"
+  name        = lookup(var.resource_names, "saturation_lambda_policy", "${var.name}-saturation-monitor-lambda-policy")
   description = "Policy for ECS Runner Saturation Monitor Lambda"
 
   policy = jsonencode({
@@ -59,7 +59,9 @@ resource "aws_iam_policy" "lambda_policy" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.name}-saturation-monitor*"
+        # Reference the log group rather than rebuilding its name, so renaming the
+        # function through resource_names cannot leave the Lambda unable to log.
+        Resource = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:${aws_cloudwatch_log_group.lambda_logs.name}*"
       },
       {
         Effect = "Allow"
@@ -103,18 +105,18 @@ resource "aws_iam_role_policy_attachment" "lambda_policy_attachment" {
 
 # CloudWatch Log Group for Lambda
 resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${var.name}-saturation-monitor"
+  name              = "/aws/lambda/${lookup(var.resource_names, "saturation_function", "${var.name}-saturation-monitor")}"
   retention_in_days = 14
 
   tags = {
-    Name = "${var.name}-saturation-monitor-logs"
+    Name = "${lookup(var.resource_names, "saturation_function", "${var.name}-saturation-monitor")}-logs"
   }
 }
 
 # Lambda function
 resource "aws_lambda_function" "saturation_monitor" {
   filename      = data.archive_file.lambda_zip.output_path
-  function_name = "${var.name}-saturation-monitor"
+  function_name = lookup(var.resource_names, "saturation_function", "${var.name}-saturation-monitor")
   role          = aws_iam_role.lambda_role.arn
   handler       = "lambda_function.lambda_handler"
   runtime       = "python3.11"
@@ -147,18 +149,18 @@ resource "aws_lambda_function" "saturation_monitor" {
   ]
 
   tags = {
-    Name = "${var.name}-saturation-monitor"
+    Name = lookup(var.resource_names, "saturation_function", "${var.name}-saturation-monitor")
   }
 }
 
 # EventBridge rule to trigger Lambda
 resource "aws_cloudwatch_event_rule" "saturation_monitor_schedule" {
-  name                = "${var.name}-saturation-monitor-schedule"
+  name                = lookup(var.resource_names, "saturation_schedule_rule", "${var.name}-saturation-monitor-schedule")
   description         = "Trigger ECS Runner Saturation Monitor Lambda"
   schedule_expression = var.schedule_expression
 
   tags = {
-    Name = "${var.name}-saturation-monitor-schedule"
+    Name = lookup(var.resource_names, "saturation_schedule_rule", "${var.name}-saturation-monitor-schedule")
   }
 }
 
@@ -181,7 +183,7 @@ resource "aws_lambda_permission" "allow_eventbridge" {
 # CloudWatch Dashboard for monitoring the Lambda and metrics
 resource "aws_cloudwatch_dashboard" "saturation_monitor_dashboard" {
   count          = var.create_dashboard ? 1 : 0
-  dashboard_name = "${var.name}-runner-saturation"
+  dashboard_name = lookup(var.resource_names, "saturation_dashboard", "${var.name}-runner-saturation")
 
   dashboard_body = jsonencode({
     widgets = [
@@ -274,7 +276,7 @@ resource "aws_cloudwatch_dashboard" "saturation_monitor_dashboard" {
 # CloudWatch Alarms
 resource "aws_cloudwatch_metric_alarm" "high_task_saturation" {
   count               = var.create_alarms ? 1 : 0
-  alarm_name          = "${var.name}-high-task-saturation"
+  alarm_name          = lookup(var.resource_names, "saturation_alarm_task", "${var.name}-high-task-saturation")
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "2"
   metric_name         = "ActiveTaskCount"
@@ -286,13 +288,13 @@ resource "aws_cloudwatch_metric_alarm" "high_task_saturation" {
   alarm_actions       = var.alarm_actions
 
   tags = {
-    Name = "${var.name}-high-task-saturation"
+    Name = lookup(var.resource_names, "saturation_alarm_task", "${var.name}-high-task-saturation")
   }
 }
 
 resource "aws_cloudwatch_metric_alarm" "high_request_queue" {
   count               = var.create_alarms ? 1 : 0
-  alarm_name          = "${var.name}-high-request-queue"
+  alarm_name          = lookup(var.resource_names, "saturation_alarm_queue", "${var.name}-high-request-queue")
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "2"
   metric_name         = "ActiveRequestCount"
@@ -304,13 +306,13 @@ resource "aws_cloudwatch_metric_alarm" "high_request_queue" {
   alarm_actions       = var.alarm_actions
 
   tags = {
-    Name = "${var.name}-high-request-queue"
+    Name = lookup(var.resource_names, "saturation_alarm_queue", "${var.name}-high-request-queue")
   }
 }
 
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   count               = var.create_alarms ? 1 : 0
-  alarm_name          = "${var.name}-saturation-monitor-errors"
+  alarm_name          = lookup(var.resource_names, "saturation_alarm_errors", "${var.name}-saturation-monitor-errors")
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "2"
   metric_name         = "Errors"
@@ -326,6 +328,6 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   }
 
   tags = {
-    Name = "${var.name}-saturation-monitor-errors"
+    Name = lookup(var.resource_names, "saturation_alarm_errors", "${var.name}-saturation-monitor-errors")
   }
 }

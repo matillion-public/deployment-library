@@ -16,6 +16,9 @@ spec:
       labels:
         app: {{ include "matillion-runner.fullname" . }}-pods
       {{- include "matillion-runner.selectorLabels" . | nindent 8 }}
+        {{- with .Values.commonLabels }}
+        {{- include "matillion-runner.commonLabels" $ | nindent 8 }}
+        {{- end }}
         {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
         azure.workload.identity/use: "true"
         {{- end }}
@@ -23,12 +26,15 @@ spec:
         prometheus.io/path: "/actuator/prometheus"
         prometheus.io/port: "8080"
         prometheus.io/scrape: "true"
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
         azure.workload.identity/service-account-token-expiration: {{ quote .Values.azure.workloadIdentity.tokenExpiration }}
         azure.workload.identity/inject-proxy-sidecar: "true"
         {{- end }}
     spec:
-      serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" (include "matillion-runner.fullname" .)) }}
+      serviceAccountName: {{ include "matillion-runner.serviceAccountName" . }}
       {{- if or (and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled) (and (eq (include "matillion-runner.cloudProvider" .) "gcp") .Values.gcp.workloadIdentity.enabled) }}
       automountServiceAccountToken: true
       {{- else }}
@@ -53,7 +59,29 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpread.maxSkew }}
+          topologyKey: {{ .Values.topologySpread.topologyKey }}
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              app: {{ include "matillion-runner.fullname" . }}-pods
+      {{- end }}
       terminationGracePeriodSeconds: {{ .Values.dpcAgent.dpcAgent.gracePeriodSeconds }}
+      {{- with .Values.initContainers }}
+      # Caller-supplied init containers. The runner's own startup does not depend
+      # on any of these, so anything here is additive — but the pod does not start
+      # until they all exit 0, so a failing one is a hard outage, not a degraded
+      # runner. The intended use is populating a shared emptyDir declared in
+      # extraVolumes; see runner/helm/README.md for the Python-library pattern.
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - envFrom:
         - secretRef:
@@ -116,8 +144,16 @@ spec:
         {{- end }}
         {{- else }}
         {{- if eq (include "matillion-runner.cloudProvider" .) "aws" }}
-        {{- if .Values.aws.local.enabled }}
+        {{- if eq (include "matillion-runner.aws.credentialSource" .) "static" }}
         - name: AWS_REGION
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "matillion-runner.fullname" . }}-aws-local
+              key: aws-region
+        # Both names, because the two AWS SDKs disagree about which one they
+        # read: botocore honours either, but several older clients and the CLI's
+        # own config resolution only look at AWS_DEFAULT_REGION.
+        - name: AWS_DEFAULT_REGION
           valueFrom:
             secretKeyRef:
               name: {{ include "matillion-runner.fullname" . }}-aws-local
@@ -132,18 +168,35 @@ spec:
             secretKeyRef:
               name: {{ include "matillion-runner.fullname" . }}-aws-local
               key: aws-secret-access-key
+        {{- else if include "matillion-runner.aws.region" . }}
+        # IRSA and the node profile hand over credentials but never a region, so
+        # without this the pod authenticates fine and then fails building its
+        # first client. Values-supplied because nothing in the cluster knows it.
+        - name: AWS_REGION
+          value: {{ include "matillion-runner.aws.region" . | quote }}
+        - name: AWS_DEFAULT_REGION
+          value: {{ include "matillion-runner.aws.region" . | quote }}
         {{- end }}
         {{- end }}
         {{- if eq (include "matillion-runner.cloudProvider" .) "azure" }}
         - name: DEFAULT_KEYVAULT
           value: {{ quote .Values.dpcAgent.dpcAgent.env.defaultKeyvault }}
-        {{- if .Values.azure.workloadIdentity.enabled }}
-        - name: AZURE_CLIENT_ID
-          value: {{ required "azure.workloadIdentity.clientId is required for Azure workload identity deployments" .Values.azure.workloadIdentity.clientId }}
         {{- if .Values.azure.subscriptionId }}
+        # AZURE_DEFAULT_SUBSCRIPTION_ID is the name the agent actually binds
+        # (agent.azure.subscription.id in cloud-component-runner's
+        # application-blob-storage.yaml). Without it the agent falls back to the
+        # first subscription ARM happens to return, which is non-deterministic in
+        # multi-subscription tenants and empties the Key Vault picker (DPCT-2352).
+        - name: AZURE_DEFAULT_SUBSCRIPTION_ID
+          value: {{ quote .Values.azure.subscriptionId }}
+        # Retained for backwards compatibility: the agent has never read this
+        # name, but user scripts running in the container may.
         - name: AZURE_SUBSCRIPTION_ID
           value: {{ quote .Values.azure.subscriptionId }}
         {{- end }}
+        {{- if .Values.azure.workloadIdentity.enabled }}
+        - name: AZURE_CLIENT_ID
+          value: {{ required "azure.workloadIdentity.clientId is required for Azure workload identity deployments" .Values.azure.workloadIdentity.clientId }}
         {{- else if .Values.azure.servicePrincipal.enabled }}
         - name: AZURE_CLIENT_ID
           valueFrom:
@@ -175,6 +228,9 @@ spec:
           mountPath: /tmp
         - name: api-profiles-volume
           mountPath: /home/agentuser/api_profiles
+        {{- with .Values.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         image: {{ .Values.dpcAgent.dpcAgent.image.repository }}{{ if .Values.dpcAgent.dpcAgent.image.digest }}@{{ .Values.dpcAgent.dpcAgent.image.digest }}{{ else }}:{{ .Values.applicationImageTag | default .Values.dpcAgent.dpcAgent.image.tag | default .Chart.AppVersion }}{{ end }}
         imagePullPolicy: {{ .Values.dpcAgent.dpcAgent.imagePullPolicy | default "Always" }}
         name: {{ include "matillion-runner.fullname" . }}-pods
@@ -182,6 +238,28 @@ spec:
         - containerPort: 8080
           name: metrics
         securityContext: {}
+        {{- if .Values.readinessProbe.enabled }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.readinessProbe.path }}
+            port: {{ .Values.readinessProbe.port }}
+          initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          successThreshold: {{ .Values.readinessProbe.successThreshold }}
+        {{- end }}
+        {{- if .Values.livenessProbe.enabled }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.livenessProbe.path }}
+            port: {{ .Values.livenessProbe.port }}
+          initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          successThreshold: {{ .Values.livenessProbe.successThreshold }}
+        {{- end }}
         {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
         lifecycle:
           postStart:
@@ -204,3 +282,6 @@ spec:
         emptyDir: {}
       - name: api-profiles-volume
         emptyDir: {}
+      {{- with .Values.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}

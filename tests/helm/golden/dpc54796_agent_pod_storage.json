@@ -1,0 +1,35 @@
+{
+  "initContainers": null,
+  "serviceAccountName": "matillion-runner-sa",
+  "volumeMounts": [
+    {
+      "mountPath": "/etc/config",
+      "name": "config-volume",
+      "readOnly": true
+    },
+    {
+      "mountPath": "/tmp",
+      "name": "tmp-volume"
+    },
+    {
+      "mountPath": "/home/agentuser/api_profiles",
+      "name": "api-profiles-volume"
+    }
+  ],
+  "volumes": [
+    {
+      "name": "config-volume",
+      "secret": {
+        "secretName": "test-release-matillion-runner-config"
+      }
+    },
+    {
+      "emptyDir": {},
+      "name": "tmp-volume"
+    },
+    {
+      "emptyDir": {},
+      "name": "api-profiles-volume"
+    }
+  ]
+}
