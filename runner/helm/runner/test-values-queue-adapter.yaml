@@ -1,0 +1,27 @@
+---
+# Values for scanning the queue-adapter render in CI. The adapter is off by
+# default, so the default render does not exercise the ScaledJob, the
+# ServiceAccount, or the TriggerAuthentication — this file turns it on with the
+# minimum the chart requires so checkov sees those templates too.
+#
+# Placeholder identifiers only; nothing here is deployed.
+queueAdapter:
+  enabled: true
+  backend: servicebus
+  image:
+    repository: examplecr.azurecr.io/maia-queue-adapter-azure
+    tag: current
+  serviceAccount:
+    clientId: "00000000-0000-0000-0000-000000000000"
+  serviceBus:
+    namespace: example-ns.servicebus.windows.net
+    queueName: matillion-maia-requests
+  keyVault:
+    url: https://example-vault.vault.azure.net/
+    secretName: matillion-maia
+  storage:
+    accountName: examplestorageacct
+    accountUrl: https://examplestorageacct.table.core.windows.net
+    queueUrl: https://examplestorageacct.queue.core.windows.net
+    tableName: matillionprojectmappings
+    queueName: matillion-maia-requests

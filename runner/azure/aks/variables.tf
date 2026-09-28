@@ -50,6 +50,18 @@ variable "node_disk_size" {
   default     = 250
 }
 
+variable "storage_account_replication_type" {
+  type        = string
+  description = "Replication for the staging storage account. ZRS spreads copies across availability zones and is what pairs with a zonal node pool; LRS keeps one copy in one zone. Defaults to LRS so existing deployments plan clean — set ZRS on new deployments."
+  default     = "LRS"
+}
+
+variable "node_pool_zones" {
+  type        = list(string)
+  description = "Availability zones for the default node pool, e.g. [\"1\", \"2\", \"3\"]. Empty (the default) leaves the pool zone-unaware, meaning every node — and so every runner replica — can land in a single zone. Set this on new clusters; changing it on an existing one forces node pool replacement."
+  default     = []
+}
+
 variable "workload_identity_enabled" {
   type        = bool
   description = "Enable Azure Workload Identity for the runner workload (requires OIDC issuer)"
