@@ -1,3 +1,11 @@
+locals {
+  # Empty when naming is off, which is what every module falls back on. try() here
+  # only covers module.naming being absent at count = 0 — it does not swallow the
+  # module's output preconditions, so an over-length or colliding convention still
+  # fails the plan through this root rather than silently reverting to default names.
+  resource_names = try(module.naming[0].names, {})
+}
+
 resource "random_string" "salt" {
   length  = 6
   special = false
@@ -8,6 +16,18 @@ resource "random_string" "salt" {
   }
 }
 
+# Resource naming. Skipped entirely unless the caller sets naming_tokens, so the
+# default path generates exactly the names it did before.
+module "naming" {
+  source = "../../../modules/azure/naming"
+  count  = var.naming_tokens == null ? 0 : 1
+
+  tokens         = var.naming_tokens
+  formats        = var.naming_formats
+  resource_specs = var.naming_resource_specs
+  overrides      = var.naming_overrides
+}
+
 module "networking" {
   source = "../../../modules/azure/networking"
 
@@ -15,6 +35,7 @@ module "networking" {
   location            = var.location
   resource_group_name = var.resource_group_name
   random_string_salt  = random_string.salt.result
+  resource_names      = local.resource_names
   tags                = var.tags
 
   enable_nat_gateway       = var.enable_nat_gateway
@@ -50,6 +71,7 @@ module "container_apps" {
   random_string_salt  = random_string.salt.result
   location            = var.location
   resource_group_name = var.resource_group_name
+  resource_names      = local.resource_names
 
   subnet_ids = module.networking.subnet_ids
 

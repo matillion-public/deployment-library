@@ -30,6 +30,11 @@ output "script_runner_endpoint" {
   value       = module.runner.script_runner_endpoint
 }
 
+output "script_runner_task_role_name" {
+  description = "Name of the script runner task role. Attach IAM policies to this role to give scripts run through Script Pushdown access to AWS resources, if not using script_runner_task_role_policy_arns. Empty string when enable_script_runner is false."
+  value       = module.iam_roles.script_runner_task_role_name
+}
+
 output "sqs_pipeline_trigger_lambda_arn" {
   description = "ARN of the optional SQS->DPC adapter Lambda (null when disabled)."
   value       = var.enable_sqs_pipeline_trigger ? module.sqs_dpc_adapter[0].lambda_function_arn : null

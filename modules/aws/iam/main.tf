@@ -13,7 +13,7 @@ locals {
 }
 
 resource "aws_iam_role" "ecs_task_role" {
-  name = join("-", [var.name, "matillion-ecs-task-role"])
+  name = lookup(var.resource_names, "ecs_task_role", join("-", [var.name, "matillion-ecs-task-role"]))
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -37,19 +37,19 @@ resource "aws_iam_role_policy_attachment" "ecs_task_role_cloudwatch" {
 }
 
 resource "aws_iam_role_policy" "ecs_task_role_policy" {
-  name   = "matillion_etl_runner_role"
+  name   = lookup(var.resource_names, "ecs_task_role_policy", "matillion_etl_runner_role")
   role   = aws_iam_role.ecs_task_role.id
   policy = file("${path.module}/templates/ecs_task_role_policy.json")
 }
 
 resource "aws_iam_instance_profile" "ecs_task_role_instance_profile" {
-  name = join("-", [var.name, "matillion-ecs-task-instance-profile"])
+  name = lookup(var.resource_names, "ecs_task_instance_profile", join("-", [var.name, "matillion-ecs-task-instance-profile"]))
   path = "/"
   role = aws_iam_role.ecs_task_role.name
 }
 
 resource "aws_iam_role" "ecs_task_execution_role" {
-  name = join("-", [var.name, "task-execution-role"])
+  name = lookup(var.resource_names, "ecs_task_execution_role", join("-", [var.name, "task-execution-role"]))
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -68,7 +68,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
 }
 
 resource "aws_iam_role_policy" "ecs_task_execution_role_policy" {
-  name = "GetETLRunnerSecretValue"
+  name = lookup(var.resource_names, "ecs_task_execution_secret_policy", "GetETLRunnerSecretValue")
   role = aws_iam_role.ecs_task_execution_role.id
   policy = jsonencode({
     Version = "2012-10-17"
@@ -85,7 +85,7 @@ resource "aws_iam_role_policy" "ecs_task_execution_role_policy" {
 resource "aws_iam_role_policy" "ecs_task_execution_role_keypair_policy" {
   count = var.enable_script_runner ? 1 : 0
 
-  name = "GetScriptRunnerKeypairSecretValue"
+  name = lookup(var.resource_names, "ecs_task_execution_keypair_policy", "GetScriptRunnerKeypairSecretValue")
   role = aws_iam_role.ecs_task_execution_role.id
   policy = jsonencode({
     Version = "2012-10-17"
@@ -111,7 +111,7 @@ resource "aws_iam_role_policy" "ecs_task_execution_role_keypair_policy" {
 resource "aws_iam_role" "script_runner_task_role" {
   count = var.enable_script_runner ? 1 : 0
 
-  name = join("-", [var.name, "script-runner-task-role"])
+  name = lookup(var.resource_names, "script_runner_task_role", join("-", [var.name, "script-runner-task-role"]))
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -130,10 +130,21 @@ resource "aws_iam_role" "script_runner_task_role" {
 resource "aws_iam_role_policy" "script_runner_task_role_policy" {
   count = var.enable_script_runner && var.script_runner_extension_library_bucket_arn != "" ? 1 : 0
 
-  name = "ScriptRunnerExtensionLibraryS3Access"
+  name = lookup(var.resource_names, "script_runner_s3_policy", "ScriptRunnerExtensionLibraryS3Access")
   role = aws_iam_role.script_runner_task_role[0].id
   policy = jsonencode({
     Version   = "2012-10-17"
     Statement = local.script_runner_policy_statements
   })
+}
+
+# Scripts pushed down to the runner assume this task role, so anything they need
+# in AWS has to be granted here — the extension-library grant above covers the
+# runner's own hydration and nothing else. Default stays deny-everything: with no
+# ARNs supplied, for_each is empty and no attachment is created. (DPC-55696)
+resource "aws_iam_role_policy_attachment" "script_runner_task_role_managed" {
+  for_each = var.enable_script_runner ? toset(var.script_runner_task_role_policy_arns) : toset([])
+
+  role       = aws_iam_role.script_runner_task_role[0].name
+  policy_arn = each.value
 }

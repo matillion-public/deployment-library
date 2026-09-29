@@ -5,7 +5,7 @@ provider "aws" {
 }
 
 resource "aws_iam_role" "eks_role" {
-  name = join("-", [var.name, "eks-role", var.random_string_salt])
+  name = lookup(var.resource_names, "eks_role", join("-", [var.name, "eks-role", var.random_string_salt]))
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -29,7 +29,7 @@ resource "aws_iam_role_policy_attachment" "eks_policy_attachment" {
 }
 
 resource "aws_eks_cluster" "eks_cluster" {
-  name     = join("-", [var.name, "eks-cluster", var.random_string_salt])
+  name     = lookup(var.resource_names, "eks_cluster", join("-", [var.name, "eks-cluster", var.random_string_salt]))
   role_arn = aws_iam_role.eks_role.arn
 
 
@@ -54,7 +54,7 @@ resource "aws_eks_addon" "kube-proxy" {
   addon_name   = "kube-proxy"
 }
 resource "aws_iam_role" "fargate_pod_execution_role" {
-  name = join("-", [var.name, "fargate-pod-execution-role", var.random_string_salt])
+  name = lookup(var.resource_names, "fargate_pod_execution_role", join("-", [var.name, "fargate-pod-execution-role", var.random_string_salt]))
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -78,7 +78,7 @@ resource "aws_iam_role_policy_attachment" "fargate_pod_execution_policy" {
 }
 
 resource "aws_iam_policy" "dpc_policy" {
-  name        = join("-", ["DataProductivityCloudAccess", var.random_string_salt])
+  name        = lookup(var.resource_names, "dpc_policy", join("-", ["DataProductivityCloudAccess", var.random_string_salt]))
   description = "Policy for Maia with S3, Secrets Manager, Redshift, and IAM permissions"
 
   policy = jsonencode({
@@ -175,7 +175,7 @@ data "aws_iam_policy_document" "service_account_assume_role_policy" {
 }
 
 resource "aws_iam_role" "service_account_role" {
-  name               = join("-", [var.name, "service-account-role", var.random_string_salt])
+  name               = lookup(var.resource_names, "service_account_role", join("-", [var.name, "service-account-role", var.random_string_salt]))
   assume_role_policy = data.aws_iam_policy_document.service_account_assume_role_policy.json
   tags               = var.tags
 }
@@ -187,7 +187,7 @@ resource "aws_iam_role_policy_attachment" "service_account_dpc_policy" {
 
 resource "aws_eks_fargate_profile" "fargate_profile" {
   cluster_name           = aws_eks_cluster.eks_cluster.name
-  fargate_profile_name   = join("-", [var.name, "fargate-profile", var.random_string_salt])
+  fargate_profile_name   = lookup(var.resource_names, "fargate_profile", join("-", [var.name, "fargate-profile", var.random_string_salt]))
   pod_execution_role_arn = aws_iam_role.fargate_pod_execution_role.arn
   subnet_ids             = length(var.fargate_subnet_ids) > 0 ? var.fargate_subnet_ids : var.subnet_ids
 
@@ -222,7 +222,7 @@ resource "terraform_data" "coredns_fargate_patch" {
 }
 
 resource "aws_s3_bucket" "log_bucket" {
-  bucket = lower(join("-", [var.name, "log-bucket", var.random_string_salt]))
+  bucket = lookup(var.resource_names, "log_bucket", lower(join("-", [var.name, "log-bucket", var.random_string_salt])))
 
 
   tags = var.tags
@@ -244,7 +244,7 @@ resource "aws_kms_key" "key" {
 }
 
 resource "aws_secretsmanager_secret" "eks_secret" {
-  name       = join("-", [var.name, "eks-secret", var.random_string_salt])
+  name       = lookup(var.resource_names, "eks_secret", join("-", [var.name, "eks-secret", var.random_string_salt]))
   kms_key_id = aws_kms_key.key.id
 
   tags = var.tags

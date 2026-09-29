@@ -475,6 +475,43 @@ kubectl describe serviceaccount matillion-runner-sa
 kubectl get serviceaccount matillion-runner-sa -o yaml
 ```
 
+#### Clusters that do not use IRSA
+
+The Terraform in this directory provisions IRSA, and the chart defaults to it.
+Not every EKS cluster works that way: platforms that manage EKS on your behalf
+may assign AWS permissions to the **EC2 node instance profile** and share them
+across every pod on the node — DuploCloud does this per tenant. Clusters
+predating IRSA have the same shape.
+
+The chart supports it with `serviceAccount.credentialSource=node`, which renders
+the service account without a role-arn annotation so the AWS SDK falls through
+to IMDS. If you also want the chart to leave the account itself alone — because
+the platform creates its own — add `serviceAccount.create=false` and set
+`serviceAccount.name` to the existing account:
+
+```bash
+helm upgrade --install matillion-runner ./runner \
+  --namespace matillion \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=duploservices-mytenant \
+  --set serviceAccount.credentialSource=node \
+  --set serviceAccount.roleArn=""
+```
+
+In that configuration nothing in this Terraform is used for pod identity: the
+IRSA role it creates is simply unassumed, and the permissions the runner
+actually has are whatever the node profile carries. Confirm that profile grants
+the S3 actions listed in `runner/helm/README.md` → *AWS credential source*.
+
+> **Leaving `serviceAccount.roleArn` empty is not a way to select the node
+> profile.** While the annotation is present the EKS pod identity webhook
+> injects `AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE`, and the web-identity
+> provider is consulted *before* IMDS. An annotation naming a role the pod
+> cannot assume fails outright rather than falling back — which is why
+> `credentialSource` is an explicit switch. Symptom if you get this wrong:
+> `AccessDenied` or `WebIdentityErr` on the runner's first S3 call, with a
+> correct-looking node profile attached.
+
 ### Pod Security Standards
 
 The deployment implements security best practices:

@@ -26,3 +26,20 @@ variable "script_runner_extension_library_bucket_arn" {
   default     = ""
 }
 
+variable "script_runner_task_role_policy_arns" {
+  description = "Optional: IAM managed policy ARNs to attach to the script runner task role, granting scripts run through Script Pushdown access to AWS resources (for example arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess, or your own customer-managed policy). Empty by default, in which case the task role has no AWS permissions beyond the optional extension-library grant."
+  type        = list(string)
+  default     = []
+}
+
+
+variable "resource_names" {
+  description = <<-EOT
+    Resource key to explicit name, overriding the generated default. Intended to be
+    fed the `names` output of modules/aws/naming, which builds them from a token
+    convention. Any key left out keeps its existing generated name, so an empty map
+    is exactly today's behaviour.
+  EOT
+  type        = map(string)
+  default     = {}
+}

@@ -7,7 +7,10 @@ data "aws_secretsmanager_secret" "dpc" {
 }
 
 locals {
-  source_queue_name = var.fifo_queue ? (endswith(var.queue_name, ".fifo") ? var.queue_name : "${var.queue_name}.fifo") : var.queue_name
+  # The .fifo normalisation is applied to whichever name wins, so a convention
+  # does not have to remember the suffix for the queue this module creates.
+  source_queue_base = lookup(var.resource_names, "adapter_source_queue", var.queue_name)
+  source_queue_name = var.fifo_queue ? (endswith(local.source_queue_base, ".fifo") ? local.source_queue_base : "${local.source_queue_base}.fifo") : local.source_queue_base
 
   queue_arn      = var.create_queue ? aws_sqs_queue.source[0].arn : var.existing_queue_arn
   queue_url      = var.create_queue ? aws_sqs_queue.source[0].url : var.existing_queue_url
@@ -34,7 +37,7 @@ locals {
 resource "aws_sqs_queue" "source_dlq" {
   count = var.create_queue ? 1 : 0
 
-  name                        = var.fifo_queue ? "${trimsuffix(local.source_queue_name, ".fifo")}-dlq.fifo" : "${local.source_queue_name}-dlq"
+  name                        = lookup(var.resource_names, "adapter_source_dlq", var.fifo_queue ? "${trimsuffix(local.source_queue_name, ".fifo")}-dlq.fifo" : "${local.source_queue_name}-dlq")
   fifo_queue                  = var.fifo_queue
   content_based_deduplication = var.fifo_queue ? true : null
   message_retention_seconds   = 1209600 # 14 days
@@ -75,7 +78,7 @@ resource "aws_sqs_queue_redrive_allow_policy" "source_dlq" {
 # Dedicated DLQ for asynchronous Lambda invocation failures (always created so
 # the function has a dead_letter_config target even when the source queue is BYO).
 resource "aws_sqs_queue" "lambda_dlq" {
-  name                      = "${var.name_prefix}-lambda-dlq"
+  name                      = lookup(var.resource_names, "adapter_lambda_dlq", "${var.name_prefix}-lambda-dlq")
   message_retention_seconds = 1209600 # 14 days
   sqs_managed_sse_enabled   = true
   tags                      = local.tags
@@ -87,7 +90,7 @@ resource "aws_sqs_queue" "lambda_dlq" {
 resource "aws_dynamodb_table" "mapping" {
   count = var.create_mapping_table ? 1 : 0
 
-  name         = var.mapping_table_name
+  name         = lookup(var.resource_names, "adapter_mapping_table", var.mapping_table_name)
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "PK"
   range_key    = "SK"
@@ -136,7 +139,7 @@ data "aws_iam_policy_document" "assume" {
 }
 
 resource "aws_iam_role" "lambda" {
-  name               = "${var.name_prefix}-role"
+  name               = lookup(var.resource_names, "adapter_role", "${var.name_prefix}-role")
   assume_role_policy = data.aws_iam_policy_document.assume.json
   tags               = local.tags
 }
@@ -179,7 +182,7 @@ data "aws_iam_policy_document" "lambda" {
 }
 
 resource "aws_iam_role_policy" "lambda" {
-  name   = "${var.name_prefix}-policy"
+  name   = lookup(var.resource_names, "adapter_policy", "${var.name_prefix}-policy")
   role   = aws_iam_role.lambda.id
   policy = data.aws_iam_policy_document.lambda.json
 }
@@ -188,7 +191,7 @@ resource "aws_iam_role_policy" "lambda" {
 # Lambda function (container image) + log group + event source mapping.
 # ---------------------------------------------------------------------------
 resource "aws_cloudwatch_log_group" "lambda" {
-  name              = "/aws/lambda/${var.name_prefix}"
+  name              = "/aws/lambda/${lookup(var.resource_names, "adapter_function", var.name_prefix)}"
   retention_in_days = var.log_retention_days
   tags              = local.tags
 }
@@ -196,7 +199,7 @@ resource "aws_cloudwatch_log_group" "lambda" {
 resource "aws_lambda_function" "this" {
   #checkov:skip=CKV_AWS_117:Adapter reaches SQS/DynamoDB/Secrets Manager and the public DPC API over public AWS endpoints; VPC attachment is not required.
   #checkov:skip=CKV_AWS_272:Code signing does not apply to container-image (PackageType=Image) functions.
-  function_name = var.name_prefix
+  function_name = lookup(var.resource_names, "adapter_function", var.name_prefix)
   role          = aws_iam_role.lambda.arn
   package_type  = "Image"
   image_uri     = var.image_uri
@@ -249,7 +252,7 @@ resource "aws_lambda_event_source_mapping" "sqs" {
 # ---------------------------------------------------------------------------
 resource "aws_sns_topic" "alerts" {
   count             = var.create_alarms ? 1 : 0
-  name              = "${var.name_prefix}-alerts"
+  name              = lookup(var.resource_names, "adapter_alerts_topic", "${var.name_prefix}-alerts")
   kms_master_key_id = "alias/aws/sns"
   tags              = local.tags
 }
@@ -257,7 +260,7 @@ resource "aws_sns_topic" "alerts" {
 resource "aws_cloudwatch_metric_alarm" "dlq_messages" {
   count = var.create_alarms && var.create_queue ? 1 : 0
 
-  alarm_name          = "${var.name_prefix}-dlq-messages"
+  alarm_name          = lookup(var.resource_names, "adapter_alarm_dlq", "${var.name_prefix}-dlq-messages")
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
   metric_name         = "ApproximateNumberOfMessagesVisible"
@@ -275,7 +278,7 @@ resource "aws_cloudwatch_metric_alarm" "dlq_messages" {
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   count = var.create_alarms ? 1 : 0
 
-  alarm_name          = "${var.name_prefix}-lambda-errors"
+  alarm_name          = lookup(var.resource_names, "adapter_alarm_errors", "${var.name_prefix}-lambda-errors")
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
   metric_name         = "Errors"
@@ -293,7 +296,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
 resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
   count = var.create_alarms ? 1 : 0
 
-  alarm_name          = "${var.name_prefix}-lambda-throttles"
+  alarm_name          = lookup(var.resource_names, "adapter_alarm_throttles", "${var.name_prefix}-lambda-throttles")
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
   metric_name         = "Throttles"

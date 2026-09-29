@@ -36,7 +36,7 @@ spec:
         azure.workload.identity/inject-proxy-sidecar: "true"
       {{- end }}
     spec:
-      serviceAccountName: {{ include "matillion-runner.scriptRunner.fullname" . }}-sa
+      serviceAccountName: {{ include "matillion-runner.scriptRunner.serviceAccountName" . }}
       {{- if or (and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled) (and (eq (include "matillion-runner.cloudProvider" .) "gcp") .Values.gcp.workloadIdentity.enabled) }}
       automountServiceAccountToken: true
       {{- else }}
@@ -44,6 +44,13 @@ spec:
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.scriptRunner.initContainers }}
+      # Separate from the runner's .Values.initContainers on purpose: the two
+      # workloads hydrate independently, and Script Pushdown is where the heavier
+      # library sets tend to land.
+      initContainers:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
@@ -103,6 +110,18 @@ spec:
           value: /etc/matillion/runner-keys/runner_authorized_keys
         - name: EXTENSION_LIBRARY_LOCATION
           value: {{ quote .Values.dpcAgent.dpcAgent.env.extensionLibraryLocation }}
+        {{- if and (eq (include "matillion-runner.cloudProvider" .) "aws") (include "matillion-runner.aws.region" .) }}
+        # Script Pushdown scripts are the main consumer of these. The runner's
+        # entry point forwards both names into every SSH session through
+        # ~/.ssh/environment, so a script that does not set a region itself has
+        # nothing to fall back on and fails building its first boto3 client. Set
+        # on every credential source, not just static — IRSA hands over
+        # credentials but never a region. (DPC-55696)
+        - name: AWS_REGION
+          value: {{ include "matillion-runner.aws.region" . | quote }}
+        - name: AWS_DEFAULT_REGION
+          value: {{ include "matillion-runner.aws.region" . | quote }}
+        {{- end }}
         {{- if .Values.dpcAgent.dpcAgent.env.customCertLocation }}
         - name: CUSTOM_CERT_LOCATION
           value: {{ quote .Values.dpcAgent.dpcAgent.env.customCertLocation }}
@@ -131,6 +150,9 @@ spec:
           readOnly: true
         - name: tmp-volume
           mountPath: /tmp
+        {{- with .Values.scriptRunner.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       volumes:
       # Project only the public authorized_keys into the runner — never the
       # runner's private key.
@@ -147,4 +169,7 @@ spec:
           # limit is hit Kubernetes evicts this pod, not the node — keeping the
           # blast radius pod-local. Tunable via scriptRunner.tmpSizeLimit.
           sizeLimit: {{ .Values.scriptRunner.tmpSizeLimit | quote }}
+      {{- with .Values.scriptRunner.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
 {{- end }}

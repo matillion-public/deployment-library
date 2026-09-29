@@ -1,18 +1,48 @@
+locals {
+  # Either the subnets the caller brought, or the ones the networking module made.
+  subnet_ids = length(var.existing_subnet_ids) > 0 ? var.existing_subnet_ids : module.networking[0].subnet_ids
+
+  # Empty when naming is off, which is what every module falls back on. try() here
+  # only covers module.naming being absent at count = 0 — it does not swallow the
+  # module's output preconditions, so an over-length or colliding convention still
+  # fails the plan through this root rather than silently reverting to default names.
+  resource_names = try(module.naming[0].names, {})
+}
+
 resource "random_string" "salt" {
   length           = 6
   special          = false
   override_special = "/@£$"
 }
 
+# Resource naming. Skipped entirely unless the caller sets naming_tokens, so the
+# default path generates exactly the names it did before.
+module "naming" {
+  source = "../../../modules/azure/naming"
+  count  = var.naming_tokens == null ? 0 : 1
+
+  tokens         = var.naming_tokens
+  formats        = var.naming_formats
+  resource_specs = var.naming_resource_specs
+  overrides      = var.naming_overrides
+}
+
 module "networking" {
-  source                   = "../../../modules/azure/networking"
+  source = "../../../modules/azure/networking"
+  # Skipped entirely when the caller supplies subnets: an enterprise landing zone
+  # is usually owned by a network team, and Terraform that insists on creating its
+  # own VNet cannot be run there at all.
+  count = length(var.existing_subnet_ids) == 0 ? 1 : 0
+
   name                     = var.name
   location                 = var.location
   resource_group_name      = var.resource_group_name
   random_string_salt       = random_string.salt.result
+  resource_names           = local.resource_names
   enable_nat_gateway       = var.enable_nat_gateway
   nat_gateway_idle_timeout = var.nat_gateway_idle_timeout
   vnet_address_space       = var.vnet_address_space
+  service_endpoints        = var.service_endpoints
   tags                     = var.tags
 
 }
@@ -21,11 +51,12 @@ module "aks" {
   source             = "../../../modules/azure/aks"
   name               = var.name
   random_string_salt = random_string.salt.result
+  resource_names     = local.resource_names
 
   location            = var.location
   resource_group_name = var.resource_group_name
 
-  subnet_ids = module.networking.subnet_ids
+  subnet_ids = local.subnet_ids
 
   authorized_ip_ranges = var.authorized_ip_ranges
 
@@ -36,6 +67,14 @@ module "aks" {
   node_disk_size  = var.node_disk_size
   node_pool_zones = var.node_pool_zones
 
+  # Autoscaler bounds and cluster tier. The module defaults are sensible — a floor
+  # of one node per zone, a ceiling of double desired_node_count, Standard tier —
+  # but without these passthroughs a caller using this root cannot override any of
+  # them, which is the whole point of having added them.
+  min_node_count = var.min_node_count
+  max_node_count = var.max_node_count
+  sku_tier       = var.sku_tier
+
   storage_account_replication_type = var.storage_account_replication_type
 
   workload_identity_enabled   = var.workload_identity_enabled
@@ -44,7 +83,7 @@ module "aks" {
   service_principal_secret    = var.service_principal_secret
 
   enable_nat_gateway    = var.enable_nat_gateway
-  nat_gateway_public_ip = module.networking.nat_gateway_public_ip
+  nat_gateway_public_ip = try(module.networking[0].nat_gateway_public_ip, null)
 
   tags = var.tags
 

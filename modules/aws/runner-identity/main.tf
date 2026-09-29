@@ -22,7 +22,7 @@ locals {
 }
 
 resource "aws_iam_role" "runner" {
-  name = join("-", [var.name, "runner-role"])
+  name = lookup(var.resource_names, "runner_role", join("-", [var.name, "runner-role"]))
   tags = var.tags
 
   assume_role_policy = jsonencode({
@@ -52,7 +52,7 @@ resource "aws_iam_role" "runner" {
 resource "aws_iam_role_policy" "secrets" {
   count = length(var.secret_arns) > 0 ? 1 : 0
 
-  name = "RunnerScopedSecretAccess"
+  name = lookup(var.resource_names, "runner_secrets_policy", "RunnerScopedSecretAccess")
   role = aws_iam_role.runner.id
 
   policy = jsonencode({
@@ -71,7 +71,7 @@ resource "aws_iam_role_policy" "secrets" {
 resource "aws_iam_role_policy" "s3" {
   count = length(var.s3_bucket_arns) > 0 ? 1 : 0
 
-  name = "RunnerScopedBucketAccess"
+  name = lookup(var.resource_names, "runner_s3_policy", "RunnerScopedBucketAccess")
   role = aws_iam_role.runner.id
 
   policy = jsonencode({

@@ -37,7 +37,7 @@ dpcAgent:
     image:
       repository: "europe-docker.pkg.dev/maia-492711/maia-runners/maia-runner"
       tag: "current"
-    imagePullPolicy: IfNotPresent
+    imagePullPolicy: Always  # Required: 'current' is a rolling tag; Always ensures latest image is pulled
     gracePeriodSeconds: 43200
     # Resources derived from .Values.runnerSize. Set this map to override.
     resources: {}
@@ -74,6 +74,13 @@ gcp:
     enabled: true
     # GCP Service Account email for Workload Identity
     # Get this value from Terraform output: runner_workload_sa_email
+    #
+    # No terraform output to hand? Do NOT reach for `enabled: false` — that
+    # leaves the pod with no GCP identity at all, and the chart now refuses to
+    # render it. Either bind an identity (runner/gcp/gke/README.md, "Binding an
+    # identity to a runner already installed") or, if the pod is deliberately
+    # taking the node pool's service account, set gcp.nodeIdentity.enabled=true
+    # as well, so the choice is on the record.
     serviceAccountEmail: "your-runner-sa@your-project.iam.gserviceaccount.com"
 
 # AWS configuration - disabled for GCP

@@ -182,6 +182,7 @@ module "iam_roles" {
   enable_script_runner                       = var.enable_script_runner
   runner_keypair_secret_arn                  = module.secert_manager.runner_keypair_secret_arn
   script_runner_extension_library_bucket_arn = var.script_runner_extension_library_bucket_arn
+  script_runner_task_role_policy_arns        = var.script_runner_task_role_policy_arns
 }
 
 module "runner" {

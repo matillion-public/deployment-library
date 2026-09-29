@@ -1,0 +1,9 @@
+{
+  "apiVersion": "v1",
+  "kind": "ServiceAccount",
+  "metadata": {
+    "labels": null,
+    "name": "matillion-runner-sa",
+    "namespace": "default"
+  }
+}
