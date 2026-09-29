@@ -28,7 +28,7 @@ data "azurerm_key_vault" "target" {
 }
 
 resource "azurerm_user_assigned_identity" "runner" {
-  name                = join("-", [var.name, "runner-identity"])
+  name                = lookup(var.resource_names, "tenant_runner_identity", join("-", [var.name, "runner-identity"]))
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
@@ -39,7 +39,7 @@ resource "azurerm_user_assigned_identity" "runner" {
 # different serviceAccount.name or into a different namespace simply fails to
 # get a token, rather than falling back to someone else's identity.
 resource "azurerm_federated_identity_credential" "runner" {
-  name                = join("-", [var.name, "runner-fic"])
+  name                = lookup(var.resource_names, "tenant_runner_federated_credential", join("-", [var.name, "runner-fic"]))
   resource_group_name = var.resource_group_name
   parent_id           = azurerm_user_assigned_identity.runner.id
   audience            = ["api://AzureADTokenExchange"]
@@ -51,7 +51,7 @@ resource "azurerm_federated_identity_credential" "runner" {
 # same blast radius as the runner that drives it, so it shares the identity.
 resource "azurerm_federated_identity_credential" "script_runner" {
   count               = var.script_runner_service_account_name != "" ? 1 : 0
-  name                = join("-", [var.name, "script-runner-fic"])
+  name                = lookup(var.resource_names, "tenant_script_runner_federated_credential", join("-", [var.name, "script-runner-fic"]))
   resource_group_name = var.resource_group_name
   parent_id           = azurerm_user_assigned_identity.runner.id
   audience            = ["api://AzureADTokenExchange"]

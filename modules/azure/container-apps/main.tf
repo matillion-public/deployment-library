@@ -34,7 +34,7 @@ locals {
 
 # Log Analytics Workspace
 resource "azurerm_log_analytics_workspace" "log_analytics" {
-  name                = join("-", [var.name, "log-workspace", var.random_string_salt])
+  name                = lookup(var.resource_names, "log_workspace", join("-", [var.name, "log-workspace", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
   sku                 = "PerGB2018"
@@ -44,7 +44,7 @@ resource "azurerm_log_analytics_workspace" "log_analytics" {
 
 # Storage Account
 resource "azurerm_storage_account" "storage" {
-  name                = substr(replace(join("", [var.name, "stca", var.random_string_salt]), "-", ""), 0, 24)
+  name                = lookup(var.resource_names, "storage_account", substr(replace(join("", [var.name, "stca", var.random_string_salt]), "-", ""), 0, 24))
   resource_group_name = var.resource_group_name
   location            = var.location
   account_tier        = "Standard"
@@ -60,7 +60,7 @@ resource "azurerm_storage_account" "storage" {
 
 # Key Vault
 resource "azurerm_key_vault" "keyvault" {
-  name                       = substr(join("-", [var.name, "kv", var.random_string_salt]), 0, 24)
+  name                       = lookup(var.resource_names, "key_vault", substr(join("-", [var.name, "kv", var.random_string_salt]), 0, 24))
   location                   = var.location
   resource_group_name        = var.resource_group_name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
@@ -79,7 +79,7 @@ resource "azurerm_key_vault" "keyvault" {
 
 # User Assigned Managed Identity
 resource "azurerm_user_assigned_identity" "managed_identity" {
-  name                = join("-", [var.name, "ca-identity", var.random_string_salt])
+  name                = lookup(var.resource_names, "container_app_identity", join("-", [var.name, "ca-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
@@ -138,7 +138,7 @@ resource "azurerm_role_assignment" "key_vault_reader" {
 
 # Container App Environment
 resource "azurerm_container_app_environment" "env" {
-  name                = join("-", [var.name, "env", var.random_string_salt])
+  name                = lookup(var.resource_names, "container_app_environment", join("-", [var.name, "env", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
@@ -157,7 +157,7 @@ resource "azurerm_container_app_environment" "env" {
 
 # Container App
 resource "azurerm_container_app" "app" {
-  name                         = join("-", [var.name, "app", var.random_string_salt])
+  name                         = lookup(var.resource_names, "container_app", join("-", [var.name, "app", var.random_string_salt]))
   resource_group_name          = var.resource_group_name
   container_app_environment_id = azurerm_container_app_environment.env.id
   revision_mode                = "Single"
@@ -303,7 +303,7 @@ resource "azurerm_container_app" "app" {
 
 resource "azurerm_user_assigned_identity" "script_runner_identity" {
   count               = var.enable_script_runner ? 1 : 0
-  name                = join("-", [var.name, "ca-runner-identity", var.random_string_salt])
+  name                = lookup(var.resource_names, "script_runner_identity", join("-", [var.name, "ca-runner-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
@@ -337,7 +337,7 @@ resource "azurerm_role_assignment" "script_runner_key_vault_secrets_user" {
 resource "azurerm_container_app" "script_runner" {
   count = var.enable_script_runner ? 1 : 0
 
-  name                         = join("-", [var.name, "script-runner", var.random_string_salt])
+  name                         = lookup(var.resource_names, "script_runner_app", join("-", [var.name, "script-runner", var.random_string_salt]))
   resource_group_name          = var.resource_group_name
   container_app_environment_id = azurerm_container_app_environment.env.id
   revision_mode                = "Single"

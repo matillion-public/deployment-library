@@ -98,3 +98,14 @@ variable "vpc_endpoint_private_dns_enabled" {
   type        = bool
   default     = false
 }
+
+variable "resource_names" {
+  description = <<-EOT
+    Resource key to explicit name, overriding the generated default. Intended to be
+    fed the `names` output of modules/aws/naming, which builds them from a token
+    convention. Any key left out keeps its existing generated name, so an empty map
+    is exactly today's behaviour.
+  EOT
+  type        = map(string)
+  default     = {}
+}

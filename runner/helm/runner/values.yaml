@@ -36,6 +36,37 @@ serviceAccount:
   # The AWS trust policy hard-codes matillion-runner-sa; changing this requires
   # a matching Terraform update.
   name: matillion-runner-sa
+  # Set false to bind the pods to a service account that already exists — one
+  # managed by the platform layer rather than by this chart (DuploCloud and
+  # similar create their own per-tenant accounts). The chart then renders no
+  # ServiceAccount object and no annotations, so whatever identity that account
+  # already carries is what the pods get; `name` above must match it.
+  create: true
+  # Where the pods get their AWS credentials. AWS only — Azure and GCP are
+  # selected by azure.workloadIdentity.enabled / gcp.workloadIdentity.enabled.
+  #
+  #   irsa    annotate the SA with eks.amazonaws.com/role-arn. What every
+  #           existing release does; requires roleArn below.
+  #   node    no annotation and no injected credentials, so the AWS SDK falls
+  #           through to IMDS and picks up the EC2 node instance profile. For
+  #           clusters that assign AWS permissions per node rather than per
+  #           service account.
+  #   static  long-lived access keys from aws.local.* (see below). Least
+  #           preferred — a node instance profile beats static keys.
+  #
+  # `node` has to be selected explicitly; blanking roleArn does NOT get you
+  # there. While the annotation is present the EKS pod identity webhook injects
+  # AWS_ROLE_ARN and AWS_WEB_IDENTITY_TOKEN_FILE, and the web-identity provider
+  # sits ahead of IMDS in the credential chain — so an annotation naming a role
+  # the pod cannot assume fails outright instead of falling back to the node.
+  #
+  # Left empty this resolves to irsa, or to static if aws.local.enabled is true.
+  # Empty rather than "irsa" on purpose: it has to stay possible to tell "the
+  # caller said nothing" from "the caller asked for irsa", because a release that
+  # sets aws.local.enabled and never heard of this key must keep working, while
+  # asking for irsa AND static together is a contradiction worth rejecting.
+  credentialSource: ""
+  # Required when credentialSource is irsa. Ignored otherwise.
   roleArn: "<ServiceAccountRoleArn>"
 dpcAgent:
   dpcAgent:
@@ -129,9 +160,21 @@ scriptRunner:
   tmpSizeLimit: 5Gi
   # Script runner's own runtime identity (separate from the Maia runner's). One per cloud:
   serviceAccount:
-    roleArn: ""              # AWS IRSA role ARN
+    # Defaults to "<release>-script-runner-sa". Set both this and create=false to
+    # bind to a platform-managed account, as per serviceAccount.create above.
+    name: ""
+    create: true
+    roleArn: ""              # AWS IRSA role ARN. Required when serviceAccount.credentialSource is irsa.
     clientId: ""             # Azure workload-identity client ID
     serviceAccountEmail: ""  # GCP workload-identity SA email
+  # Extra volumes, mounts and init containers on the script runner pod. Same
+  # contract as the top-level extraVolumes / extraVolumeMounts / initContainers.
+  # This is the more likely home for a Python-library init container: Script
+  # Pushdown gets its own pod, so a large library set costs startup time here
+  # without delaying the runner that schedules pipelines.
+  extraVolumes: []
+  extraVolumeMounts: []
+  initContainers: []
 
 # Health probes for the runner container. Both are opt-in and disabled by
 # default, so the rendered Deployment is unchanged unless you turn them on.
@@ -213,12 +256,41 @@ hpa:
 gcp:
   workloadIdentity:
     enabled: true   # Set to true to use GKE Workload Identity (recommended)
-    # Get this value from Terraform output: agent_workload_sa_email
+    # Get this value from Terraform output: runner_workload_sa_email
     serviceAccountEmail: ""  # e.g. my-sa@my-project.iam.gserviceaccount.com
+  # The one sanctioned way to install on GCP without Workload Identity: the pod
+  # inherits the GKE node pool's service account from the metadata server. Only
+  # works on a node pool with the GKE metadata server disabled, and gives every
+  # pod on the node the same identity — so it is an explicit choice, not a
+  # default. With both this and workloadIdentity off, rendering fails rather
+  # than producing a runner with no identity at all (DPC-55764).
+  nodeIdentity:
+    enabled: false
 
 # AWS-specific configuration for local deployments
 aws:
+  # AWS region for the agent and the script runner, on every credential source.
+  #
+  # Set this if scripts or components rely on the environment for their region.
+  # Nothing in the cluster provides one: IRSA and the node profile deliver
+  # credentials but not a region, and the AWS SDKs keep the two separate, so a
+  # pod can hold valid credentials and still fail at client construction with
+  # NoRegionError. Script Pushdown is the common case — the runner forwards
+  # AWS_REGION/AWS_DEFAULT_REGION into every SSH session, so a script that does
+  # not set a region itself has nothing to fall back on.
+  #
+  # Left empty no region variables are rendered at all, which is the behaviour
+  # before this existed. Falls back to aws.local.region when that is set, so
+  # static-credential callers do not have to state the region twice.
+  region: ""
   local:
+    # Equivalent to serviceAccount.credentialSource=static, and kept working for
+    # releases that already set it. Setting this alongside a credentialSource of
+    # anything other than "static" is rejected rather than silently resolved.
+    #
+    # Prefer credentialSource=node over static keys where the cluster's nodes
+    # carry an instance profile — it is the same reachability with no long-lived
+    # secret to rotate or leak.
     enabled: false  # Set to true to use direct AWS credentials instead of role-based authentication
     region: ""      # AWS Region (required when local.enabled is true)
     accessKeyId: "" # AWS Access Key ID (required when local.enabled is true)
@@ -226,6 +298,12 @@ aws:
 
 # Azure-specific configuration
 azure:
+  # Subscription the agent should use for Azure Resource Manager lookups —
+  # Key Vault and storage-account listing. Optional, but pin it on any tenant
+  # with more than one subscription: left empty the agent uses whichever
+  # subscription ARM returns first, which is not stable and can leave the Key
+  # Vault picker empty (DPCT-2352). Get it with: az account show --query id -o tsv
+  subscriptionId: ""
   workloadIdentity:
     enabled: true   # Set to true to use Azure Workload Identity (requires AKS with OIDC issuer)
     clientId: ""    # Azure Workload Identity Client ID (User Assigned Managed Identity)
@@ -235,6 +313,13 @@ azure:
     clientId: ""    # Azure Service Principal Client ID
     clientSecret: "" # Azure Service Principal Client Secret
     tenantId: ""    # Azure Tenant ID
+  # Azure's equivalent of gcp.nodeIdentity: the pod inherits the AKS node pool's
+  # kubelet managed identity over IMDS. Same trade-off — node-wide rather than
+  # per-workload — and the same rule: with workloadIdentity, servicePrincipal
+  # and this all off, rendering fails instead of installing a runner that has no
+  # Azure identity (DPC-55764).
+  nodeIdentity:
+    enabled: false
 
 # Network security configuration
 networkPolicy:
@@ -276,6 +361,26 @@ commonLabels: {}
 # Extra annotations on the runner pods. Merged with the prometheus.io/* scrape
 # annotations the chart already sets.
 podAnnotations: {}
+
+# Extra volumes, mounts and init containers on the runner pod, passed through to
+# the pod spec verbatim. All empty by default, so the rendered Deployment is
+# unchanged unless you set them. See scriptRunner.* for the equivalents on the
+# Script Pushdown runner — the two hydrate independently.
+#
+# The main use is supplying third-party Python libraries from an image you build
+# and control, instead of staging them in object storage and pointing
+# EXTENSION_LIBRARY_LOCATION at the bucket. The runner image treats
+# /usr/lib/pythonLibs as a runtime-populated directory that is already on the
+# interpreter's import path, so an init container that copies wheels into a
+# shared emptyDir mounted there needs no application-side change. Worked example
+# in runner/helm/README.md.
+#
+# Nothing validates these beyond the API server: a mount over a path the runner
+# needs (/tmp, /etc/config) will break it, and an init container that never
+# exits 0 blocks the pod from starting at all.
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
 
 # Node selector configuration
 # Optional: specify node labels to schedule pods on specific nodes

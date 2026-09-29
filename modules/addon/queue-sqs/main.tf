@@ -25,14 +25,14 @@ locals {
 }
 
 resource "aws_sqs_queue" "trigger_dlq" {
-  name                      = "${local.base_name}-dlq"
+  name                      = lookup(var.resource_names, "trigger_dlq", "${local.base_name}-dlq")
   message_retention_seconds = 1209600 # 14 days
   sqs_managed_sse_enabled   = true
   tags                      = var.tags
 }
 
 resource "aws_sqs_queue" "trigger_queue" {
-  name                       = local.base_name
+  name                       = lookup(var.resource_names, "trigger_queue", local.base_name)
   visibility_timeout_seconds = var.visibility_timeout
   message_retention_seconds  = var.message_retention_seconds
   sqs_managed_sse_enabled    = true
@@ -79,7 +79,7 @@ data "aws_iam_policy_document" "adapter_assume" {
 }
 
 resource "aws_iam_role" "adapter" {
-  name               = "${local.base_name}-adapter-role"
+  name               = lookup(var.resource_names, "trigger_adapter_role", "${local.base_name}-adapter-role")
   assume_role_policy = data.aws_iam_policy_document.adapter_assume.json
   tags               = var.tags
 }
@@ -104,14 +104,14 @@ data "aws_iam_policy_document" "adapter_consume" {
 }
 
 resource "aws_iam_role_policy" "adapter_consume" {
-  name   = "${local.base_name}-adapter-consume"
+  name   = lookup(var.resource_names, "trigger_adapter_policy", "${local.base_name}-adapter-consume")
   role   = aws_iam_role.adapter.id
   policy = data.aws_iam_policy_document.adapter_consume.json
 }
 
 # Dedicated async dead-letter queue for the Lambda itself.
 resource "aws_sqs_queue" "adapter_dlq" {
-  name                    = "${local.base_name}-adapter-dlq"
+  name                    = lookup(var.resource_names, "trigger_adapter_dlq", "${local.base_name}-adapter-dlq")
   sqs_managed_sse_enabled = true
   tags                    = var.tags
 }
@@ -119,7 +119,7 @@ resource "aws_sqs_queue" "adapter_dlq" {
 resource "aws_lambda_function" "trigger_adapter" {
   # checkov:skip=CKV_AWS_272:Code signing not used for the container-image adapter (image is signed at the registry).
   # checkov:skip=CKV_AWS_117:Adapter reaches the public DPC API; VPC attachment is opt-in via the production PR #118 module.
-  function_name                  = "${local.base_name}-adapter"
+  function_name                  = lookup(var.resource_names, "trigger_adapter_function", "${local.base_name}-adapter")
   role                           = aws_iam_role.adapter.arn
   package_type                   = "Image"
   image_uri                      = var.adapter_image_uri

@@ -48,7 +48,7 @@ locals {
 # Managed identity the job runs as: pulls the image, reads the OAuth secret,
 # reads the mapping table, and consumes the queue — all via RBAC, no secrets.
 resource "azurerm_user_assigned_identity" "job" {
-  name                = "${var.name_prefix}-id"
+  name                = lookup(var.resource_names, "queue_adapter_identity", "${var.name_prefix}-id")
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
@@ -64,7 +64,7 @@ resource "azurerm_servicebus_namespace" "this" {
   # checkov:skip=CKV_AZURE_199:Infrastructure (double) encryption is Premium-SKU only, as above.
   # checkov:skip=CKV_AZURE_204:Disabling public network access needs Premium plus private endpoints. Customers with that requirement bring their own namespace via existing_servicebus_namespace_id.
   count               = var.create_queue && !local.is_storage_backend ? 1 : 0
-  name                = "${var.name_prefix}-sb"
+  name                = lookup(var.resource_names, "servicebus_namespace", "${var.name_prefix}-sb")
   location            = var.location
   resource_group_name = var.resource_group_name
   sku                 = var.servicebus_sku
@@ -112,7 +112,7 @@ resource "azurerm_storage_account" "this" {
   # checkov:skip=CKV_AZURE_43:The name is assembled with replace/substr, so the rule cannot be evaluated statically; the expression already enforces lowercase alphanumeric and 24 chars.
   # checkov:skip=CKV_AZURE_33:Queue-service logging is set on the azurerm_storage_account_queue_properties resource below; the inline queue_properties block this check looks for is deprecated and goes away in azurerm v5.
   count                           = var.create_mapping_table ? 1 : 0
-  name                            = local.storage_account_name
+  name                            = lookup(var.resource_names, "queue_storage_account", local.storage_account_name)
   location                        = var.location
   resource_group_name             = var.resource_group_name
   account_tier                    = "Standard"

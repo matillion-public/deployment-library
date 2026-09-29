@@ -7,7 +7,7 @@
 # *project* level, so every runner in the project can read every secret in it.
 
 resource "google_service_account" "runner" {
-  account_id   = substr(join("-", [var.name, "runner"]), 0, 30)
+  account_id   = lookup(var.resource_names, "runner_service_account", substr(join("-", [var.name, "runner"]), 0, 30))
   display_name = "Matillion runner (${var.name})"
   project      = var.project_id
 }

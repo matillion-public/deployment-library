@@ -12,7 +12,7 @@ name       = "matillion-runner"        # Name prefix for all resources
 
 # Resource labels applied to all GCP resources
 labels = {
-  environment = "production"
+  environment = "Test"
   project     = "matillion-runner"
   team        = "data-platform"
   managed_by  = "terraform"
@@ -40,6 +40,17 @@ authorized_ip_ranges   = ["0.0.0.0/0"]   # CIDR blocks allowed to access GKE API
 # Recommended when is_private_cluster = true — allows nodes to pull container
 # images and reach external services without needing public IPs.
 enable_cloud_nat = true
+
+# By default a new VPC/subnet is created. To use an existing one instead,
+# set existing_network below (the subnet must already have pod/service
+# secondary IP ranges provisioned).
+# Example size for subnets: subnet /24, pods /16, services /20
+# existing_network = {
+#   network_id                     = "your-vpc"
+#   subnet_id                      = "your-subnet"
+#   pod_secondary_range_name       = "pods"
+#   services_secondary_range_name  = "services"
+# }
 
 # =============================================================================
 # Configuration Examples

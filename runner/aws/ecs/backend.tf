@@ -1,16 +1,15 @@
 # S3 Backend Configuration for ECS Deployment
 terraform {
+  # Uncomment and fill in to use S3 for remote state. Take bucket, region and
+  # dynamodb_table from modules/aws/state-management's backend_config output rather
+  # than rebuilding them from account_id — resource_names can change either name,
+  # and a mismatch here fails terraform init.
   # backend "s3" {
-  #   # Bucket will be dynamically configured during deployment
-  #   # bucket = "${account_id}-terraform-states"
-  #   # key    = "ecs/${region}/${cluster_name}/terraform.tfstate"
-  #   # region = "${region}"
-
-  #   # Enable encryption
+  #   bucket         = "<state_management.backend_config.bucket>"
+  #   key            = "ecs/<region>/<cluster_name>/terraform.tfstate"
+  #   region         = "<state_management.backend_config.region>"
+  #   dynamodb_table = "<state_management.backend_config.dynamodb_table>"
   #   encrypt        = true
-
-  #   # DynamoDB table for state locking
-  #   # dynamodb_table = "terraform-state-locks"
   # }
 
   required_providers {
