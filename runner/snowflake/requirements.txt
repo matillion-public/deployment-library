@@ -1,0 +1,7 @@
+# Command-line tools the runbook in README.md needs. install-library.py runs
+# both as commands on PATH rather than importing them.
+#
+# Also read by pipx as a constraints file (see README.md, "Prerequisites"),
+# so a manual install and CI use the same versions. Bump them here only.
+schemachange==4.3.3
+snowflake-cli==3.27.0
