@@ -1,0 +1,64 @@
+---
+# Fixture: the smallest realistic AWS EKS runner deployment.
+#
+# A single runner, no autoscaling, IRSA for cloud identity, network policy on.
+# Anything a change does to this render, it does to every customer deployment
+# that is no more configured than this one.
+#
+# Every credential below is literal and synthetic. This repository is mirrored
+# publicly and runs gitleaks, so fixture values need to be recognisably fake on
+# sight. Do not use ${ENV} placeholders.
+
+cloudProvider: "aws"
+
+config:
+  oauthClientId: "fixture-not-a-real-client-id"
+  oauthClientSecret: "fixture-not-a-real-secret"
+
+serviceAccount:
+  name: matillion-runner-sa
+  create: true
+  credentialSource: "irsa"
+  roleArn: "arn:aws:iam::000000000000:role/fixture-not-a-real-role"
+
+aws:
+  region: "eu-west-1"
+
+runnerSize: small
+
+dpcAgent:
+  replicas: 1
+  dpcAgent:
+    env:
+      accountId: "00000000-0000-0000-0000-00000000acc7"
+      agentId: "00000000-0000-0000-0000-0000000a9e47"
+      matillionRegion: "eu1"
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: ""
+      customCertLocation: ""
+      extensionLibraryLocation: ""
+      externalDriverLocation: ""
+      exportLogs: "true"
+    image:
+      repository: "public.ecr.aws/matillion/etl-agent"
+      # A mutable tag, never a digest. The runner updates by restarting and
+      # re-resolving this; a digest would make that a no-op.
+      tag: "current"
+    # Always, so the restart re-validates the tag with the registry rather than
+    # reusing whatever the node has cached.
+    imagePullPolicy: Always
+    # Matched to the runner's own agent.shutdown.timeout. Lowering it truncates
+    # in-flight pipeline work on any drain or rolling update.
+    gracePeriodSeconds: 43200
+
+kubernetesClusterDomain: cluster.local
+
+hpa:
+  enabled: false
+
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []

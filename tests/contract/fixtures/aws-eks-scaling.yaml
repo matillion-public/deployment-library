@@ -1,0 +1,122 @@
+---
+# Fixture: an autoscaled, multi-AZ AWS EKS runner deployment.
+#
+# The same chart with the features that only appear under load turned on — HPA,
+# zone spread, a disruption budget, health probes, tenant attribution labels.
+# Together with aws-eks-minimal this covers the templates that render
+# conditionally, which are the ones a change is most likely to disturb
+# unnoticed.
+#
+# Every credential below is literal and synthetic. This repository is mirrored
+# publicly and runs gitleaks, so fixture values need to be recognisably fake on
+# sight. Do not use ${ENV} placeholders.
+
+cloudProvider: "aws"
+
+config:
+  oauthClientId: "fixture-not-a-real-client-id"
+  oauthClientSecret: "fixture-not-a-real-scaling-secret"
+
+serviceAccount:
+  name: matillion-runner-sa
+  create: true
+  credentialSource: "irsa"
+  roleArn: "arn:aws:iam::000000000000:role/fixture-not-a-real-scaling-role"
+
+aws:
+  region: "us-east-1"
+
+runnerSize: medium
+
+dpcAgent:
+  replicas: 2
+  dpcAgent:
+    env:
+      accountId: "00000000-0000-0000-0000-00000000acc8"
+      agentId: "00000000-0000-0000-0000-0000000a9e48"
+      matillionRegion: "us1"
+      proxyHttp: ""
+      proxyHttps: ""
+      proxyExclude: ""
+      customCertLocation: ""
+      extensionLibraryLocation: ""
+      externalDriverLocation: ""
+      exportLogs: "true"
+    image:
+      repository: "public.ecr.aws/matillion/etl-agent"
+      # A mutable tag, never a digest.
+      tag: "current"
+    # Always, so a restart re-validates the tag with the registry.
+    imagePullPolicy: Always
+    # Matched to the runner's own agent.shutdown.timeout.
+    gracePeriodSeconds: 43200
+
+kubernetesClusterDomain: cluster.local
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  scaleDown:
+    selectPolicy: Min
+    stabilizationWindowSeconds: 180
+    policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+  scaleUp:
+    selectPolicy: Max
+    stabilizationWindowSeconds: 0
+    policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+  metrics:
+    target:
+      averageValue: "16"
+      type: AverageValue
+
+# Spread replicas across the node group's availability zones.
+topologySpread:
+  enabled: true
+  maxSkew: 1
+  topologyKey: topology.kubernetes.io/zone
+  whenUnsatisfiable: ScheduleAnyway
+
+# Safe here because the replica floor is hpa.minReplicas = 2. Over a workload
+# that can sit at one replica the chart fails the render instead.
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+readinessProbe:
+  enabled: true
+  path: /actuator/health
+  port: 8080
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+  successThreshold: 1
+
+livenessProbe:
+  enabled: true
+  path: /actuator/health
+  port: 8080
+  # periodSeconds x failureThreshold must stay longer than gracePeriodSeconds,
+  # or a legitimately draining pod gets killed before it finishes.
+  initialDelaySeconds: 120
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 1500
+  successThreshold: 1
+
+commonLabels:
+  matillion.com/business-unit: fixture-business-unit
+  matillion.com/cost-centre: "0000"
+
+networkPolicy:
+  enabled: true
+  prometheusNamespace: monitoring
+  allowHttp: true
+  additionalEgressRules: []
