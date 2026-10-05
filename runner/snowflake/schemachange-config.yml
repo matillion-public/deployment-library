@@ -1,0 +1,54 @@
+# schemachange config for the Matillion Runner Snowflake deployment library.
+# See https://github.com/Snowflake-Labs/schemachange and ../README.md.
+#
+# Deliberately does NOT set `snowflake:` connection details here - those
+# come from install-library.py passing --snowflake-account/-user/-role/
+# -warehouse/-authenticator explicitly, resolved from the same named
+# Snowflake CLI connection --connection/--config-file already resolve for
+# the rest of this library (see scripts/lib/snowflake_connection.py).
+# schemachange's own connections.toml support does not understand the
+# Snowflake CLI's config.toml format - confirmed live, 20 Aug 2026 - so
+# install-library.py bypasses it entirely rather than relying on it.
+#
+# change-history-table lives inside matillion_runners.public rather than
+# schemachange's own default (METADATA.SCHEMACHANGE.CHANGE_HISTORY).
+# Two reasons: it avoids adding a whole separate top-level "METADATA"
+# database as a stray footprint in the customer's account for a name
+# generic enough to plausibly collide with something else already there,
+# and it keeps everything this library owns inside the one database it
+# already has. create-change-history-table below only creates the SCHEMA
+# and TABLE, never the database itself (confirmed live) - hence PUBLIC,
+# which every Snowflake database has automatically, rather than the admin
+# schema V1.0.0__install_library.sql itself creates (a real
+# chicken-and-egg problem otherwise: that schema wouldn't exist yet the
+# first time schemachange needs somewhere to record that V1.0.0 hasn't run
+# yet). install-library.py pre-creates the bare matillion_runners database
+# itself (CREATE DATABASE IF NOT EXISTS, idempotent) before invoking
+# schemachange, for the same reason.
+#
+# UPPERCASE below is deliberate, not cosmetic - confirmed live, 20 Aug
+# 2026: schemachange's own "does the change history table already exist"
+# check runs `WHERE TABLE_SCHEMA = '<value from this config, verbatim>'`
+# against INFORMATION_SCHEMA.TABLES, which is a case-sensitive string
+# comparison against Snowflake's actual (folded-to-uppercase, for an
+# unquoted identifier) schema/table names. Written lowercase here, that
+# check silently never matched - the table still got created fine each
+# run (CREATE TABLE IF NOT EXISTS is idempotent regardless), but
+# schemachange had no way to tell it already existed, and reapplied
+# V1.0.0__install_library.sql (a versioned script that should only ever
+# run once) on every single deploy. No error, no warning - it just quietly
+# never remembered anything.
+
+config-version: 2
+
+schemachange:
+  root-folder: './sql'
+  change-history-table: 'MATILLION_RUNNERS.PUBLIC.CHANGE_HISTORY'
+  create-change-history-table: true
+  # Fail, rather than log at DEBUG and carry on, when a versioned script that
+  # has never been applied sorts below the highest version already applied -
+  # otherwise that script is skipped on every run, silently. Note this does
+  # NOT cover an edit to an already-applied versioned script, which
+  # schemachange only logs (at INFO) and skips - see the header of
+  # sql/V1.0.0__install_library.sql.
+  raise-exception-on-ignored-versioned-script: true
