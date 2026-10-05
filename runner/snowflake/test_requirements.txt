@@ -1,0 +1,6 @@
+# Test and lint dependencies for scripts/tests and CI's validate job. Only
+# needed to run the checks, not to install the library.
+-r requirements.txt
+
+pytest==9.1.1
+yamllint==1.38.0
