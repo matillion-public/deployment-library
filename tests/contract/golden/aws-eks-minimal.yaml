@@ -1,0 +1,166 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: matillion-runner-pods
+    app.kubernetes.io/instance: matillion-runner
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: matillion-runner
+    app.kubernetes.io/version: 0.1.0
+    helm.sh/chart: matillion-runner-0.5.0
+  name: matillion-runner-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: matillion-runner-pods
+      app.kubernetes.io/instance: matillion-runner
+      app.kubernetes.io/name: matillion-runner
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: '8080'
+        prometheus.io/scrape: 'true'
+      labels:
+        app: matillion-runner-pods
+        app.kubernetes.io/instance: matillion-runner
+        app.kubernetes.io/name: matillion-runner
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: ACCOUNT_ID
+          value: 00000000-0000-0000-0000-00000000acc7
+        - name: AGENT_ID
+          value: 00000000-0000-0000-0000-0000000a9e47
+        - name: MATILLION_REGION
+          value: eu1
+        - name: CLOUD_PROVIDER
+          value: AWS
+        - name: PROXY_HTTP
+          value: ''
+        - name: PROXY_HTTPS
+          value: ''
+        - name: PROXY_EXCLUDE
+          value: ''
+        - name: PROXY_PROTOCOL_HTTP
+          value: null
+        - name: PROXY_PROTOCOL_HTTPS
+          value: null
+        - name: CUSTOM_CERT_LOCATION
+          value: ''
+        - name: EXTENSION_LIBRARY_LOCATION
+          value: ''
+        - name: EXTERNAL_DRIVER_LOCATION
+          value: ''
+        - name: EXPORT_LOGS
+          value: 'true'
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: cluster.local
+        - name: AWS_REGION
+          value: eu-west-1
+        - name: AWS_DEFAULT_REGION
+          value: eu-west-1
+        envFrom:
+        - secretRef:
+            name: matillion-runner-config
+        image: public.ecr.aws/matillion/etl-agent:current
+        imagePullPolicy: Always
+        name: matillion-runner-pods
+        ports:
+        - containerPort: 8080
+          name: metrics
+        resources:
+          limits:
+            cpu: '2'
+            memory: 4Gi
+          requests:
+            cpu: '1'
+            memory: 4Gi
+        securityContext: {}
+        volumeMounts:
+        - mountPath: /etc/config
+          name: config-volume
+          readOnly: true
+        - mountPath: /tmp
+          name: tmp-volume
+        - mountPath: /home/agentuser/api_profiles
+          name: api-profiles-volume
+      serviceAccountName: matillion-runner-sa
+      terminationGracePeriodSeconds: 43200
+      volumes:
+      - name: config-volume
+        secret:
+          secretName: matillion-runner-config
+      - emptyDir: {}
+        name: tmp-volume
+      - emptyDir: {}
+        name: api-profiles-volume
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/instance: matillion-runner
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: matillion-runner
+    app.kubernetes.io/version: 0.1.0
+    helm.sh/chart: matillion-runner-0.5.0
+  name: matillion-runner-netpol
+  namespace: default
+spec:
+  egress:
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+    to: []
+  - ports:
+    - port: 443
+      protocol: TCP
+    to: []
+  - ports:
+    - port: 80
+      protocol: TCP
+    to: []
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - port: 8080
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: matillion-runner
+      app.kubernetes.io/name: matillion-runner
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app: matillion
+    app.kubernetes.io/instance: matillion-runner
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: matillion-runner
+    app.kubernetes.io/version: 0.1.0
+    helm.sh/chart: matillion-runner-0.5.0
+  name: matillion-runner-config
+stringData:
+  OAUTH_CLIENT_ID: fixture-not-a-real-client-id
+  OAUTH_CLIENT_SECRET: fixture-not-a-real-secret
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/fixture-not-a-real-role
+  labels: null
+  name: matillion-runner-sa
+  namespace: default

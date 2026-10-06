@@ -1,0 +1,30 @@
+# Gitleaks ignore file for example/placeholder values in documentation and config files
+
+# Local development example values (not real secrets)
+runner/helm/runner/local.yaml:generic-api-key:8
+runner/helm/runner/local.yaml:generic-api-key:9
+runner/helm/runner/local.yaml:generic-api-key:13
+
+# AWS example placeholder from official AWS documentation
+runner/helm/runner/values-local.yaml:aws-access-token:72
+
+# Test file mock values — fake UUIDs and AWS example key from AWS docs
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:341
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:359
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:534
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:558
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:585
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:607
+runner/helm/checks/tests/test_cloud_credentials.sh:aws-access-token:483
+runner/helm/runner/values-local.yaml:aws-access-token:75
+
+# Azure AKS readme — example/placeholder Azure AD application secrets
+modules/azure/aks/readme.md:azure-active-directory-application-secret:74
+modules/azure/aks/readme.md:azure-active-directory-application-secret:86
+
+# Azure AKS terraform state backup — storage account access keys (gitignored, only present locally after `terraform apply`)
+runner/azure/aks/terraform.tfstate.backup:azure-storage-account-access-key:649
+runner/azure/aks/terraform.tfstate.backup:azure-storage-account-access-key:650
+runner/azure/aks/terraform.tfstate.backup:azure-storage-account-access-key:657
+runner/azure/aks/terraform.tfstate.backup:azure-storage-account-access-key:720
+runner/azure/aks/terraform.tfstate.backup:azure-storage-account-access-key:728

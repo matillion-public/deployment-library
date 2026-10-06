@@ -1,0 +1,270 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: matillion-runner-pods
+    app.kubernetes.io/instance: matillion-runner
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: matillion-runner
+    app.kubernetes.io/version: 0.1.0
+    helm.sh/chart: matillion-runner-0.5.0
+    matillion.com/business-unit: fixture-business-unit
+    matillion.com/cost-centre: '0000'
+  name: matillion-runner-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: matillion-runner-pods
+      app.kubernetes.io/instance: matillion-runner
+      app.kubernetes.io/name: matillion-runner
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: '8080'
+        prometheus.io/scrape: 'true'
+      labels:
+        app: matillion-runner-pods
+        app.kubernetes.io/instance: matillion-runner
+        app.kubernetes.io/name: matillion-runner
+        matillion.com/business-unit: fixture-business-unit
+        matillion.com/cost-centre: '0000'
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: ACCOUNT_ID
+          value: 00000000-0000-0000-0000-00000000acc8
+        - name: AGENT_ID
+          value: 00000000-0000-0000-0000-0000000a9e48
+        - name: MATILLION_REGION
+          value: us1
+        - name: CLOUD_PROVIDER
+          value: AWS
+        - name: PROXY_HTTP
+          value: ''
+        - name: PROXY_HTTPS
+          value: ''
+        - name: PROXY_EXCLUDE
+          value: ''
+        - name: PROXY_PROTOCOL_HTTP
+          value: null
+        - name: PROXY_PROTOCOL_HTTPS
+          value: null
+        - name: CUSTOM_CERT_LOCATION
+          value: ''
+        - name: EXTENSION_LIBRARY_LOCATION
+          value: ''
+        - name: EXTERNAL_DRIVER_LOCATION
+          value: ''
+        - name: EXPORT_LOGS
+          value: 'true'
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: cluster.local
+        - name: AWS_REGION
+          value: us-east-1
+        - name: AWS_DEFAULT_REGION
+          value: us-east-1
+        envFrom:
+        - secretRef:
+            name: matillion-runner-config
+        image: public.ecr.aws/matillion/etl-agent:current
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 1500
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: matillion-runner-pods
+        ports:
+        - containerPort: 8080
+          name: metrics
+        readinessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: '4'
+            memory: 8Gi
+          requests:
+            cpu: '2'
+            memory: 8Gi
+        securityContext: {}
+        volumeMounts:
+        - mountPath: /etc/config
+          name: config-volume
+          readOnly: true
+        - mountPath: /tmp
+          name: tmp-volume
+        - mountPath: /home/agentuser/api_profiles
+          name: api-profiles-volume
+      serviceAccountName: matillion-runner-sa
+      terminationGracePeriodSeconds: 43200
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: matillion-runner-pods
+        maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+      volumes:
+      - name: config-volume
+        secret:
+          secretName: matillion-runner-config
+      - emptyDir: {}
+        name: tmp-volume
+      - emptyDir: {}
+        name: api-profiles-volume
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  labels:
+    app.kubernetes.io/instance: matillion-runner
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: matillion-runner
+    app.kubernetes.io/version: 0.1.0
+    helm.sh/chart: matillion-runner-0.5.0
+    matillion.com/business-unit: fixture-business-unit
+    matillion.com/cost-centre: '0000'
+  name: matillion-runner-hpa
+spec:
+  behavior:
+    scaleDown:
+      policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+      selectPolicy: Min
+      stabilizationWindowSeconds: 180
+    scaleUp:
+      policies:
+      - periodSeconds: 30
+        type: Pods
+        value: 1
+      selectPolicy: Max
+      stabilizationWindowSeconds: 0
+  maxReplicas: 10
+  metrics:
+  - pods:
+      metric:
+        name: app_active_task_count
+      target:
+        averageValue: '16'
+        type: AverageValue
+    type: Pods
+  - pods:
+      metric:
+        name: app_active_request_count
+      target:
+        averageValue: '16'
+        type: AverageValue
+    type: Pods
+  minReplicas: 2
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: matillion-runner-app
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/instance: matillion-runner
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: matillion-runner
+    app.kubernetes.io/version: 0.1.0
+    helm.sh/chart: matillion-runner-0.5.0
+    matillion.com/business-unit: fixture-business-unit
+    matillion.com/cost-centre: '0000'
+  name: matillion-runner-netpol
+  namespace: default
+spec:
+  egress:
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+    to: []
+  - ports:
+    - port: 443
+      protocol: TCP
+    to: []
+  - ports:
+    - port: 80
+      protocol: TCP
+    to: []
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - port: 8080
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: matillion-runner
+      app.kubernetes.io/name: matillion-runner
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  labels:
+    app: matillion-runner-pods
+    app.kubernetes.io/instance: matillion-runner
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: matillion-runner
+    app.kubernetes.io/version: 0.1.0
+    helm.sh/chart: matillion-runner-0.5.0
+    matillion.com/business-unit: fixture-business-unit
+    matillion.com/cost-centre: '0000'
+  name: matillion-runner-pdb
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: matillion-runner-pods
+      app.kubernetes.io/instance: matillion-runner
+      app.kubernetes.io/name: matillion-runner
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app: matillion
+    app.kubernetes.io/instance: matillion-runner
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: matillion-runner
+    app.kubernetes.io/version: 0.1.0
+    helm.sh/chart: matillion-runner-0.5.0
+    matillion.com/business-unit: fixture-business-unit
+    matillion.com/cost-centre: '0000'
+  name: matillion-runner-config
+stringData:
+  OAUTH_CLIENT_ID: fixture-not-a-real-client-id
+  OAUTH_CLIENT_SECRET: fixture-not-a-real-scaling-secret
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/fixture-not-a-real-scaling-role
+  labels: null
+  name: matillion-runner-sa
+  namespace: default
