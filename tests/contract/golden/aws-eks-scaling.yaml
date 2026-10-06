@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: matillion-runner
     app.kubernetes.io/version: 0.1.0
-    helm.sh/chart: matillion-runner-0.5.0
+    helm.sh/chart: matillion-runner-0.6.0
     matillion.com/business-unit: fixture-business-unit
     matillion.com/cost-centre: '0000'
   name: matillion-runner-app
@@ -60,6 +60,8 @@ spec:
           value: ''
         - name: EXPORT_LOGS
           value: 'true'
+        - name: OTEL_EXPORTER_PROMETHEUS_PORT
+          value: '9464'
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: cluster.local
         - name: AWS_REGION
@@ -84,6 +86,8 @@ spec:
         ports:
         - containerPort: 8080
           name: metrics
+        - containerPort: 9464
+          name: otel-metrics
         readinessProbe:
           failureThreshold: 6
           httpGet:
@@ -135,7 +139,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: matillion-runner
     app.kubernetes.io/version: 0.1.0
-    helm.sh/chart: matillion-runner-0.5.0
+    helm.sh/chart: matillion-runner-0.6.0
     matillion.com/business-unit: fixture-business-unit
     matillion.com/cost-centre: '0000'
   name: matillion-runner-hpa
@@ -185,7 +189,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: matillion-runner
     app.kubernetes.io/version: 0.1.0
-    helm.sh/chart: matillion-runner-0.5.0
+    helm.sh/chart: matillion-runner-0.6.0
     matillion.com/business-unit: fixture-business-unit
     matillion.com/cost-centre: '0000'
   name: matillion-runner-netpol
@@ -214,6 +218,8 @@ spec:
     ports:
     - port: 8080
       protocol: TCP
+    - port: 9464
+      protocol: TCP
   podSelector:
     matchLabels:
       app.kubernetes.io/instance: matillion-runner
@@ -231,7 +237,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: matillion-runner
     app.kubernetes.io/version: 0.1.0
-    helm.sh/chart: matillion-runner-0.5.0
+    helm.sh/chart: matillion-runner-0.6.0
     matillion.com/business-unit: fixture-business-unit
     matillion.com/cost-centre: '0000'
   name: matillion-runner-pdb
@@ -252,7 +258,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: matillion-runner
     app.kubernetes.io/version: 0.1.0
-    helm.sh/chart: matillion-runner-0.5.0
+    helm.sh/chart: matillion-runner-0.6.0
     matillion.com/business-unit: fixture-business-unit
     matillion.com/cost-centre: '0000'
   name: matillion-runner-config

@@ -279,3 +279,46 @@ explicitly, so `helm get values` always says which identity the pod is using.
 {{- fail "azure.workloadIdentity.enabled is false and azure.servicePrincipal.enabled is false, so the runner's ServiceAccount gets no azure.workload.identity/client-id annotation and the pod has no Azure identity: every call to Key Vault, Storage and the Matillion control plane's Azure-backed features fails at runtime, after a successful install. Either set azure.workloadIdentity.clientId and leave azure.workloadIdentity.enabled true, or enable azure.servicePrincipal, or, if the pod is deliberately inheriting the AKS node pool's kubelet managed identity via IMDS, set azure.nodeIdentity.enabled=true to say so. See runner/helm/README.md, 'Cloud Provider Specific'." }}
 {{- end }}
 {{- end }}
+
+{{/*
+The metrics endpoint the prometheus.io/* annotations advertise, as YAML
+(port, path). The annotations can only name one endpoint, so this fails rather
+than advertise an endpoint the chart isn't exposing.
+*/}}
+{{- define "matillion-runner.metrics.annotated" -}}
+{{- $target := .Values.metrics.annotationTarget | default "legacy" -}}
+{{- if not (has $target (list "legacy" "otel")) -}}
+{{- fail (printf "metrics.annotationTarget is %q; must be legacy or otel." $target) -}}
+{{- end -}}
+{{- $endpoint := index .Values.metrics $target -}}
+{{- if not $endpoint.enabled -}}
+{{- fail (printf "metrics.annotationTarget is %s but metrics.%s.enabled is false. Point the annotations at an endpoint the chart exposes." $target $target) -}}
+{{- end -}}
+port: {{ $endpoint.port }}
+path: {{ $endpoint.path }}
+{{- end }}
+
+{{/*
+Custom metric names the HPA scales on, as YAML (tasks, requests). The names
+are the ones the prometheus chart's adapter serves: legacy rules expose the
+app_* series as-is; otel rules expose the matillion_agent_*_unit series under
+the names below.
+*/}}
+{{- define "matillion-runner.hpa.metrics" -}}
+{{- $source := .Values.hpa.metricSource | default "legacy" -}}
+{{- if eq $source "legacy" -}}
+{{- if not .Values.metrics.legacy.enabled -}}
+{{- fail "hpa.metricSource is legacy but metrics.legacy.enabled is false, so Prometheus can no longer scrape the metrics the HPA reads. Set hpa.metricSource=otel." -}}
+{{- end -}}
+tasks: app_active_task_count
+requests: app_active_request_count
+{{- else if eq $source "otel" -}}
+{{- if not .Values.metrics.otel.enabled -}}
+{{- fail "hpa.metricSource is otel but metrics.otel.enabled is false. The HPA would have no metric to read." -}}
+{{- end -}}
+tasks: matillion_agent_task_running
+requests: matillion_agent_request_active
+{{- else -}}
+{{- fail (printf "hpa.metricSource is %q; must be legacy or otel." $source) -}}
+{{- end -}}
+{{- end }}
