@@ -227,6 +227,16 @@ livenessProbe:
 kubernetesClusterDomain: cluster.local
 hpa:
   enabled: true
+  # Which runner metrics the HPA scales on. Needs the matching prometheus chart
+  # (0.4.0 or later), whose adapter serves both sets side by side.
+  #   legacy - app_active_task_count / app_active_request_count, scraped from
+  #            the deprecated /actuator/prometheus endpoint. The default until
+  #            the cutover date is set.
+  #   otel   - matillion_agent_task_running / matillion_agent_request_active,
+  #            scraped from the OpenTelemetry endpoint (metrics.otel).
+  # Both report the same in-flight counts, so the target below needs no change
+  # when switching.
+  metricSource: legacy
   scaleDown:
     selectPolicy: Min
     stabilizationWindowSeconds: 180
@@ -320,6 +330,37 @@ azure:
   # Azure identity (DPC-55764).
   nodeIdentity:
     enabled: false
+
+# Runner metrics endpoints. The runner serves two while customers migrate
+# (DPC-58189):
+#   legacy - Micrometer, /actuator/prometheus on 8080, app_* names. Deprecated;
+#            kept until product sets the cutover date.
+#   otel   - the OpenTelemetry Java agent's Prometheus exporter, /metrics on
+#            9464, matillion_agent_* names plus JVM and process metrics. Needs a
+#            runner image with the exporter (cloud-agent-service DPC-55707).
+#
+# `enabled` controls whether the chart exposes an endpoint: its container port,
+# the NetworkPolicy ingress rule from the Prometheus namespace, and whether it
+# can be advertised in the scrape annotations. It does not switch the endpoint
+# off inside the runner. Port 8080 also serves the health probes, so it stays
+# declared regardless.
+metrics:
+  legacy:
+    enabled: true
+    port: 8080
+    path: /actuator/prometheus
+  otel:
+    enabled: true
+    # Passed to the runner as OTEL_EXPORTER_PROMETHEUS_PORT, so the port the
+    # exporter binds and the port the chart opens cannot drift apart.
+    port: 9464
+    path: /metrics
+  # Which endpoint the prometheus.io/* pod annotations advertise. They can
+  # describe only one, so an annotation-driven scraper sees only this one; to
+  # scrape both, add an explicit scrape job for the other (the prometheus chart
+  # does). Stays `legacy` until cutover so existing scrapers aren't silently
+  # moved onto different metric names.
+  annotationTarget: legacy
 
 # Network security configuration
 networkPolicy:
