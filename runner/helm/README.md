@@ -608,6 +608,11 @@ this table is the deployment-side summary.
 | `hpa.maxReplicas` | Maximum replicas | `10` |
 | `hpa.minReplicas` | Minimum replicas | `2` |
 | `hpa.metrics.target.averageValue` | Target in-flight tasks per runner pod | `"16"` |
+| `hpa.metricSource` | Metrics the HPA scales on: `legacy` (`app_*`) or `otel` (`matillion_agent_*`). `otel` needs prometheus chart 0.4.0+ | `legacy` |
+| `metrics.legacy.enabled` | Expose the deprecated `/actuator/prometheus` endpoint to Prometheus | `true` |
+| `metrics.otel.enabled` | Expose the OpenTelemetry `/metrics` endpoint (container port + NetworkPolicy ingress) | `true` |
+| `metrics.otel.port` | OpenTelemetry exporter port; also passed to the runner as `OTEL_EXPORTER_PROMETHEUS_PORT` | `9464` |
+| `metrics.annotationTarget` | Endpoint the `prometheus.io/*` pod annotations advertise (`legacy` or `otel`); they can name only one | `legacy` |
 
 #### Sizing the HPA target (`averageValue`)
 
@@ -624,23 +629,42 @@ this table is the deployment-side summary.
 
 ### Prometheus Metrics
 
-The runner natively exposes Prometheus-compatible metrics at `/actuator/prometheus` on port 8080:
+The runner serves two Prometheus endpoints while customers migrate
+([migration guide](../../blogs/runner-metrics-migration.md)):
 
-- `app_version_info` - Build version information
-- `app_agent_status` - Runner running status (1=running, 0=stopped)
-- `app_active_task_count` - Number of active tasks
-- `app_active_request_count` - Number of active requests  
-- `app_open_sessions_count` - Number of open sessions
+| Endpoint | Names | Status |
+|---|---|---|
+| `:9464/metrics` (`metrics.otel`) | `matillion_agent_*_unit`, plus JVM metrics | New standard. Needs a runner image built from DPC-55707 onwards |
+| `:8080/actuator/prometheus` (`metrics.legacy`) | `app_*` | Deprecated; removed after cutover |
+
+| Legacy | OpenTelemetry |
+|---|---|
+| `app_agent_status` (1=running, 2=pending shutdown, 3=shutting down, 0=other) | `matillion_agent_status_unit` |
+| `app_agent_connected` | `matillion_agent_connected_unit` |
+| `app_active_task_count` | `matillion_agent_task_running_unit` |
+| `app_active_request_count` | `matillion_agent_request_active_unit` |
+| `app_open_sessions_count` | `matillion_agent_open_sessions_unit` |
+| `app_version_info` | `matillion_agent_version_unit` |
+
+The HPA scales on the legacy pair by default. Set `hpa.metricSource: otel` to
+scale on `matillion_agent_task_running` / `matillion_agent_request_active`
+instead. That needs prometheus chart 0.4.0 or later, and an image that serves
+`:9464`.
 
 ### Service Discovery
 
-Prometheus can automatically discover metrics endpoints using annotations:
+The `prometheus.io/*` annotations can name only one endpoint, so an
+annotation-driven scraper sees only that one. They advertise the legacy endpoint
+until cutover. Set `metrics.annotationTarget: otel` to move them:
 
 ```yaml
 prometheus.io/scrape: "true"
-prometheus.io/port: "8080"
-prometheus.io/path: "/actuator/prometheus"
+prometheus.io/port: "8080"            # 9464 with annotationTarget: otel
+prometheus.io/path: "/actuator/prometheus"  # /metrics with annotationTarget: otel
 ```
+
+To scrape both, add an explicit job for port 9464. The bundled prometheus chart
+does this as `matillion-runner-otel`.
 
 ## Advanced Configuration
 
@@ -952,9 +976,10 @@ kubectl describe pod -n matillion -l app=matillion-runner
 
 **Metrics not being scraped:**
 ```bash
-# Test metrics endpoint directly from the runner container
-kubectl port-forward -n matillion deployment/matillion-runner 8080:8080
-curl http://localhost:8080/actuator/prometheus
+# Test both metrics endpoints directly from the runner container
+kubectl port-forward -n matillion deployment/matillion-runner 8080:8080 9464:9464
+curl http://localhost:8080/actuator/prometheus   # legacy, app_*
+curl http://localhost:9464/metrics               # OpenTelemetry, matillion_agent_*
 
 # Check Prometheus is discovering targets
 kubectl port-forward -n prometheus svc/prometheus 9090:9090
