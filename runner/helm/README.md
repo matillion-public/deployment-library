@@ -608,6 +608,11 @@ this table is the deployment-side summary.
 | `hpa.maxReplicas` | Maximum replicas | `10` |
 | `hpa.minReplicas` | Minimum replicas | `2` |
 | `hpa.metrics.target.averageValue` | Target in-flight tasks per runner pod | `"16"` |
+| `hpa.metricSource` | Metrics the HPA scales on: `legacy` (`app_*`) or `otel` (`matillion_agent_*`). `otel` needs prometheus chart 0.4.0+ | `legacy` |
+| `metrics.legacy.enabled` | Expose the deprecated `/actuator/prometheus` endpoint to Prometheus | `true` |
+| `metrics.otel.enabled` | Expose the OpenTelemetry `/metrics` endpoint (container port + NetworkPolicy ingress) | `true` |
+| `metrics.otel.port` | OpenTelemetry exporter port; also passed to the runner as `OTEL_EXPORTER_PROMETHEUS_PORT` | `9464` |
+| `metrics.annotationTarget` | Endpoint the `prometheus.io/*` pod annotations advertise (`legacy` or `otel`); they can name only one | `legacy` |
 
 #### Sizing the HPA target (`averageValue`)
 
