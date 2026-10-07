@@ -79,10 +79,16 @@ The Kubernetes deployment includes automatic Prometheus discovery through annota
 metadata:
   annotations:
     prometheus.io/scrape: "true"
-    prometheus.io/port: "8000"
-    prometheus.io/path: "/metrics"
-    prometheus.io/interval: "15s"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/actuator/prometheus"
 ```
+
+> **Two endpoints.** Runner images built from DPC-55707 onwards also serve
+> OpenTelemetry metrics on `:9464/metrics` (`matillion_agent_*` names), and the
+> `/actuator/prometheus` endpoint above is deprecated. The queries in this
+> article use the legacy `app_*` names. See
+> [Runner Metrics: Moving to the OpenTelemetry Endpoint](./runner-metrics-migration.md)
+> for the equivalents.
 
 ### Complete Prometheus Configuration
 

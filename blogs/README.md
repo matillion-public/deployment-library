@@ -89,6 +89,19 @@ A practical guide to the new `runner_size` / `runnerSize` variable that replaces
 
 ---
 
+### 7. [Runner Metrics: Moving from `/actuator/prometheus` to the OpenTelemetry Endpoint](./runner-metrics-migration.md)
+**Running both metrics endpoints until cutover, then switching**
+
+The runner now serves OpenTelemetry metrics on `:9464/metrics` alongside the deprecated Micrometer endpoint:
+- What each endpoint serves, and the legacy-to-OpenTelemetry name mapping
+- Label differences that affect queries grouped by `account_id`
+- Chart settings: `hpa.metricSource`, `metrics.annotationTarget`, `config.otel.keepMetricsRegex`
+- A scrape job for your own Prometheus, and the cutover checklist
+
+**Target Audience:** SREs, platform engineers, anyone with dashboards or alerts on runner metrics
+
+---
+
 ## Choosing the Right Article
 
 ### New to the Repository?
@@ -105,6 +118,9 @@ Explore **"Monitoring and Observability"** for comprehensive monitoring strategi
 
 ### Deploying into a Restricted Network?
 Read **"Network Requirements for Pulling the Runner Image"** to understand image delivery and network access requirements, including private-mirror patterns for zero-egress environments.
+
+### Moving Off `/actuator/prometheus`?
+Read **"Runner Metrics: Moving to the OpenTelemetry Endpoint"** for the old-to-new metric name mapping and the chart settings that switch scraping and autoscaling over.
 
 ### Picking the Right Resources?
 Read **"Right-sizing Matillion Runners"** before your first deploy or when you suspect throttling/OOMs. Covers the small/medium/large/xlarge sizes, per-orchestrator constraints, and how to validate the choice from telemetry.

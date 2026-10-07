@@ -41,7 +41,7 @@ adapter:
       - --v=10
       - --metrics-relist-interval=1m
     image:
-      repository: gcr.io/k8s-staging-prometheus-adapter/prometheus-adapter-amd64
+      repository: registry.k8s.io/prometheus-adapter/prometheus-adapter
       tag: v0.12.0
     resources:
       limits:
@@ -75,6 +75,28 @@ adapterConfig:
           matches: "app_.*"
           as: "app_active_request_count"
         metricsQuery: 'avg_over_time(<<.Series>>{<<.LabelMatchers>>}[1m])'
+      # OpenTelemetry equivalents, served alongside the app_* rules so
+      # each runner release picks its source with hpa.metricSource. The
+      # exporter adds a `_unit` suffix (the gauges are declared with unit
+      # "unit"); the adapter serves them without it.
+      - seriesQuery: 'matillion_agent_task_running_unit{namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: {resource: "namespace"}
+            pod: {resource: "pod"}
+        name:
+          matches: "^matillion_agent_task_running_unit$"
+          as: "matillion_agent_task_running"
+        metricsQuery: 'avg_over_time(<<.Series>>{<<.LabelMatchers>>}[1m])'
+      - seriesQuery: 'matillion_agent_request_active_unit{namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: {resource: "namespace"}
+            pod: {resource: "pod"}
+        name:
+          matches: "^matillion_agent_request_active_unit$"
+          as: "matillion_agent_request_active"
+        metricsQuery: 'avg_over_time(<<.Series>>{<<.LabelMatchers>>}[1m])'
 api:
   enabled: true  # LEGACY: Individual control (DEPRECATED - use modules.api.enabled instead)
   ports:
@@ -106,6 +128,32 @@ config:
   # empty the config is composed from those two settings instead. Anything
   # already overriding this key keeps working exactly as before.
   prometheusYml: ""
+  # The two runner metrics endpoints, scraped as separate jobs while customers
+  # migrate (DPC-58189). They must match the runner chart's metrics.* values.
+  # Neither applies when prometheusYml is set.
+  #
+  # legacy - Micrometer /actuator/prometheus, app_* names. Deprecated; kept
+  #          until product sets the cutover date. Job name `matillion-runner`,
+  #          unchanged, so existing dashboards and alerts keep matching.
+  legacy:
+    enabled: true
+    port: 8080
+    path: /actuator/prometheus
+  # otel - the OpenTelemetry exporter, matillion_agent_* names plus JVM and
+  #        process metrics. Job name `matillion-runner-otel`. Against a runner
+  #        image without the exporter this target simply reports down.
+  otel:
+    enabled: true
+    port: 9464
+    path: /metrics
+    # Don't store target_info. It carries the full JVM command line, which can
+    # include credentials passed as system properties.
+    dropTargetInfo: true
+    # Optional regex of metric names to keep from this job; empty keeps all.
+    # The endpoint is unfiltered (about 200 series per pod against about 11 on
+    # legacy), so a Prometheus that only serves the HPA can narrow it, e.g.
+    # "matillion_agent_.*".
+    keepMetricsRegex: ""
 
 # Egress NetworkPolicy for the Prometheus pod.
 #
