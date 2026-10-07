@@ -107,7 +107,7 @@ adapter:
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `adapter.prometheusAdapter.image.repository` | Adapter image | `"gcr.io/k8s-staging-prometheus-adapter/prometheus-adapter-amd64"` |
+| `adapter.prometheusAdapter.image.repository` | Adapter image | `"registry.k8s.io/prometheus-adapter/prometheus-adapter"` |
 | `adapter.prometheusAdapter.image.tag` | Adapter version | `"v0.12.0"` |
 | `adapter.replicas` | Number of replicas | `1` |
 | `adapter.prometheusAdapter.resources.limits.cpu` | CPU limit | `"1"` |
@@ -128,6 +128,11 @@ adapter:
 | `config.scrapeNamespaces` | Namespaces the runner scrape job discovers pods in. Empty list means all namespaces | `["matillion"]` |
 | `config.scrapePodLabelRegex` | Regex matched against the pod's `app` label | `"matillion-runner-pods"` |
 | `config.prometheusYml` | Complete `prometheus.yml`. When set it is used verbatim and the two settings above are ignored | `""` |
+| `config.legacy.enabled` | Scrape the deprecated `/actuator/prometheus` endpoint as job `matillion-runner` | `true` |
+| `config.otel.enabled` | Scrape the OpenTelemetry `/metrics` endpoint as job `matillion-runner-otel` | `true` |
+| `config.otel.port` | OpenTelemetry exporter port; must match the runner chart's `metrics.otel.port` | `9464` |
+| `config.otel.dropTargetInfo` | Don't store `target_info`, which carries the runner's full JVM command line | `true` |
+| `config.otel.keepMetricsRegex` | Keep only metric names matching this regex from the OTel job; empty keeps all | `""` |
 | `networkPolicy.additionalScrapeNamespaces` | Namespaces beyond Prometheus's own that it is permitted to reach | `[]` |
 | `networkPolicy.runnerPodSelector` | Pod selector applied within those namespaces. `null` admits any pod (`{}` will not clear it — Helm coalesces maps) | `{app: matillion-runner-pods}` |
 

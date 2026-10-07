@@ -135,7 +135,7 @@ The solution uses the following Docker images across different deployment method
 
 ### Monitoring Stack Images
 - **`prom/prometheus:v2.22.0`** - Prometheus server for metrics collection
-- **`gcr.io/k8s-staging-prometheus-adapter/prometheus-adapter-amd64:v0.12.0`** - Kubernetes metrics adapter
+- **`registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0`** - Kubernetes metrics adapter (multi-arch)
 
 > **Note**: All images are configured with security best practices including non-root users, dropped capabilities, and resource limits.
 

@@ -1,5 +1,56 @@
 # Changelog — matillion-runner chart
 
+## 0.6.0
+
+Exposes the runner's OpenTelemetry metrics endpoint alongside the deprecated
+Micrometer one (DPC-58190). Runner images from cloud-agent-service DPC-55707
+onwards serve the OpenTelemetry Java agent's Prometheus exporter on
+`:9464/metrics`, with `matillion_agent_*` names and JVM and process metrics. The
+Micrometer `:8080/actuator/prometheus` endpoint (`app_*`) stays as a stopgap
+until product sets a cutover date, so both are supported until then.
+
+Defaults leave every existing consumer on the legacy endpoint. The annotations
+still advertise `/actuator/prometheus`, and the HPA still scales on `app_*`. The
+only rendered differences are a second container port and a second port in the
+Prometheus ingress rule.
+
+### Added
+
+- `metrics.legacy.{enabled,port,path}` and `metrics.otel.{enabled,port,path}`:
+  whether the chart exposes each endpoint to Prometheus (container port and
+  NetworkPolicy ingress). `metrics.otel.port` is also passed to the runner as
+  `OTEL_EXPORTER_PROMETHEUS_PORT`, so the exporter can't bind a different port
+  from the one the chart opens.
+- `metrics.annotationTarget` (`legacy` | `otel`): which endpoint the
+  `prometheus.io/*` pod annotations advertise. Annotations can describe only
+  one endpoint, so an annotation-driven scraper sees only the target. Scraping
+  both needs an explicit job for the other, which the prometheus chart (0.4.0)
+  provides.
+- `hpa.metricSource` (`legacy` | `otel`): which metrics the HPA scales on.
+  `otel` reads `matillion_agent_task_running` / `matillion_agent_request_active`,
+  which the prometheus chart's adapter serves from 0.4.0. Both sources count the
+  same in-flight work, so `hpa.metrics.target` needs no change when switching.
+
+### Changed
+
+- The Prometheus NetworkPolicy ingress rule now lists one port per exposed
+  endpoint. With neither exposed, the rule is dropped rather than rendered with
+  no ports, because an empty port list admits every port.
+
+### Upgrade notes
+
+- Contradictory settings fail the render instead of producing a runner whose
+  HPA silently sits at `minReplicas`: `hpa.metricSource` or
+  `metrics.annotationTarget` naming a disabled endpoint, or an unknown value
+  for either.
+- `metrics.otel.enabled=false` withdraws the chart's exposure of the endpoint.
+  It does not stop the runner serving it inside the pod; that is controlled by
+  the image.
+- An image older than DPC-55707 has nothing listening on 9464. That's harmless
+  while `hpa.metricSource=legacy`: the second scrape target reports down and
+  nothing reads it. Don't switch `hpa.metricSource` to `otel` until the image
+  serves the endpoint.
+
 ## 0.5.0
 
 Non-IRSA AWS credential sources, caller-supplied library volumes, and an
