@@ -8,7 +8,7 @@ This repository provides multiple deployment methods for the Matillion Maia Runn
 
 ### 1. **Kubernetes with Helm Charts** (Recommended)
 - Ready-to-use Helm charts for Kubernetes deployment
-- Native Prometheus metrics via the runner's `/actuator/prometheus` endpoint
+- Native Prometheus metrics from the runner's OpenTelemetry endpoint (`:9464/metrics`) and the deprecated `/actuator/prometheus` endpoint, scraped side by side until cutover
 - Support for AWS EKS (IAM roles) and local/minikube (direct credentials)
 - Configurable resource limits and autoscaling
 - Security-first approach with non-root containers
@@ -135,7 +135,7 @@ The solution uses the following Docker images across different deployment method
 
 ### Monitoring Stack Images
 - **`prom/prometheus:v2.22.0`** - Prometheus server for metrics collection
-- **`gcr.io/k8s-staging-prometheus-adapter/prometheus-adapter-amd64:v0.12.0`** - Kubernetes metrics adapter
+- **`registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0`** - Kubernetes metrics adapter (multi-arch)
 
 > **Note**: All images are configured with security best practices including non-root users, dropped capabilities, and resource limits.
 
@@ -282,9 +282,10 @@ terraform apply
 │   Runner Pod    │    │   Prometheus    │
 │  ┌────────────┐ │    │    Scraping     │
 │  │   Runner   │◄├────┤                 │
-│  │    :8080   │ │    │                 │
+│  │ :8080 :9464│ │    │                 │
 │  └────────────┘ │    └─────────────────┘
-│                 │  :8080/actuator/prometheus
+│                 │  :9464/metrics (OpenTelemetry)
+│                 │  :8080/actuator/prometheus (deprecated)
 └─────────────────┘
 ```
 
@@ -300,7 +301,12 @@ The HPA scales on **in-flight tasks per runner pod** (`hpa.metrics.target.averag
 ## Metrics and Monitoring
 
 ### Native Prometheus Metrics
-The runner natively exposes Prometheus-compatible metrics at `/actuator/prometheus`:
+The runner exposes Prometheus metrics from two endpoints while customers migrate:
+
+- **`:9464/metrics`**: the OpenTelemetry exporter, with `matillion_agent_*` names plus JVM metrics. This is the new standard.
+- **`:8080/actuator/prometheus`**: Micrometer, with `app_*` names. Deprecated, and removed once Matillion sets a cutover date.
+
+See [Runner Metrics: Moving to the OpenTelemetry Endpoint](blogs/runner-metrics-migration.md) for the name mapping and migration steps. Both endpoints report:
 
 - **Runner Status**: Running/Stopped state
 - **Runner Connected**: Connection state to Maia
@@ -310,8 +316,8 @@ The runner natively exposes Prometheus-compatible metrics at `/actuator/promethe
 - **Build Information**: Version, commit hash, build timestamp
 
 ### Prometheus Integration
+The bundled Prometheus chart scrapes both endpoints as separate jobs (`matillion-runner` and `matillion-runner-otel`). The pod annotations can only name one endpoint; they advertise the legacy one until cutover (`metrics.annotationTarget`):
 ```yaml
-# Automatic service discovery with annotations
 prometheus.io/scrape: "true"
 prometheus.io/port: "8080"
 prometheus.io/path: "/actuator/prometheus"

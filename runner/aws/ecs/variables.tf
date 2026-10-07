@@ -333,3 +333,21 @@ variable "sqs_adapter_matillion_token_url" {
   type        = string
   default     = "https://id.core.matillion.com/oauth/dpc/token"
 }
+
+variable "metrics_ingress_cidr_blocks" {
+  description = "CIDR blocks allowed to scrape the runner's Prometheus metrics. Empty (the default) creates no ingress rule. See modules/aws/ecs."
+  type        = list(string)
+  default     = []
+}
+
+variable "metrics_ingress_security_group_ids" {
+  description = "Security groups allowed to scrape the runner's Prometheus metrics. Empty by default."
+  type        = list(string)
+  default     = []
+}
+
+variable "metrics_ingress_ports" {
+  description = "Runner metrics ports opened to the sources above: 9464 (OpenTelemetry /metrics) and 8080 (deprecated /actuator/prometheus)."
+  type        = list(number)
+  default     = [9464, 8080]
+}

@@ -47,6 +47,45 @@ resource "aws_security_group" "ecs_security_group" {
   tags = var.tags
 }
 
+# Opt-in ingress for scraping the runner's Prometheus metrics (DPC-58192).
+# Nothing is created unless a source is named, so the security group is
+# unchanged for existing deployments. One rule per source and port, so adding
+# a source never replaces the rules already there.
+locals {
+  metrics_ingress_cidr_rules = {
+    for pair in setproduct(var.metrics_ingress_cidr_blocks, var.metrics_ingress_ports) :
+    "${pair[0]}:${pair[1]}" => { cidr = pair[0], port = pair[1] }
+  }
+  metrics_ingress_sg_rules = {
+    for pair in setproduct(var.metrics_ingress_security_group_ids, var.metrics_ingress_ports) :
+    "${pair[0]}:${pair[1]}" => { sg = pair[0], port = pair[1] }
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "metrics_from_cidr" {
+  for_each = local.metrics_ingress_cidr_rules
+
+  security_group_id = aws_security_group.ecs_security_group.id
+  description       = "Prometheus scrape of runner metrics on ${each.value.port}"
+  ip_protocol       = "tcp"
+  from_port         = each.value.port
+  to_port           = each.value.port
+  cidr_ipv4         = each.value.cidr
+  tags              = var.tags
+}
+
+resource "aws_vpc_security_group_ingress_rule" "metrics_from_security_group" {
+  for_each = local.metrics_ingress_sg_rules
+
+  security_group_id            = aws_security_group.ecs_security_group.id
+  description                  = "Prometheus scrape of runner metrics on ${each.value.port}"
+  ip_protocol                  = "tcp"
+  from_port                    = each.value.port
+  to_port                      = each.value.port
+  referenced_security_group_id = each.value.sg
+  tags                         = var.tags
+}
+
 resource "aws_ecs_cluster" "matillion_dpc_cluster" {
   name = lookup(var.resource_names, "ecs_cluster", join("-", [var.name, "cluster"]))
 

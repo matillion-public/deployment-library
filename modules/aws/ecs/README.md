@@ -61,8 +61,33 @@ module "ecs" {
 | runner_memory | Memory allocation for the runner task in MiB | number | n/a | yes |
 | runner_cpu | CPU allocation for the runner task in units | number | n/a | yes |
 | ephemeral_storage_size | Optional ephemeral storage size in GiB for the ECS task | number | null | no |
+| metrics_ingress_cidr_blocks | CIDR blocks allowed to scrape the runner's Prometheus metrics. `0.0.0.0/0` is rejected | list(string) | [] | no |
+| metrics_ingress_security_group_ids | Security groups allowed to scrape the runner's Prometheus metrics | list(string) | [] | no |
+| metrics_ingress_ports | Metrics ports opened to those sources: 9464 (OpenTelemetry) and 8080 (deprecated `/actuator/prometheus`) | list(number) | [9464, 8080] | no |
 
 > **Note**: `agent_id` is preserved as the input name because it maps directly to the `AGENT_ID` env var consumed by the Matillion runner image — it is part of the Matillion API contract.
+
+## Scraping Runner Metrics
+
+The runner serves Prometheus metrics on `:9464/metrics` (OpenTelemetry, images
+built from DPC-55707 onwards) and `:8080/actuator/prometheus` (deprecated). The
+task's security group has no ingress rules by default, so neither is reachable
+from outside the task.
+
+To scrape them from your own Prometheus, name its network or security group:
+
+```hcl
+metrics_ingress_security_group_ids = [aws_security_group.prometheus.id]
+metrics_ingress_ports              = [9464] # OpenTelemetry only
+```
+
+This creates one ingress rule per source and port on the module's own security
+group. Both endpoints are unauthenticated, so `0.0.0.0/0` is rejected. Port
+8080 also serves the runner's actuator health and info endpoints, so leave it
+out of `metrics_ingress_ports` if you only want metrics exposed. Tasks get
+private IPs that change on each deployment, so discover them with ECS service
+discovery rather than fixed targets. See
+[Runner Metrics: Moving to the OpenTelemetry Endpoint](../../../blogs/runner-metrics-migration.md).
 
 ## Ephemeral Storage Configuration
 
