@@ -199,8 +199,12 @@ module "runner" {
   vpc_id             = data.aws_vpc.vpc.id
   subnet_ids         = var.use_existing_subnet ? var.subnet_ids : aws_subnet.ecs_subnet[*].id
   security_group_ids = var.use_existing_security_group ? var.security_group_ids : [aws_security_group.ecs_security_group[0].id]
-  create_bucket      = var.create_bucket
-  image_url          = var.image_url
+
+  metrics_ingress_cidr_blocks        = var.metrics_ingress_cidr_blocks
+  metrics_ingress_security_group_ids = var.metrics_ingress_security_group_ids
+  metrics_ingress_ports              = var.metrics_ingress_ports
+  create_bucket                      = var.create_bucket
+  image_url                          = var.image_url
 
   extension_library_location = var.extension_library_location
   proxy_http                 = var.proxy_http

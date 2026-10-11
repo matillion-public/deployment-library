@@ -88,8 +88,7 @@ spec:
         matchLabels:
           app: matillion-runner-pods
     ports:
-    - protocol: TCP
-      port: 8080
+    {{- include "prometheus.runnerScrapePorts" $ | nindent 4 }}
   {{- /*
   A bare podSelector is namespace-local, so the rule above only reaches runners
   sharing Prometheus's namespace. Every other tenant's namespace needs naming
@@ -107,8 +106,7 @@ spec:
           {{- toYaml . | nindent 10 }}
       {{- end }}
     ports:
-    - protocol: TCP
-      port: 8080
+    {{- include "prometheus.runnerScrapePorts" $ | nindent 4 }}
   {{- end }}
   - to: []
     ports:
