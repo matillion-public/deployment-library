@@ -66,39 +66,28 @@ config.scrapePodLabelRegex.
 global:
   scrape_interval: 5s
 scrape_configs:
-  - job_name: 'matillion-runner'
-    kubernetes_sd_configs:
-      - role: pod
-{{- with .Values.config.scrapeNamespaces }}
-        namespaces:
-          names:
-{{- range . }}
-            - {{ . }}
+{{- if .Values.config.legacy.enabled }}
+{{- include "prometheus.runnerScrapeJob" (dict "root" . "job" "matillion-runner" "port" .Values.config.legacy.port "path" .Values.config.legacy.path) }}
 {{- end }}
+{{- if .Values.config.otel.enabled }}
+{{- include "prometheus.runnerScrapeJob" (dict "root" . "job" "matillion-runner-otel" "port" .Values.config.otel.port "path" .Values.config.otel.path) }}
+{{- if or .Values.config.otel.dropTargetInfo .Values.config.otel.keepMetricsRegex }}
+    metric_relabel_configs:
 {{- end }}
-    relabel_configs:
-      - source_labels: [__meta_kubernetes_pod_label_app]
+{{- if .Values.config.otel.dropTargetInfo }}
+      # target_info carries the runner's resource attributes, including the full
+      # JVM command line, which can hold credentials passed on it. Not needed
+      # for scaling or dashboards, so it isn't stored.
+      - source_labels: [__name__]
+        regex: target_info
+        action: drop
+{{- end }}
+{{- with .Values.config.otel.keepMetricsRegex }}
+      - source_labels: [__name__]
+        regex: {{ . | quote }}
         action: keep
-        regex: {{ .Values.config.scrapePodLabelRegex }}
-      - source_labels: [__meta_kubernetes_pod_ip]
-        target_label: __address__
-        replacement: $1:8080
-      - source_labels: [__address__]
-        target_label: __param_target
-      - target_label: __scheme__
-        replacement: http
-      - target_label: __metrics_path__
-        replacement: /actuator/prometheus
-      - source_labels: [__meta_kubernetes_namespace]
-        target_label: namespace
-      - source_labels: [__meta_kubernetes_pod_name]
-        target_label: pod
-      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
-        target_label: name
-      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
-        target_label: instance
-      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
-        target_label: component
+{{- end }}
+{{- end }}
 {{- end -}}
 {{- end }}
 
@@ -110,5 +99,71 @@ Create the name of the service account to use
 {{- default (include "prometheus.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+
+{{/*
+One runner scrape job. Both endpoints are discovered the same way (the
+namespaces and pod label regex in config.*) and differ only in port and path,
+so the jobs are rendered from this single definition rather than kept in sync
+by hand. Called with a dict: root (the chart context), job, port, path.
+*/}}
+{{- define "prometheus.runnerScrapeJob" }}
+  - job_name: {{ .job | squote }}
+    kubernetes_sd_configs:
+      - role: pod
+{{- with .root.Values.config.scrapeNamespaces }}
+        namespaces:
+          names:
+{{- range . }}
+            - {{ . }}
+{{- end }}
+{{- end }}
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: {{ .root.Values.config.scrapePodLabelRegex }}
+      - source_labels: [__meta_kubernetes_pod_ip]
+        target_label: __address__
+        replacement: $1:{{ .port }}
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __scheme__
+        replacement: http
+      - target_label: __metrics_path__
+        replacement: {{ .path }}
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        target_label: name
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+        target_label: instance
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+        target_label: component
+{{- end }}
+
+{{/*
+Runner ports the egress policy opens: one per scraped endpoint. Falls back to
+the legacy port when neither job is rendered (prometheusYml override, or both
+disabled), so the policy never ends up with an empty port list, which would
+admit every port.
+*/}}
+{{- define "prometheus.runnerScrapePorts" -}}
+{{- $ports := list -}}
+{{- if and (not .Values.config.prometheusYml) .Values.config.legacy.enabled -}}
+{{- $ports = append $ports .Values.config.legacy.port -}}
+{{- end -}}
+{{- if and (not .Values.config.prometheusYml) .Values.config.otel.enabled -}}
+{{- $ports = append $ports .Values.config.otel.port -}}
+{{- end -}}
+{{- if or .Values.config.prometheusYml (not $ports) -}}
+{{- $ports = list .Values.config.legacy.port .Values.config.otel.port -}}
+{{- end -}}
+{{- range $ports }}
+- protocol: TCP
+  port: {{ . }}
 {{- end }}
 {{- end }}

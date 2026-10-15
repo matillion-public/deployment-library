@@ -1,5 +1,119 @@
 # Changelog — matillion-runner chart
 
+## 0.7.0
+
+Queue adapter on AWS (DPC-57541). The `queueAdapter` block previously deployed
+only the Azure adapter, so an EKS customer had no in-chart way to trigger
+pipelines from SQS.
+
+### Added
+
+- `queueAdapter.aws.*`. With `cloudProvider: aws` and `queueAdapter.enabled`,
+  the chart deploys the `maia-queue-adapter-eks` image as an SQS consumer, with
+  its own IRSA role (`queueAdapter.aws.roleArn`) rather than the runner's.
+  - `mode: deployment` (default): a persistent poller, which keeps the OAuth
+    token and project-mapping cache warm between messages. `autoscale: true`
+    adds a KEDA `ScaledObject` on queue depth.
+  - `mode: scaledJob`: a KEDA `ScaledJob` that drains the queue and exits, as
+    the Azure path does.
+  - KEDA reads queue depth by assuming the adapter's role
+    (`TriggerAuthentication` `identityOwner: workload`), so no access keys are
+    stored.
+- `test-values-queue-adapter-aws.yaml`, scanned by Checkov in CI alongside the
+  Azure render.
+
+### Changed
+
+- The Azure `ScaledJob` no longer renders when `cloudProvider` is `aws`. Azure
+  output is otherwise unchanged.
+- Image references follow the renamed artifacts: `maia-queue-adapter` (Azure
+  and Lambda) and `maia-queue-adapter-eks` (EKS). The Lambda image variable
+  descriptions now say the URI must be a private ECR repository in the
+  function's region.
+
+## 0.6.1
+
+Azure and GCP runners now start under any Helm release name (DPC-58375).
+
+### Fixed
+
+- `values-azure.yaml` and `values-gcp.yaml` set `serviceAccount.name: ""`,
+  which overrode the chart's `matillion-runner-sa` default with a name derived
+  from the release. The Terraform in this repo creates its workload-identity
+  trust for the fixed names `matillion-runner-sa` and
+  `matillion-runner-script-runner-sa`. So the two only matched when the release
+  was called `matillion-runner`; under any other name the runner couldn't obtain
+  cloud credentials. On AKS the postStart `az login --identity` then failed, and
+  kubelet restarted the pod indefinitely. The only visible error was a
+  misleading `IllegalStateException: Shutdown in progress` from the JVM. Both
+  overlays now leave the runner name to the chart default and pin the
+  script-runner name.
+
+### Upgrade notes
+
+- No change for releases named `matillion-runner`: they already rendered these
+  exact names.
+- Installs that worked around this by changing the Terraform
+  `runner_service_account_name` / `script_runner_service_account_name` (Azure)
+  or `k8s_service_account_name` / `script_runner_k8s_service_account_name`
+  (GCP) to match a release-derived name must now also set
+  `serviceAccount.name` / `scriptRunner.serviceAccount.name` to that same name.
+  Otherwise the service account is renamed on upgrade and the trust stops
+  matching.
+- AWS is unchanged. Its IAM trust matches `*-script-runner-sa`, and
+  `values-aws.yaml` never overrode the runner name.
+
+## 0.6.0
+
+Exposes the runner's OpenTelemetry metrics endpoint alongside the deprecated
+Micrometer one (DPC-58190). Runner images from cloud-agent-service DPC-55707
+onwards serve the OpenTelemetry Java agent's Prometheus exporter on
+`:9464/metrics`, with `matillion_agent_*` names and JVM and process metrics. The
+Micrometer `:8080/actuator/prometheus` endpoint (`app_*`) stays as a stopgap
+until product sets a cutover date, so both are supported until then.
+
+Defaults leave every existing consumer on the legacy endpoint. The annotations
+still advertise `/actuator/prometheus`, and the HPA still scales on `app_*`. The
+only rendered differences are a second container port and a second port in the
+Prometheus ingress rule.
+
+### Added
+
+- `metrics.legacy.{enabled,port,path}` and `metrics.otel.{enabled,port,path}`:
+  whether the chart exposes each endpoint to Prometheus (container port and
+  NetworkPolicy ingress). `metrics.otel.port` is also passed to the runner as
+  `OTEL_EXPORTER_PROMETHEUS_PORT`, so the exporter can't bind a different port
+  from the one the chart opens.
+- `metrics.annotationTarget` (`legacy` | `otel`): which endpoint the
+  `prometheus.io/*` pod annotations advertise. Annotations can describe only
+  one endpoint, so an annotation-driven scraper sees only the target. Scraping
+  both needs an explicit job for the other, which the prometheus chart (0.4.0)
+  provides.
+- `hpa.metricSource` (`legacy` | `otel`): which metrics the HPA scales on.
+  `otel` reads `matillion_agent_task_running` / `matillion_agent_request_active`,
+  which the prometheus chart's adapter serves from 0.4.0. Both sources count the
+  same in-flight work, so `hpa.metrics.target` needs no change when switching.
+
+### Changed
+
+- The Prometheus NetworkPolicy ingress rule now lists one port per exposed
+  endpoint. With neither exposed, the rule is dropped rather than rendered with
+  no ports, because an empty port list admits every port.
+
+### Upgrade notes
+
+- Contradictory settings fail the render instead of producing a runner whose
+  HPA silently sits at `minReplicas`: `hpa.metricSource` or
+  `metrics.annotationTarget` naming a disabled endpoint, or an unknown value
+  for either.
+- `metrics.otel.enabled=false` withdraws the chart's exposure of the endpoint.
+  It does not stop the runner serving it inside the pod; that is controlled by
+  the image.
+- An image older than DPC-55707 has nothing listening on 9464. That's harmless
+  while `hpa.metricSource=legacy`: the second scrape target reports down and
+  nothing reads it. Don't switch `hpa.metricSource` to `otel` until the image
+  serves the endpoint.
+
 ## 0.5.0
 
 Non-IRSA AWS credential sources, caller-supplied library volumes, and an

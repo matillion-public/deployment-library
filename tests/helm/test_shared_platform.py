@@ -306,6 +306,31 @@ class TestMultiTenancy:
         assert result.returncode == 0, result.stderr
 
 
+class TestPrometheusAdapterImage:
+    """The adapter image must be multi-arch, or the HPA stops scaling on arm64 nodes."""
+
+    def adapter_container(self, values):
+        docs = render(values, chart_path=PROMETHEUS_CHART)
+        deployment = next(d for d in docs
+                          if d['kind'] == 'Deployment'
+                          and d['spec']['template']['metadata']['labels'].get('app')
+                          == 'prometheus-adapter')
+        return deployment['spec']['template']['spec']['containers'][0]
+
+    def test_default_image_is_official_multi_arch(self):
+        image = self.adapter_container({})['image']
+        assert image == 'registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0'
+        assert 'k8s-staging' not in image
+        assert not image.split(':')[0].endswith('-amd64')
+
+    def test_repository_override_still_honoured(self):
+        """Private-mirror installs override the repository and must keep doing so."""
+        values = {'adapter': {'prometheusAdapter': {
+            'image': {'repository': 'mirror.example.com/prometheus-adapter'}}}}
+        image = self.adapter_container(values)['image']
+        assert image == 'mirror.example.com/prometheus-adapter:v0.12.0'
+
+
 class TestPrometheusDiscovery:
     """Multi-namespace scrape discovery — item 3."""
 
@@ -380,11 +405,13 @@ class TestPrometheusDiscovery:
         ]
         assert namespaces == ['bu-retail', 'bu-trading']
 
-    def test_additional_namespace_rules_target_port_8080(self):
+    def test_additional_namespace_rules_target_both_metrics_ports(self):
+        """Tenants in other namespaces are scraped on both endpoints too (DPC-58191)."""
         values = {'networkPolicy': {'additionalScrapeNamespaces': ['bu-retail']}}
         rule = next(r for r in self.egress_rules(values)
                     if any('namespaceSelector' in peer for peer in r['to']))
-        assert rule['ports'] == [{'protocol': 'TCP', 'port': 8080}]
+        assert rule['ports'] == [{'protocol': 'TCP', 'port': 8080},
+                                 {'protocol': 'TCP', 'port': 9464}]
         assert rule['to'][0]['podSelector']['matchLabels'] == {'app': 'matillion-runner-pods'}
 
     def test_null_pod_selector_admits_any_pod_in_namespace(self):

@@ -227,9 +227,13 @@ The deployment automatically includes metrics collection:
 ```yaml
 # Prometheus annotations (automatically applied)
 prometheus.io/scrape: "true"
-prometheus.io/port: "8000"
-prometheus.io/path: "/metrics"
+prometheus.io/port: "8080"
+prometheus.io/path: "/actuator/prometheus"
 ```
+
+Runner images built from DPC-55707 onwards also serve OpenTelemetry metrics on
+`:9464/metrics`, which the bundled Prometheus scrapes as a second job. See
+[Runner Metrics: Moving to the OpenTelemetry Endpoint](../../blogs/runner-metrics-migration.md).
 
 Available metrics:
 - `app_version_info` - Build information
