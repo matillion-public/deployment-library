@@ -189,6 +189,35 @@ az containerapp logs show \
   --resource-group matillion-runner-rg
 ```
 
+## Runner Metrics
+
+The runner serves Prometheus metrics on `:9464/metrics` (OpenTelemetry, images
+built from DPC-55707 onwards) and `:8080/actuator/prometheus` (deprecated), but
+**this deployment doesn't expose either**. The runner container app has no
+`ingress` block; the only ingress in the environment is the script runner's
+internal TCP port 2222. Nothing outside the container app can scrape it.
+
+Container Apps routes ingress to a single target port per app, so exposing
+metrics is a design decision rather than a one-line change. The options:
+
+- **Add internal ingress on 9464.** This makes the endpoint reachable from
+  inside the Container Apps environment only. It needs a scraper running in
+  the same environment, and gives one port, so pick the OpenTelemetry
+  endpoint.
+- **Send metrics with OTLP instead of scraping.** Have the runner push to a
+  collector you run, with no ingress at all. The runner already pushes OTLP to
+  Matillion, but its entrypoint fixes the exporters to that push plus the
+  Prometheus endpoint. A customer-owned OTLP target would need a change in the
+  runner image, not just configuration here.
+- **Use Container Apps' built-in metrics** (CPU, memory, replicas, restarts)
+  from Azure Monitor. They need no change, but don't include the runner's own
+  `matillion_agent_*` metrics.
+
+Which of these to support is tracked in DPC-58192. Runner scaling here is
+fixed (`min_replicas = max_replicas`), so nothing in this deployment depends on
+the metrics today. See
+[Runner Metrics: Moving to the OpenTelemetry Endpoint](../../../blogs/runner-metrics-migration.md).
+
 ## Configuration Options
 
 ### Container Sizing

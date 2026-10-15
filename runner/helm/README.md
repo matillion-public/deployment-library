@@ -608,6 +608,11 @@ this table is the deployment-side summary.
 | `hpa.maxReplicas` | Maximum replicas | `10` |
 | `hpa.minReplicas` | Minimum replicas | `2` |
 | `hpa.metrics.target.averageValue` | Target in-flight tasks per runner pod | `"16"` |
+| `hpa.metricSource` | Metrics the HPA scales on: `legacy` (`app_*`) or `otel` (`matillion_agent_*`). `otel` needs prometheus chart 0.4.0+ | `legacy` |
+| `metrics.legacy.enabled` | Expose the deprecated `/actuator/prometheus` endpoint to Prometheus | `true` |
+| `metrics.otel.enabled` | Expose the OpenTelemetry `/metrics` endpoint (container port + NetworkPolicy ingress) | `true` |
+| `metrics.otel.port` | OpenTelemetry exporter port; also passed to the runner as `OTEL_EXPORTER_PROMETHEUS_PORT` | `9464` |
+| `metrics.annotationTarget` | Endpoint the `prometheus.io/*` pod annotations advertise (`legacy` or `otel`); they can name only one | `legacy` |
 
 #### Sizing the HPA target (`averageValue`)
 
@@ -620,27 +625,212 @@ this table is the deployment-side summary.
   - **`17` — reactive scaling.** Best for steady, predictable workloads where some queueing is acceptable. Fewer pods, lower cost.
 - For **dev/test** clusters where you want to exercise the HPA on small workloads, pick a much lower value (e.g. `5`) so a handful of tasks triggers a scale-up event.
 
+### Script runner autoscaling and scale-in
+
+The shared script runner has its own HPA, separate from the runner's, scaling
+on `script_runner_active_sessions`: the Script Pushdown executions in flight on
+each pod. The agent opens one SSH connection per execution, and the runner
+Service spreads connections across pods (no session affinity), so the count
+tracks concurrent load directly. Needs a maia-script-runner image that serves the
+metric, and prometheus chart 0.5.0 or later, which scrapes it as job
+`matillion-script-runner` and serves it from the adapter.
+
+```yaml
+scriptRunner:
+  enabled: true
+  terminationGracePeriodSeconds: 1800   # above your longest script
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetSessionsPerPod: 8
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `scriptRunner.metrics.enabled` | Expose `:<port>/metrics` (container port, `prometheus.io/*` annotations, NetworkPolicy ingress from `networkPolicy.prometheusNamespace`) | `true` |
+| `scriptRunner.metrics.port` | Exporter port; also passed to the image as `RUNNER_METRICS_PORT` | `9100` |
+| `scriptRunner.terminationGracePeriodSeconds` | Time a terminating pod has to finish in-flight scripts | `600` |
+| `scriptRunner.hpa.enabled` | Autoscale the script runner. While on, the Deployment omits `replicas` | `false` |
+| `scriptRunner.hpa.minReplicas` / `maxReplicas` | Replica bounds | `2` / `5` |
+| `scriptRunner.hpa.targetSessionsPerPod` | Target in-flight scripts per pod. Required when enabled | — |
+| `scriptRunner.hpa.behavior` | HPA scaling behaviour: fast scale-up, one pod a minute down after 5 quiet minutes | see `values.yaml` |
+
+**Scale-in is safe up to the grace period.** On SIGTERM the image keeps
+accepting for a few seconds, closes its listener, and waits for every open
+session to finish before exiting, so a pod removed by the HPA or a rolling
+update lets its scripts complete. The grace period is the only deadline: a
+script still running when it expires is killed. Set it above the longest script
+you expect.
+
+**Turning the HPA on for an existing release resets it to one replica.** With
+the HPA on, the Deployment no longer sets `replicas`, and Helm's three-way merge
+removes the old value, so the upgrade scales to 1 and drains the rest until the
+HPA scales back up to `minReplicas`. To avoid the dip, scale the Deployment to
+at least `minReplicas` beforehand (`kubectl scale deployment
+<release>-matillion-runner-script-runner --replicas=N`) and set `minReplicas` no
+lower than the replicas you run today.
+
+**Draining pods don't count towards `maxReplicas`.** A pod the HPA removes keeps
+its resources until its sessions finish, up to the grace period, while the HPA
+may already be adding a replacement. Under oscillating load the real pod count
+can exceed `maxReplicas` for that long, so leave node and quota headroom for it.
+
+**Choosing `targetSessionsPerPod`.** It has no default because it depends on
+what the scripts do. See [Sizing the script runner](#sizing-the-script-runner)
+below for a starting value per size and for how to tune it.
+
+### Sizing the script runner
+
+Every Script Pushdown execution is one SSH session on one script runner pod,
+running for as long as the script does. Sizing comes down to two numbers: how
+many sessions one pod can hold (`scriptRunner.size`), and how many pods you need
+for your peak (`scriptRunner.replicas`, or the HPA bounds).
+
+**How load spreads.** The agent opens a fresh SSH connection per execution, and
+the script runner Service has no session affinity, so each connection is placed
+independently. It is placed **at random, not in turn**: kube-proxy's default
+iptables mode, and GKE Dataplane V2, pick a backend at random per connection.
+Over many executions the pods even out. At any moment, though, one pod can hold
+noticeably more than the average. With 2 pods and 20 concurrent scripts, 13 on
+one pod and 7 on the other is unremarkable. The HPA scales on the average, so it
+won't react to that. Size each pod to absorb more than its share, which the
+starting values below do. A single pod that is busy while the others sit idle
+usually means the pipeline's script steps run one after another, not that load
+balancing is broken.
+
+**What a session costs.** Measured on the runner image (1.9.0) under `small`
+limits, with each script idle after its imports:
+
+| Script | Memory per session | Processes |
+|---|---|---|
+| Bash | ~2 MiB | 3 |
+| Python, standard library only | ~5 MiB | 3 |
+| Python importing `snowflake.connector` + `boto3` | ~90 MiB | ~10 |
+| Python importing `pyarrow` + `databricks.sql` + `snowflake.connector` | ~95 MiB | ~10 |
+
+These are floors. A script that fetches rows, builds a DataFrame or writes
+files under `/tmp` uses more, for as long as it runs. Memory is what runs out
+first: the pod's memory limit is a hard cap, and a script that crosses it is
+killed. The image puts scripts at the top of the kernel's OOM list, so one
+oversized script dies and the pod and its other sessions survive.
+
+CPU matters when many scripts start at once. Importing warehouse drivers is
+CPU-heavy: on `small` (2 vCPU limit), one script starts in about 1 s, 10
+started together all finish starting within 6 s, and 20 within 15 s. Once
+running, scripts waiting on a warehouse use almost no CPU.
+
+**Sessions per pod.** Work it out from memory, keeping a quarter of the limit
+spare:
+
+```
+sessions per pod  ≈  (memory limit × 0.75) ÷ memory per session
+```
+
+For the `targetSessionsPerPod` starting point below, assume **300 MiB per
+session**: about three times the measured driver baseline, leaving room for
+result sets. Together with the 25% reserve, that is also the margin for uneven
+placement. A pod holding half again its target is still within its limit as
+long as each script stays near the baseline. If your scripts are heavy (large
+fetches or DataFrames), that margin is gone, so lower the target.
+
+| `scriptRunner.size` | Requests | Limits | Driver-only ceiling (~90 MiB) | Starting `targetSessionsPerPod` |
+|---|---|---|---|---|
+| `small` | 1 vCPU / 4 GiB | 2 vCPU / 4 GiB | ~34 | **10** |
+| `medium` | 2 vCPU / 8 GiB | 4 vCPU / 8 GiB | ~68 | **20** |
+| `large` | 4 vCPU / 16 GiB | 8 vCPU / 16 GiB | ~136 | **40** |
+| `xlarge` | 8 vCPU / 32 GiB | 16 vCPU / 32 GiB | ~273 | **80** |
+
+Start from the right-hand column. Then compare peak memory per pod with
+`script_runner_active_sessions` under real load. The bundled Prometheus doesn't
+scrape container memory, and EKS has no metrics-server, so read the pod's own
+cgroup instead. That works on every cloud and needs nothing installed:
+
+```bash
+kubectl exec -n <namespace> <script-runner-pod> -- sh -c \
+  'cat /sys/fs/cgroup/memory.peak 2>/dev/null || cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes'
+```
+
+That prints the pod's peak memory in bytes since it started. Where
+metrics-server is installed (AKS and GKE ship it), `kubectl top pod` shows
+current use. If memory stays well under 75%
+at the target, raise it; if it doesn't, lower it or move up a size. Prefer a
+larger size over a higher target when your scripts are memory-heavy, because a
+bigger limit absorbs one large script without killing it. `SSHD_MAX_SESSIONS`
+(100) is not a practical limit at these values.
+
+**Pods.** Size for the peak number of scripts that run at the same time:
+
+```
+replicas  =  max(2, ceil(peak concurrent scripts ÷ sessions per pod))
+```
+
+The agent caps how many can run at once: each agent pod runs at most 20 tasks
+concurrently, so concurrent scripts can't exceed agent pods × 20. That gives an
+upper bound for `maxReplicas`:
+
+```
+maxReplicas  ≤  ceil(agent hpa.maxReplicas × 20 ÷ targetSessionsPerPod)
+```
+
+**Fixed replicas or the HPA.** Use fixed `scriptRunner.replicas` (default 2)
+when the peak is known and steady, or when it fits comfortably on 2 to 3 pods:
+there's nothing to tune and nothing to scale. Turn on `scriptRunner.hpa` when
+load varies a lot across the day, or when the peak would need many pods most of
+which would otherwise sit idle. Keep `minReplicas` at 2 or more either way, so
+a rolling update or a single pod failure leaves capacity running.
+
+**Grace period.** `scriptRunner.terminationGracePeriodSeconds` (600) must exceed
+your longest script. A pod being removed stops taking new connections and lets
+its running scripts finish. Any script still running at the deadline is killed
+and its task fails. Long-running scripts need this raised before they meet
+their first scale-in or upgrade.
+
+**Per-cloud notes** are in each cloud's README: [EKS](../aws/eks/README.md#script-runner-sizing-and-scaling),
+[AKS](../azure/README.md#script-runner-sizing-and-scaling),
+[GKE](../gcp/gke/README.md#script-runner-sizing-and-scaling). The main
+difference is where the extra capacity comes from when the HPA scales out.
+
 ## Monitoring
 
 ### Prometheus Metrics
 
-The runner natively exposes Prometheus-compatible metrics at `/actuator/prometheus` on port 8080:
+The runner serves two Prometheus endpoints while customers migrate
+([migration guide](../../blogs/runner-metrics-migration.md)):
 
-- `app_version_info` - Build version information
-- `app_agent_status` - Runner running status (1=running, 0=stopped)
-- `app_active_task_count` - Number of active tasks
-- `app_active_request_count` - Number of active requests  
-- `app_open_sessions_count` - Number of open sessions
+| Endpoint | Names | Status |
+|---|---|---|
+| `:9464/metrics` (`metrics.otel`) | `matillion_agent_*_unit`, plus JVM metrics | New standard. Needs a runner image built from DPC-55707 onwards |
+| `:8080/actuator/prometheus` (`metrics.legacy`) | `app_*` | Deprecated; removed after cutover |
+
+| Legacy | OpenTelemetry |
+|---|---|
+| `app_agent_status` (1=running, 2=pending shutdown, 3=shutting down, 0=other) | `matillion_agent_status_unit` |
+| `app_agent_connected` | `matillion_agent_connected_unit` |
+| `app_active_task_count` | `matillion_agent_task_running_unit` |
+| `app_active_request_count` | `matillion_agent_request_active_unit` |
+| `app_open_sessions_count` | `matillion_agent_open_sessions_unit` |
+| `app_version_info` | `matillion_agent_version_unit` |
+
+The HPA scales on the legacy pair by default. Set `hpa.metricSource: otel` to
+scale on `matillion_agent_task_running` / `matillion_agent_request_active`
+instead. That needs prometheus chart 0.4.0 or later, and an image that serves
+`:9464`.
 
 ### Service Discovery
 
-Prometheus can automatically discover metrics endpoints using annotations:
+The `prometheus.io/*` annotations can name only one endpoint, so an
+annotation-driven scraper sees only that one. They advertise the legacy endpoint
+until cutover. Set `metrics.annotationTarget: otel` to move them:
 
 ```yaml
 prometheus.io/scrape: "true"
-prometheus.io/port: "8080"
-prometheus.io/path: "/actuator/prometheus"
+prometheus.io/port: "8080"            # 9464 with annotationTarget: otel
+prometheus.io/path: "/actuator/prometheus"  # /metrics with annotationTarget: otel
 ```
+
+To scrape both, add an explicit job for port 9464. The bundled prometheus chart
+does this as `matillion-runner-otel`.
 
 ## Advanced Configuration
 
@@ -952,9 +1142,10 @@ kubectl describe pod -n matillion -l app=matillion-runner
 
 **Metrics not being scraped:**
 ```bash
-# Test metrics endpoint directly from the runner container
-kubectl port-forward -n matillion deployment/matillion-runner 8080:8080
-curl http://localhost:8080/actuator/prometheus
+# Test both metrics endpoints directly from the runner container
+kubectl port-forward -n matillion deployment/matillion-runner 8080:8080 9464:9464
+curl http://localhost:8080/actuator/prometheus   # legacy, app_*
+curl http://localhost:9464/metrics               # OpenTelemetry, matillion_agent_*
 
 # Check Prometheus is discovering targets
 kubectl port-forward -n prometheus svc/prometheus 9090:9090
