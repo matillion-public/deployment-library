@@ -1,0 +1,21 @@
+---
+# Values for scanning the AWS (EKS) queue-adapter render in CI, as
+# test-values-queue-adapter.yaml does for Azure. Uses mode: scaledJob so the
+# TriggerAuthentication renders too; the Deployment path is covered by the helm
+# unit tests.
+#
+# Placeholder identifiers only; nothing here is deployed.
+cloudProvider: aws
+serviceAccount:
+  roleArn: arn:aws:iam::123456789012:role/example-runner
+queueAdapter:
+  enabled: true
+  image:
+    repository: public.ecr.aws/matillion/maia-queue-adapter-eks
+    tag: current
+  aws:
+    mode: scaledJob
+    roleArn: arn:aws:iam::123456789012:role/example-queue-adapter
+    region: eu-west-1
+    queueUrl: https://sqs.eu-west-1.amazonaws.com/123456789012/matillion-maia-requests
+    dlqUrl: https://sqs.eu-west-1.amazonaws.com/123456789012/matillion-maia-requests-dlq

@@ -435,12 +435,14 @@ Deploy Prometheus for advanced monitoring:
 cd ../../helm/prometheus
 
 # Install Prometheus stack
+# Install into `prometheus`: it's the namespace the module's Fargate profile
+# covers. A pod in any other namespace has nowhere to run and stays Pending.
 helm install prometheus . \
   --create-namespace \
-  --namespace monitoring
+  --namespace prometheus
 
 # Access Prometheus UI (port-forward)
-kubectl port-forward -n monitoring svc/prometheus-server 9090:80
+kubectl port-forward -n prometheus svc/prometheus-server 9090:80
 ```
 
 ### Log Aggregation
@@ -544,7 +546,7 @@ When enabled, network policies restrict pod communication:
 # Enable network policies in values file
 networkPolicy:
   enabled: true
-  prometheusNamespace: monitoring
+  prometheusNamespace: prometheus
   allowHttp: true
 ```
 
@@ -672,6 +674,38 @@ kubectl describe resourcequota
 # View HPA metrics
 kubectl get --raw /apis/metrics.k8s.io/v1beta1/pods
 ```
+
+## Script runner sizing and scaling
+
+How many sessions a pod holds, how many pods to run, and when to turn on the
+HPA are the same on every cloud. They're in
+[Sizing the script runner](../../helm/README.md#sizing-the-script-runner). This
+section covers what is specific to EKS.
+
+- **No node headroom to plan.** This module runs the `matillion`,
+  `kube-system` and `prometheus` namespaces on **Fargate**, which gives each pod
+  its own capacity. Scaling out never waits on a node autoscaler; each new pod
+  takes the normal Fargate start time instead, usually under a minute before
+  sshd is ready. On a cluster with your own node groups, the HPA needs
+  Karpenter or Cluster Autoscaler to add nodes, or the new pods stay Pending.
+- **Fargate sizes the pod from its requests, not its limits**, rounded up to
+  the nearest supported CPU and memory combination, and bills that. Check what
+  a pod actually got in its `CapacityProvisioned` annotation. A `small` script
+  runner therefore gets about 1 vCPU, not the 2 vCPU limit, so there's no CPU
+  burst: a burst of script starts takes roughly twice the times in the sizing
+  guide. Where many scripts start together, size up for CPU rather than
+  counting on the limit.
+- **Prometheus runs in the `prometheus` namespace**, the one the Fargate
+  profile covers (see [Prometheus Integration](#prometheus-integration-optional)).
+  Install the runner chart
+  with `networkPolicy.prometheusNamespace=prometheus`, and the prometheus chart
+  with `networkPolicy.additionalScrapeNamespaces={matillion}`. Fargate pods
+  don't enforce NetworkPolicy, so both settings take effect only if the same
+  release later runs on EC2 nodes, but they keep the config correct for that
+  case.
+- **metrics-server isn't installed, and the script runner HPA doesn't need
+  it.** It scales on `script_runner_active_sessions` through the prometheus
+  adapter, not on CPU.
 
 ## Cost Optimization
 
@@ -810,8 +844,8 @@ If migrating from ECS Fargate:
 helm uninstall matillion-runner
 
 # Remove monitoring (if installed)
-helm uninstall prometheus -n monitoring
-kubectl delete namespace monitoring
+helm uninstall prometheus -n prometheus
+kubectl delete namespace prometheus
 ```
 
 ### Destroy Infrastructure
