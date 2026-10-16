@@ -47,7 +47,7 @@ variable "workload_profile_name" {
 }
 
 variable "image" {
-  description = "Adapter container image URI, e.g. <registry>.azurecr.io/maia-queue-adapter-azure:current."
+  description = "Adapter container image URI, e.g. matillion.azurecr.io/maia-queue-adapter:current (anonymous pull), or a mirror in your own ACR."
   type        = string
 }
 
