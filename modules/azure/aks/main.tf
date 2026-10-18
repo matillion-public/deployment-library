@@ -10,6 +10,8 @@ resource "azurerm_user_assigned_identity" "aks_identity" {
   name                = lookup(var.resource_names, "aks_identity", join("-", [var.name, "aks-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
+
+  tags = var.tags
 }
 
 # Azure Kubernetes Service (AKS) Cluster
@@ -95,6 +97,8 @@ resource "azurerm_log_analytics_workspace" "aks_log_workspace" {
   location            = var.location
   resource_group_name = var.resource_group_name
   sku                 = "PerGB2018"
+
+  tags = var.tags
 }
 
 # Blob Storage Account
@@ -109,6 +113,8 @@ resource "azurerm_storage_account" "stagging" {
   # not move underneath anyone.
   account_replication_type        = var.storage_account_replication_type
   allow_nested_items_to_be_public = false
+
+  tags = var.tags
 }
 
 # Key Vault
@@ -120,6 +126,8 @@ resource "azurerm_key_vault" "keyvault" {
   sku_name                   = "standard"
   soft_delete_retention_days = 7
   enable_rbac_authorization  = true
+
+  tags = var.tags
 }
 
 # Assign Key Vault Administrator role to current client for management
@@ -156,6 +164,8 @@ resource "azurerm_user_assigned_identity" "runner_workload_identity" {
   name                = lookup(var.resource_names, "runner_identity", join("-", [var.name, "runner-workload-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
+
+  tags = var.tags
 }
 
 # Assign Storage Blob Data Contributor Role to Runner Workload Identity

@@ -471,7 +471,7 @@ aws application-autoscaling put-scheduled-action \
 
 ### Metrics
 
-The runner natively exposes Prometheus-compatible metrics at `/actuator/prometheus` on port 8080. For ECS deployments, consider using CloudWatch Container Insights for monitoring.
+The runner exposes Prometheus metrics at `/actuator/prometheus` on port 8080 (deprecated) and, on runner 12.150.3 or later, at `/metrics` on port 9464. Neither port is reachable from outside the task by default; to scrape them, set `metrics_ingress_security_group_ids` or `metrics_ingress_cidr_blocks` (and optionally `metrics_ingress_ports`), described in [Scraping Runner Metrics](../../../modules/aws/ecs/README.md#scraping-runner-metrics). See [Runner Metrics: Moving to the OpenTelemetry Endpoint](../../../blogs/runner-metrics-migration.md).
 
 ## Migration Paths
 
