@@ -23,9 +23,12 @@ spec:
         azure.workload.identity/use: "true"
         {{- end }}
       annotations:
-        prometheus.io/path: "/actuator/prometheus"
-        prometheus.io/port: "8080"
+        {{- if or .Values.metrics.legacy.enabled .Values.metrics.otel.enabled }}
+        {{- $scrape := include "matillion-runner.metrics.annotated" . | fromYaml }}
+        prometheus.io/path: {{ $scrape.path | quote }}
+        prometheus.io/port: {{ $scrape.port | quote }}
         prometheus.io/scrape: "true"
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -123,6 +126,10 @@ spec:
         - name: MATILLION_ENV
           value: {{ quote .Values.dpcAgent.dpcAgent.env.matillionEnv }}
         {{- end }}
+        {{- end }}
+        {{- if .Values.metrics.otel.enabled }}
+        - name: OTEL_EXPORTER_PROMETHEUS_PORT
+          value: {{ .Values.metrics.otel.port | quote }}
         {{- end }}
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
@@ -237,6 +244,10 @@ spec:
         ports:
         - containerPort: 8080
           name: metrics
+        {{- if .Values.metrics.otel.enabled }}
+        - containerPort: {{ .Values.metrics.otel.port }}
+          name: otel-metrics
+        {{- end }}
         securityContext: {}
         {{- if .Values.readinessProbe.enabled }}
         readinessProbe:
