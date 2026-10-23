@@ -42,6 +42,8 @@ Defines the input variables used in the Terraform configurations:
 - `tags`: Tags to apply to resources
 - `desired_node_count`: Desired number of nodes in the AKS cluster
 - `node_pool_zones`: Availability zones for the default node pool (see [Availability zones](#availability-zones))
+- `network_plugin_mode`: `overlay` for Azure CNI Overlay; null (default) keeps node-subnet mode (see [Pod networking](#pod-networking))
+- `pod_cidr`: Pod address range under overlay; null uses the AKS default
 - `random_string_salt`: Random string for uniqueness
 - `is_private_cluster`: Boolean to enable private cluster
 - `authorized_ip_ranges`: List of authorized IP ranges for API server
@@ -111,6 +113,41 @@ the workload:
    `podDisruptionBudget` first so the drain cannot take every replica at once.
 4. Once the old pool is empty, remove it and set `node_pool_zones` on the default
    pool, confirming with `terraform plan` that nothing else is being replaced.
+
+## Pod networking
+
+The cluster uses Azure CNI. By default it runs in **node-subnet mode**: every
+pod takes an address from the node subnet, and each node reserves addresses for
+its maximum pod count when it joins. The subnet therefore has to hold every node
+*and* every pod those nodes could run. On a shared cluster, where many tenants'
+runners and script runners scale independently, the subnet fills long before
+the nodes run out of capacity, and the autoscaler can no longer add nodes.
+
+**Azure CNI Overlay** gives pods addresses from a private range that is not part
+of the VNet, so the node subnet only needs to be sized for nodes. Set it on new
+clusters:
+
+```hcl
+network_plugin_mode = "overlay"
+pod_cidr            = "10.244.0.0/16" # optional; this is the AKS default
+```
+
+`pod_cidr` must not overlap the VNet, the service CIDR (`10.2.0.0/16`) or any
+network the runner has to reach, such as a peered data warehouse VNet. Pod
+traffic leaving the cluster is SNATed to the node's address, so firewall rules
+on the far side keep matching the node subnet.
+
+### Existing clusters
+
+Both inputs default to null, so an existing cluster plans clean after upgrading
+the module. Changing them later is not a Terraform-only edit:
+
+- Adding `network_plugin_mode = "overlay"` to a node-subnet cluster is an
+  in-place Azure CNI migration that **reimages every node**. Follow Azure's
+  [Azure CNI upgrade guidance](https://learn.microsoft.com/azure/aks/update-azure-cni),
+  enable the runner's `podDisruptionBudget` first, and do not let a
+  `terraform apply` be the first thing that attempts it.
+- Removing it again, or changing `pod_cidr` once set, **replaces the cluster**.
 
 ## Service Principal Setup
 

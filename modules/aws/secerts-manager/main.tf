@@ -1,5 +1,12 @@
+locals {
+  secret_name         = var.secret_name != "" ? var.secret_name : join("-", [var.name, "oauth-credentials"])
+  keypair_secret_name = var.runner_keypair_secret_name != "" ? var.runner_keypair_secret_name : join("-", [var.name, "runner-keypair"])
+}
+
 resource "aws_secretsmanager_secret" "runner_secret" {
-  name = var.secret_name
+  name                    = local.secret_name
+  recovery_window_in_days = var.recovery_window_in_days
+  tags                    = merge(var.tags, { Name = local.secret_name })
 }
 
 resource "aws_secretsmanager_secret_version" "runner_secret_version" {
@@ -13,8 +20,10 @@ resource "aws_secretsmanager_secret_version" "runner_secret_version" {
 # Stores the SSH public key(s) authorised to connect to the script runner.
 # The script runner reads authorized_keys from this secret at startup via RUNNER_AUTHORIZED_KEYS.
 resource "aws_secretsmanager_secret" "runner_keypair_secret" {
-  count = var.enable_keypair_secret ? 1 : 0
-  name  = var.runner_keypair_secret_name
+  count                   = var.enable_keypair_secret ? 1 : 0
+  name                    = local.keypair_secret_name
+  recovery_window_in_days = var.recovery_window_in_days
+  tags                    = merge(var.tags, { Name = local.keypair_secret_name })
 }
 
 resource "aws_secretsmanager_secret_version" "runner_keypair_secret_version" {

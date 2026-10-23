@@ -104,6 +104,28 @@ variable "node_pool_zones" {
   }
 }
 
+variable "network_plugin_mode" {
+  type        = string
+  description = "Azure CNI mode. \"overlay\" gives pods addresses from pod_cidr, a private range off the VNet, so the node subnet only has to be sized for nodes. In node-subnet mode (null, the default) every pod takes a VNet address, and on a shared cluster running many tenants' runners the subnet runs out of addresses long before the nodes run out of capacity. Choose this when the cluster is created: adding it to an existing cluster is an in-place Azure CNI migration that reimages every node, and removing it forces the cluster to be replaced."
+  default     = null
+
+  validation {
+    condition     = var.network_plugin_mode == null || var.network_plugin_mode == "overlay"
+    error_message = "network_plugin_mode must be \"overlay\", or null for node-subnet mode."
+  }
+}
+
+variable "pod_cidr" {
+  type        = string
+  description = "Pod address range under Azure CNI Overlay, e.g. \"10.244.0.0/16\". Only valid with network_plugin_mode = \"overlay\"; null lets AKS use its default of 10.244.0.0/16. It must not overlap the VNet, the service CIDR (10.2.0.0/16) or any network the pods need to reach. Once set, changing it forces the cluster to be replaced."
+  default     = null
+
+  validation {
+    condition     = var.pod_cidr == null || (can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}/[0-9]{1,2}$", var.pod_cidr)) && try(cidrsubnet(var.pod_cidr, 0, 0) == var.pod_cidr, false))
+    error_message = "pod_cidr must be an IPv4 CIDR block with no host bits set, e.g. 10.244.0.0/16."
+  }
+}
+
 variable "workload_identity_enabled" {
   type        = bool
   description = "Enable Azure Workload Identity for the runner workload (requires OIDC issuer)"
