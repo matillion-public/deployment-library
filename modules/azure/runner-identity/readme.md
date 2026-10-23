@@ -43,6 +43,12 @@ never runs, and the pod sees no credentials at all. The symptom is an IMDS
 with `az aks update --enable-workload-identity`, or `workload_identity_enabled`
 in the `aks` module.
 
+**Turn off the shared runner identity on a shared cluster.** With
+`workload_identity_enabled`, the `aks` module also creates a shared runner
+identity that can read every secret in the vault. Set
+`create_runner_identity = false` on the `aks` module so the only identities on
+the cluster are the per-tenant ones from this module.
+
 **Secrets must exist before they are referenced.** Azure will not scope a role
 assignment to a secret that is not there.
 
