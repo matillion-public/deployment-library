@@ -10,6 +10,8 @@ resource "azurerm_user_assigned_identity" "aks_identity" {
   name                = lookup(var.resource_names, "aks_identity", join("-", [var.name, "aks-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
+
+  tags = var.tags
 }
 
 # Azure Kubernetes Service (AKS) Cluster
@@ -72,11 +74,19 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
   }
 
   network_profile {
-    network_plugin    = "azure"
-    load_balancer_sku = "standard"
-    service_cidr      = "10.2.0.0/16"
-    dns_service_ip    = "10.2.0.10"
-    outbound_type     = var.enable_nat_gateway ? "userAssignedNATGateway" : "loadBalancer"
+    network_plugin = "azure"
+    # Null is node-subnet mode, which is what existing clusters run: every pod
+    # takes a VNet address. Overlay moves pods onto pod_cidr instead.
+    network_plugin_mode = var.network_plugin_mode
+    pod_cidr            = var.pod_cidr
+    load_balancer_sku   = "standard"
+    service_cidr        = "10.2.0.0/16"
+    dns_service_ip      = "10.2.0.10"
+    outbound_type       = var.enable_nat_gateway ? "userAssignedNATGateway" : "loadBalancer"
+    # Null installs no policy engine and azure is the provider's own default
+    # data plane, which together are what existing clusters run.
+    network_policy     = var.network_policy
+    network_data_plane = var.network_data_plane
   }
 
   private_cluster_enabled = var.is_private_cluster
@@ -87,6 +97,27 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
   workload_identity_enabled = var.workload_identity_enabled
 
   tags = var.tags
+
+  lifecycle {
+    precondition {
+      condition     = var.pod_cidr == null || var.network_plugin_mode == "overlay"
+      error_message = "pod_cidr only applies with network_plugin_mode = \"overlay\". In node-subnet mode pods take their addresses from the node subnet, and Azure rejects a pod CIDR."
+    }
+
+    # Cilium is one choice made in two places: the Cilium data plane enforces
+    # policy only through Cilium, and Cilium policy needs the Cilium data plane.
+    precondition {
+      condition     = (var.network_policy == "cilium") == (var.network_data_plane == "cilium")
+      error_message = "network_policy = \"cilium\" and network_data_plane = \"cilium\" must be set together. The Cilium data plane cannot run Azure NPM or Calico, and Cilium policy cannot run on the Azure data plane."
+    }
+
+    # Azure requires the Cilium data plane to run on overlay or a dedicated pod
+    # subnet; this module offers overlay only.
+    precondition {
+      condition     = var.network_data_plane != "cilium" || var.network_plugin_mode == "overlay"
+      error_message = "network_data_plane = \"cilium\" requires network_plugin_mode = \"overlay\". Azure does not run the Cilium data plane in node-subnet mode."
+    }
+  }
 }
 
 # Log Analytics for AKS Logs
@@ -95,6 +126,8 @@ resource "azurerm_log_analytics_workspace" "aks_log_workspace" {
   location            = var.location
   resource_group_name = var.resource_group_name
   sku                 = "PerGB2018"
+
+  tags = var.tags
 }
 
 # Blob Storage Account
@@ -109,6 +142,8 @@ resource "azurerm_storage_account" "stagging" {
   # not move underneath anyone.
   account_replication_type        = var.storage_account_replication_type
   allow_nested_items_to_be_public = false
+
+  tags = var.tags
 }
 
 # Key Vault
@@ -120,6 +155,8 @@ resource "azurerm_key_vault" "keyvault" {
   sku_name                   = "standard"
   soft_delete_retention_days = 7
   enable_rbac_authorization  = true
+
+  tags = var.tags
 }
 
 # Assign Key Vault Administrator role to current client for management
@@ -156,6 +193,8 @@ resource "azurerm_user_assigned_identity" "runner_workload_identity" {
   name                = lookup(var.resource_names, "runner_identity", join("-", [var.name, "runner-workload-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
+
+  tags = var.tags
 }
 
 # Assign Storage Blob Data Contributor Role to Runner Workload Identity
