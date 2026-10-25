@@ -80,9 +80,9 @@ variable "export_logs" {
 }
 
 variable "secret_name" {
-  description = "Name for the Secrets Manager secret. The runner expects 'matillion-oauth-credentials' by default."
+  description = "Name for the OAuth credentials secret. Defaults to '<name>-<salt>-oauth-credentials' when empty. The runner receives the secret ARN, so the name can be anything."
   type        = string
-  default     = "matillion-oauth-credentials"
+  default     = ""
 }
 
 variable "client_id" {
@@ -220,7 +220,7 @@ variable "runner_authorized_keys" {
 }
 
 variable "runner_keypair_secret_name" {
-  description = "Name for the Secrets Manager secret holding the script runner SSH authorized_keys. Defaults to <name>-runner-keypair when not set."
+  description = "Name for the Secrets Manager secret holding the script runner SSH authorized_keys. Defaults to <name>-<salt>-runner-keypair when not set."
   type        = string
   default     = ""
 }
@@ -263,7 +263,7 @@ variable "enable_sqs_pipeline_trigger" {
 }
 
 variable "sqs_adapter_image_uri" {
-  description = "Container image URI (arm64) for the SQS->DPC adapter Lambda. Required when enable_sqs_pipeline_trigger = true."
+  description = "Private ECR image URI (arm64) for the SQS->DPC adapter Lambda, in the same region as the function. Lambda will not run an ECR Public image: copy public.ecr.aws/matillion/maia-queue-adapter:<version>-arm64 into your own ECR first (see the maia-queueing-adapter README). Required when enable_sqs_pipeline_trigger = true."
   type        = string
   default     = ""
 }
@@ -332,4 +332,22 @@ variable "sqs_adapter_matillion_token_url" {
   description = "DPC OAuth token endpoint."
   type        = string
   default     = "https://id.core.matillion.com/oauth/dpc/token"
+}
+
+variable "metrics_ingress_cidr_blocks" {
+  description = "CIDR blocks allowed to scrape the runner's Prometheus metrics. Empty (the default) creates no ingress rule. See modules/aws/ecs."
+  type        = list(string)
+  default     = []
+}
+
+variable "metrics_ingress_security_group_ids" {
+  description = "Security groups allowed to scrape the runner's Prometheus metrics. Empty by default."
+  type        = list(string)
+  default     = []
+}
+
+variable "metrics_ingress_ports" {
+  description = "Runner metrics ports opened to the sources above: 9464 (OpenTelemetry /metrics) and 8080 (deprecated /actuator/prometheus)."
+  type        = list(number)
+  default     = [9464, 8080]
 }

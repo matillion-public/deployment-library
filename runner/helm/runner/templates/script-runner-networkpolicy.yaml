@@ -25,6 +25,27 @@ spec:
     ports:
     - protocol: TCP
       port: 2222
+  {{- if .Values.scriptRunner.metrics.enabled }}
+  # Prometheus scraping the session metric (DPC-55686) — the HPA's only signal,
+  # so a blocked scrape means no scaling and no error. Peers are ORed:
+  #   - the namespace by the `name` label the runner's own metrics rule uses,
+  #   - the same namespace by kubernetes.io/metadata.name, which Kubernetes sets
+  #     on every namespace (the docs install into one nobody labels),
+  #   - a Prometheus in this release's own namespace.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: {{ .Values.networkPolicy.prometheusNamespace | default "monitoring" }}
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Values.networkPolicy.prometheusNamespace | default "monitoring" }}
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: {{ .Values.scriptRunner.metrics.port }}
+  {{- end }}
   egress:
   # DNS resolution
   - to: []

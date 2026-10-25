@@ -13,6 +13,11 @@ output "service_account_name" {
   value       = var.service_account_name
 }
 
+output "secret_name_prefix" {
+  description = "Secrets this runner can create and update must have names starting with this."
+  value       = var.secret_name_prefix
+}
+
 output "scoped_secret_arns" {
   description = "Secrets this runner can read. Anything absent from this list is not readable by the runner."
   value       = var.secret_arns
