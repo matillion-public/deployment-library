@@ -1,8 +1,8 @@
 # Per-Runner Identity — AWS
 
 One IAM role per runner deployment, trusted only by that runner's Kubernetes
-service account via IRSA, with Secrets Manager access granted **one secret ARN
-at a time**.
+service account via IRSA. Secrets Manager access is granted **one secret ARN
+at a time**, read only, or read and write under one name prefix (below).
 
 The AWS member of a three-cloud set — see
 `modules/azure/runner-identity/readme.md` for the shared rationale and the
@@ -62,6 +62,12 @@ identical — the trust policy names that exact subject.
 Note that Secrets Manager ARNs carry a random six-character suffix. Reference
 the secret resource or a data source rather than pasting the ARN, so it survives
 a secret being recreated.
+
+## Secrets a runner saves itself
+
+`secret_arns` grants read access to secrets that already exist. A runner that also saves secrets created in Matillion needs `secret_name_prefix` instead, such as `"matillion/finance/"`. It can then read, create and update any secret whose name starts with the prefix, and nothing else. The prefix must be two segments, each ending in `/`, so no runner's prefix can contain another's: `matillion/fin/` can't match `matillion/finance/`, and `matillion/` alone is refused.
+
+Secrets Manager can't limit `ListSecrets` to some secrets, so with a prefix the runner can list every secret's metadata in the account (name, description, tags and KMS key ID), though not their values. Keep sensitive information out of secret descriptions and tags in a shared account.
 
 ## Trust policy scoping
 

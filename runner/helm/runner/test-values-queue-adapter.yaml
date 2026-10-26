@@ -9,7 +9,7 @@ queueAdapter:
   enabled: true
   backend: servicebus
   image:
-    repository: examplecr.azurecr.io/maia-queue-adapter-azure
+    repository: examplecr.azurecr.io/maia-queue-adapter
     tag: current
   serviceAccount:
     clientId: "00000000-0000-0000-0000-000000000000"
