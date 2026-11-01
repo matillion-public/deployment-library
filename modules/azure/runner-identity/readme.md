@@ -43,6 +43,12 @@ never runs, and the pod sees no credentials at all. The symptom is an IMDS
 with `az aks update --enable-workload-identity`, or `workload_identity_enabled`
 in the `aks` module.
 
+**Turn off the shared runner identity on a shared cluster.** With
+`workload_identity_enabled`, the `aks` module also creates a shared runner
+identity that can read every secret in the vault. Set
+`create_runner_identity = false` on the `aks` module so the only identities on
+the cluster are the per-tenant ones from this module.
+
 **Secrets must exist before they are referenced.** Azure will not scope a role
 assignment to a secret that is not there.
 
@@ -74,8 +80,11 @@ module "runner_identity_grid" {
     "grid-oauth-client-secret",
   ]
 
-  storage_account_id = module.aks.storage_account_id
-  tags               = var.tags
+  # Shared staging account: scope blob access to this tenant's container. See
+  # "Storage access" below.
+  storage_account_id     = module.aks.storage_account_id
+  storage_container_name = "grid"
+  tags                   = var.tags
 }
 ```
 
@@ -133,3 +142,42 @@ output states which model is in force so the choice is visible in plan output.
 
 It is also the setting for deployments that create secrets at runtime and so
 cannot enumerate them at plan time.
+
+## Storage access
+
+`storage_account_id` grants `Storage Blob Data Contributor`. On its own the
+grant covers the **whole account**, which is right when the account belongs to
+one tenant and wrong when several share it: every runner can then read and
+write every other tenant's blobs.
+
+On a shared account, give each tenant its own container and scope the grant to
+it with `storage_container_name`:
+
+| Account layout | Setting | Where isolation comes from |
+|---|---|---|
+| One account per tenant | `storage_account_id` only | The account boundary |
+| One account shared between tenants | `storage_account_id` + `storage_container_name` | Per-container RBAC |
+
+**The container must already exist.** The module only builds the scope
+(`<account>/blobServices/default/containers/<name>`); it does not create the
+container. When the container is created in the same configuration, pass its
+`name` attribute rather than a literal so Terraform creates the container
+before the role assignment:
+
+```hcl
+resource "azurerm_storage_container" "grid" {
+  name               = "grid"
+  storage_account_id = module.aks.storage_account_id
+}
+
+module "runner_identity_grid" {
+  # ...
+  storage_account_id     = module.aks.storage_account_id
+  storage_container_name = azurerm_storage_container.grid.name
+}
+```
+
+Switching an existing deployment from account scope to container scope
+replaces the role assignment. Make sure the tenant's pipelines stage only to
+that container first, since reads and writes anywhere else in the account are
+refused afterwards.
