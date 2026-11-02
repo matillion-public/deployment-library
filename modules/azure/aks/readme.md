@@ -42,6 +42,12 @@ Defines the input variables used in the Terraform configurations:
 - `tags`: Tags to apply to resources
 - `desired_node_count`: Desired number of nodes in the AKS cluster
 - `node_pool_zones`: Availability zones for the default node pool (see [Availability zones](#availability-zones))
+- `workload_identity_enabled`: Enable the OIDC issuer and workload identity addon
+- `create_runner_identity`: Create the shared, vault-wide runner identity when workload identity is on; set false on a shared cluster (see [Workload identity on a shared cluster](#workload-identity-on-a-shared-cluster))
+- `network_plugin_mode`: `overlay` for Azure CNI Overlay; null (default) keeps node-subnet mode (see [Pod networking](#pod-networking))
+- `pod_cidr`: Pod address range under overlay; null uses the AKS default
+- `network_policy`: Engine that enforces NetworkPolicy objects (`azure`, `calico`, `cilium`); null (default) installs none (see [Network policy](#network-policy))
+- `network_data_plane`: `azure` (default) or `cilium`
 - `random_string_salt`: Random string for uniqueness
 - `is_private_cluster`: Boolean to enable private cluster
 - `authorized_ip_ranges`: List of authorized IP ranges for API server
@@ -111,6 +117,103 @@ the workload:
    `podDisruptionBudget` first so the drain cannot take every replica at once.
 4. Once the old pool is empty, remove it and set `node_pool_zones` on the default
    pool, confirming with `terraform plan` that nothing else is being replaced.
+
+## Workload identity on a shared cluster
+
+With `workload_identity_enabled` (the default) the module turns on the cluster's
+OIDC issuer and workload identity addon, and also creates one shared runner
+identity, federated to the runner and script-runner service accounts in
+`namespace`. That identity holds `Key Vault Secrets User` and `Reader` on the
+whole vault, `Reader` on the subscription and `Storage Blob Data Contributor` on
+the staging account — right for one runner, wrong once the cluster and vault
+are shared between tenants.
+
+On a shared cluster, give each tenant its own identity with
+[`modules/azure/runner-identity`](../runner-identity/readme.md) and turn the
+shared one off while keeping workload identity on:
+
+```hcl
+workload_identity_enabled = true
+create_runner_identity    = false
+```
+
+`runner_workload_identity_client_id` is then empty; take each tenant's client
+ID from its `runner-identity` module instead.
+
+Setting `create_runner_identity = false` on an existing deployment **destroys**
+the shared identity, its grants and its federated credentials. Move every runner
+onto a per-tenant identity first, or it loses access to Key Vault and storage
+on the next apply.
+## Pod networking
+
+The cluster uses Azure CNI. By default it runs in **node-subnet mode**: every
+pod takes an address from the node subnet, and each node reserves addresses for
+its maximum pod count when it joins. The subnet therefore has to hold every node
+*and* every pod those nodes could run. On a shared cluster, where many tenants'
+runners and script runners scale independently, the subnet fills long before
+the nodes run out of capacity, and the autoscaler can no longer add nodes.
+
+**Azure CNI Overlay** gives pods addresses from a private range that is not part
+of the VNet, so the node subnet only needs to be sized for nodes. Set it on new
+clusters:
+
+```hcl
+network_plugin_mode = "overlay"
+pod_cidr            = "10.244.0.0/16" # optional; this is the AKS default
+```
+
+`pod_cidr` must not overlap the VNet, the service CIDR (`10.2.0.0/16`) or any
+network the runner has to reach, such as a peered data warehouse VNet. Pod
+traffic leaving the cluster is SNATed to the node's address, so firewall rules
+on the far side keep matching the node subnet.
+
+### Existing clusters
+
+Both inputs default to null, so an existing cluster plans clean after upgrading
+the module. Changing them later is not a Terraform-only edit:
+
+- Adding `network_plugin_mode = "overlay"` to a node-subnet cluster is an
+  in-place Azure CNI migration that **reimages every node**. Follow Azure's
+  [Azure CNI upgrade guidance](https://learn.microsoft.com/azure/aks/update-azure-cni),
+  enable the runner's `podDisruptionBudget` first, and do not let a
+  `terraform apply` be the first thing that attempts it.
+- Removing it again, or changing `pod_cidr` once set, **replaces the cluster**.
+
+### Network policy
+
+The runner chart creates NetworkPolicy objects by default
+(`networkPolicy.enabled: true`) to limit what runner and script-runner pods can
+reach. Kubernetes only stores those objects; a **network policy engine** enforces
+them. Without `network_policy` set the cluster has no engine, the policies do
+nothing, and on a shared cluster one tenant's pods can reach another's.
+
+Microsoft recommends Cilium, which is one choice made in two inputs and runs on
+overlay:
+
+```hcl
+network_plugin_mode = "overlay"
+network_policy      = "cilium"
+network_data_plane  = "cilium"
+```
+
+The module fails the plan if `network_policy = "cilium"` and
+`network_data_plane = "cilium"` are not set together, or if the Cilium data plane
+is chosen without overlay — Azure runs it only on overlay or a dedicated pod
+subnet, and this module offers overlay. `calico` and `azure` run on the default
+`azure` data plane in either networking mode. Azure Network Policy Manager
+(`azure`) loses support on Linux nodes on 30 September 2028, so prefer Cilium
+for new clusters.
+
+On an existing cluster:
+
+- Adding `calico` or `azure` installs the engine in place but **reimages every
+  node pool at once**.
+- Moving the data plane from `azure` to `cilium`, or the policy from `azure` or
+  `calico` to `cilium`, is an in-place upgrade that reimages every node. See
+  [Upgrade to Azure CNI Powered by Cilium](https://learn.microsoft.com/azure/aks/upgrade-aks-ipam-and-dataplane).
+- Changing to any other engine **replaces the cluster**. Setting
+  `network_policy` back to null does not remove an installed engine: the
+  provider reads the current engine back and plans no change.
 
 ## Service Principal Setup
 

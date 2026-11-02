@@ -209,12 +209,24 @@ resource "aws_eks_fargate_profile" "fargate_profile" {
 # Patch CoreDNS to run on Fargate nodes
 # EKS Fargate nodes have the eks.amazonaws.com/compute-type=fargate taint
 # which CoreDNS doesn't tolerate by default
+#
+# The patch talks to the cluster through a throwaway kubeconfig rather than the
+# operator's own. Without --kubeconfig, update-kubeconfig writes into
+# ~/.kube/config and switches its current context to this cluster, so whatever
+# the operator runs next lands here instead of where they were working
+# (DPC-58374). The auth_config_command output is there for adding the cluster
+# deliberately.
 resource "terraform_data" "coredns_fargate_patch" {
   depends_on = [aws_eks_fargate_profile.fargate_profile]
 
   provisioner "local-exec" {
-    command = <<-EOT
-      aws eks update-kubeconfig --region ${var.region} --name ${aws_eks_cluster.eks_cluster.name}
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      KUBECONFIG="$(mktemp)"
+      export KUBECONFIG
+      trap 'rm -f "$KUBECONFIG"' EXIT
+      aws eks update-kubeconfig --region ${var.region} --name ${aws_eks_cluster.eks_cluster.name} --kubeconfig "$KUBECONFIG"
       kubectl patch deployment coredns -n kube-system --type json \
         -p='[{"op": "add", "path": "/spec/template/spec/tolerations/-", "value": {"key": "eks.amazonaws.com/compute-type", "operator": "Equal", "value": "fargate", "effect": "NoSchedule"}}]'
     EOT
