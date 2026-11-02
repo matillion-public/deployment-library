@@ -17,16 +17,22 @@ resource "aws_vpc" "main_vpc" {
 }
 
 locals {
-  vpc_id                     = var.use_existing_vpc ? var.vpc_id : aws_vpc.main_vpc[0].id
-  runner_keypair_secret_name = var.runner_keypair_secret_name != "" ? var.runner_keypair_secret_name : join("-", [var.name, "runner-keypair"])
+  vpc_id = var.use_existing_vpc ? var.vpc_id : aws_vpc.main_vpc[0].id
 }
 
 data "aws_vpc" "vpc" {
   id = local.vpc_id
 }
 
+# Zone IDs, unlike zone names, are the same in every account. These are the zones EKS cannot place a control plane in
+# (use1-az3, usw1-az2, cac1-az3), excluded here so both runner deployments select from the same set of zones.
+locals {
+  unsupported_zone_ids = ["use1-az3", "usw1-az2", "cac1-az3"]
+}
+
 data "aws_availability_zones" "available" {
-  state = "available"
+  state            = "available"
+  exclude_zone_ids = local.unsupported_zone_ids
 }
 
 # Look up existing subnets to avoid CIDR conflicts when creating subnets in an existing VPC
@@ -88,6 +94,11 @@ locals {
 resource "random_shuffle" "aws_availability_zone_names" {
   input        = data.aws_availability_zones.available.names
   result_count = 2
+
+  # Changing the input forces a new shuffle, which would replace the subnets of existing deployments.
+  lifecycle {
+    ignore_changes = [input]
+  }
 }
 
 resource "aws_internet_gateway" "igw" {
@@ -164,12 +175,13 @@ module "secert_manager" {
 
   name        = join("-", [var.name, random_string.salt.result])
   secret_name = var.secret_name
+  tags        = var.tags
 
   client_id     = var.client_id
   client_secret = var.client_secret
 
   enable_keypair_secret      = var.enable_script_runner
-  runner_keypair_secret_name = local.runner_keypair_secret_name
+  runner_keypair_secret_name = var.runner_keypair_secret_name
   runner_authorized_keys     = var.runner_authorized_keys
 }
 
@@ -199,8 +211,12 @@ module "runner" {
   vpc_id             = data.aws_vpc.vpc.id
   subnet_ids         = var.use_existing_subnet ? var.subnet_ids : aws_subnet.ecs_subnet[*].id
   security_group_ids = var.use_existing_security_group ? var.security_group_ids : [aws_security_group.ecs_security_group[0].id]
-  create_bucket      = var.create_bucket
-  image_url          = var.image_url
+
+  metrics_ingress_cidr_blocks        = var.metrics_ingress_cidr_blocks
+  metrics_ingress_security_group_ids = var.metrics_ingress_security_group_ids
+  metrics_ingress_ports              = var.metrics_ingress_ports
+  create_bucket                      = var.create_bucket
+  image_url                          = var.image_url
 
   extension_library_location = var.extension_library_location
   proxy_http                 = var.proxy_http

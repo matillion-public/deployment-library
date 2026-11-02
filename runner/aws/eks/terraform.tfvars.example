@@ -22,9 +22,9 @@ existing_subnet_ids = []              # Private subnet IDs (required if use_exis
                                       # Example: ["subnet-abc123", "subnet-def456"]
 
 # CIDR block for VPC (used when creating new VPC or subnets)
-cidr_block = "172.5.0.0/16"          # Default creates:
-                                      # - Public: 172.5.0.0/24, 172.5.1.0/24
-                                      # - Private: 172.5.2.0/24, 172.5.3.0/24
+cidr_block = "10.0.0.0/16"          # Default creates:
+                                      # - Public: 10.0.0.0/24, 10.0.1.0/24
+                                      # - Private: 10.0.2.0/24, 10.0.3.0/24
 
 # -----------------------------------------------------------------------------
 # AWS Configuration
@@ -63,7 +63,7 @@ authorized_ip_ranges = ["0.0.0.0/0"]  # CIDR blocks allowed to access the public
 # ------------------------------------------
 # use_existing_vpc      = false
 # use_existing_subnet   = false
-# cidr_block           = "172.5.0.0/16"
+# cidr_block           = "10.0.0.0/16"
 # region               = "us-east-1"
 
 # Example 2: Use existing VPC, create new subnets
@@ -71,7 +71,7 @@ authorized_ip_ranges = ["0.0.0.0/0"]  # CIDR blocks allowed to access the public
 # use_existing_vpc      = true
 # existing_vpc_id       = "vpc-0123456789abcdef0"
 # use_existing_subnet   = false
-# cidr_block           = "172.5.0.0/16"  # Must match VPC CIDR
+# cidr_block           = "10.0.0.0/16"  # Must match VPC CIDR
 # region               = "us-east-1"
 
 # Example 3: Use existing VPC and existing private subnets (for Fargate)

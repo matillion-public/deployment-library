@@ -16,7 +16,7 @@ variable "existing_vpc_id" {
 
 variable "cidr_block" {
   type    = string
-  default = "172.5.0.0/16"
+  default = "10.0.0.0/16"
 
 }
 
@@ -63,7 +63,7 @@ variable "enable_sqs_pipeline_trigger" {
 }
 
 variable "sqs_adapter_image_uri" {
-  description = "Container image URI (arm64) for the SQS->DPC adapter Lambda. Required when enable_sqs_pipeline_trigger = true."
+  description = "Private ECR image URI (arm64) for the SQS->DPC adapter Lambda, in the same region as the function. Lambda will not run an ECR Public image: copy public.ecr.aws/matillion/maia-queue-adapter:<version>-arm64 into your own ECR first (see the maia-queueing-adapter README). Required when enable_sqs_pipeline_trigger = true."
   type        = string
   default     = ""
 }

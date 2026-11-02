@@ -119,7 +119,7 @@ authorized_ip_ranges  = ["0.0.0.0/0"]  # Restrict in production
 # Networking Configuration
 use_existing_vpc      = false
 existing_vpc_id       = ""
-cidr_block           = "172.5.0.0/16"
+cidr_block           = "10.0.0.0/16"
 use_existing_subnet   = false
 existing_subnet_ids   = []
 
@@ -267,7 +267,7 @@ aws ec2 describe-route-tables --route-table-ids $ROUTE_TABLE_ID \
 use_existing_vpc      = true
 existing_vpc_id       = "vpc-12345678"
 use_existing_subnet   = false
-cidr_block           = "172.5.0.0/16"  # Should match existing VPC CIDR
+cidr_block           = "10.0.0.0/16"  # Should match existing VPC CIDR
 
 # Terraform will create within the existing VPC:
 # - 2 public subnets with Internet Gateway access
@@ -279,13 +279,13 @@ cidr_block           = "172.5.0.0/16"  # Should match existing VPC CIDR
 #### New VPC Creation
 ```hcl
 use_existing_vpc      = false
-cidr_block           = "172.5.0.0/16"
+cidr_block           = "10.0.0.0/16"
 
 # Terraform will create:
 # - New VPC with specified CIDR block
 # - Internet Gateway
-# - 2 public subnets (172.5.0.0/24, 172.5.1.0/24)
-# - 2 private subnets (172.5.2.0/24, 172.5.3.0/24)
+# - 2 public subnets (10.0.0.0/24, 10.0.1.0/24)
+# - 2 private subnets (10.0.2.0/24, 10.0.3.0/24)
 # - 2 NAT Gateways (one per AZ for high availability)
 # - 2 Elastic IPs for NAT Gateways
 # - Public route table (routes to Internet Gateway)
@@ -294,14 +294,28 @@ cidr_block           = "172.5.0.0/16"
 
 **Network Architecture**:
 ```
-VPC (172.5.0.0/16)
-├── Public Subnet 1 (172.5.0.0/24) → Internet Gateway
+VPC (10.0.0.0/16)
+├── Public Subnet 1 (10.0.0.0/24) → Internet Gateway
 │   └── NAT Gateway 1
-├── Public Subnet 2 (172.5.1.0/24) → Internet Gateway
+├── Public Subnet 2 (10.0.1.0/24) → Internet Gateway
 │   └── NAT Gateway 2
-├── Private Subnet 1 (172.5.2.0/24) → NAT Gateway 1 (for Fargate)
-└── Private Subnet 2 (172.5.3.0/24) → NAT Gateway 2 (for Fargate)
+├── Private Subnet 1 (10.0.2.0/24) → NAT Gateway 1 (for Fargate)
+└── Private Subnet 2 (10.0.3.0/24) → NAT Gateway 2 (for Fargate)
 ```
+
+#### Upgrading deployments that used the default `cidr_block`
+
+The default `cidr_block` changed from `172.5.0.0/16` to `10.0.0.0/16`. `172.5.0.0/16` is not RFC 1918 private address space.
+
+A VPC CIDR cannot be changed in place. A deployment with `use_existing_vpc = false` that relied on the old default has `172.5.0.0/16` in state, and applying with the new default plans a VPC replacement that destroys the whole deployment. Before upgrading, set the old value explicitly:
+
+```hcl
+cidr_block = "172.5.0.0/16"
+```
+
+Confirm `terraform plan` shows no change to `aws_vpc` before applying. Deployments that already set `cidr_block`, and deployments with `use_existing_vpc = true` (the VPC is not managed by this configuration), are unaffected.
+
+`10.0.0.0/16` is a common VPC range. For a new deployment that will be peered or attached to a Transit Gateway, set `cidr_block` to a range that does not overlap the networks it connects to.
 
 ### Runner Configuration with Helm
 
@@ -435,12 +449,14 @@ Deploy Prometheus for advanced monitoring:
 cd ../../helm/prometheus
 
 # Install Prometheus stack
+# Install into `prometheus`: it's the namespace the module's Fargate profile
+# covers. A pod in any other namespace has nowhere to run and stays Pending.
 helm install prometheus . \
   --create-namespace \
-  --namespace monitoring
+  --namespace prometheus
 
 # Access Prometheus UI (port-forward)
-kubectl port-forward -n monitoring svc/prometheus-server 9090:80
+kubectl port-forward -n prometheus svc/prometheus-server 9090:80
 ```
 
 ### Log Aggregation
@@ -544,7 +560,7 @@ When enabled, network policies restrict pod communication:
 # Enable network policies in values file
 networkPolicy:
   enabled: true
-  prometheusNamespace: monitoring
+  prometheusNamespace: prometheus
   allowHttp: true
 ```
 
@@ -672,6 +688,38 @@ kubectl describe resourcequota
 # View HPA metrics
 kubectl get --raw /apis/metrics.k8s.io/v1beta1/pods
 ```
+
+## Script runner sizing and scaling
+
+How many sessions a pod holds, how many pods to run, and when to turn on the
+HPA are the same on every cloud. They're in
+[Sizing the script runner](../../helm/README.md#sizing-the-script-runner). This
+section covers what is specific to EKS.
+
+- **No node headroom to plan.** This module runs the `matillion`,
+  `kube-system` and `prometheus` namespaces on **Fargate**, which gives each pod
+  its own capacity. Scaling out never waits on a node autoscaler; each new pod
+  takes the normal Fargate start time instead, usually under a minute before
+  sshd is ready. On a cluster with your own node groups, the HPA needs
+  Karpenter or Cluster Autoscaler to add nodes, or the new pods stay Pending.
+- **Fargate sizes the pod from its requests, not its limits**, rounded up to
+  the nearest supported CPU and memory combination, and bills that. Check what
+  a pod actually got in its `CapacityProvisioned` annotation. A `small` script
+  runner therefore gets about 1 vCPU, not the 2 vCPU limit, so there's no CPU
+  burst: a burst of script starts takes roughly twice the times in the sizing
+  guide. Where many scripts start together, size up for CPU rather than
+  counting on the limit.
+- **Prometheus runs in the `prometheus` namespace**, the one the Fargate
+  profile covers (see [Prometheus Integration](#prometheus-integration-optional)).
+  Install the runner chart
+  with `networkPolicy.prometheusNamespace=prometheus`, and the prometheus chart
+  with `networkPolicy.additionalScrapeNamespaces={matillion}`. Fargate pods
+  don't enforce NetworkPolicy, so both settings take effect only if the same
+  release later runs on EC2 nodes, but they keep the config correct for that
+  case.
+- **metrics-server isn't installed, and the script runner HPA doesn't need
+  it.** It scales on `script_runner_active_sessions` through the prometheus
+  adapter, not on CPU.
 
 ## Cost Optimization
 
@@ -810,8 +858,8 @@ If migrating from ECS Fargate:
 helm uninstall matillion-runner
 
 # Remove monitoring (if installed)
-helm uninstall prometheus -n monitoring
-kubectl delete namespace monitoring
+helm uninstall prometheus -n prometheus
+kubectl delete namespace prometheus
 ```
 
 ### Destroy Infrastructure
