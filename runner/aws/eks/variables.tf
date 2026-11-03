@@ -16,7 +16,7 @@ variable "existing_vpc_id" {
 
 variable "cidr_block" {
   type    = string
-  default = "172.5.0.0/16"
+  default = "10.0.0.0/16"
 
 }
 
@@ -48,6 +48,24 @@ variable "is_private_cluster" {
   default = true
 }
 
+variable "namespace" {
+  type        = string
+  default     = "matillion"
+  description = "Kubernetes namespace the runner is installed into. The IRSA role trusts service accounts in this namespace only."
+}
+
+variable "service_account_name" {
+  type        = string
+  default     = "matillion-runner-sa"
+  description = "Runner service account name. Must match serviceAccount.name in the Helm values."
+}
+
+variable "script_runner_service_account_name" {
+  type        = string
+  default     = "matillion-runner-script-runner-sa"
+  description = "Script runner service account name. Must match the name the chart renders: scriptRunner.serviceAccount.name, or <fullname>-script-runner-sa when that is empty."
+}
+
 variable "authorized_ip_ranges" {
   type    = list(string)
   default = ["0.0.0.0/0"]
@@ -63,7 +81,7 @@ variable "enable_sqs_pipeline_trigger" {
 }
 
 variable "sqs_adapter_image_uri" {
-  description = "Container image URI (arm64) for the SQS->DPC adapter Lambda. Required when enable_sqs_pipeline_trigger = true."
+  description = "Private ECR image URI (arm64) for the SQS->DPC adapter Lambda, in the same region as the function. Lambda will not run an ECR Public image: copy public.ecr.aws/matillion/maia-queue-adapter:<version>-arm64 into your own ECR first (see the maia-queueing-adapter README). Required when enable_sqs_pipeline_trigger = true."
   type        = string
   default     = ""
 }
