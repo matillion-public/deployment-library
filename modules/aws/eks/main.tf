@@ -145,39 +145,39 @@ resource "aws_iam_openid_connect_provider" "eks" {
   tags            = var.tags
 }
 
-# Create IAM role for service accounts with S3 and Secrets Manager access
-data "aws_iam_policy_document" "service_account_assume_role_policy" {
-  statement {
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-    effect  = "Allow"
+locals {
+  oidc_provider_path = replace(aws_iam_openid_connect_provider.eks.url, "https://", "")
 
-    condition {
-      test     = "StringLike"
-      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub"
-      values = [
-        "system:serviceaccount:matillion:matillion-runner-sa",
-        "system:serviceaccount:*:matillion-runner-sa",
-        "system:serviceaccount:*:*-script-runner-sa"
-      ] # runner SA (any namespace) + script-runner SA (any release name / namespace)
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-
-    principals {
-      identifiers = [aws_iam_openid_connect_provider.eks.arn]
-      type        = "Federated"
-    }
-  }
+  service_account_subjects = [
+    "system:serviceaccount:${var.namespace}:${var.service_account_name}",
+    "system:serviceaccount:${var.namespace}:${var.script_runner_service_account_name}",
+  ]
 }
 
+# Create IAM role for service accounts with S3 and Secrets Manager access
 resource "aws_iam_role" "service_account_role" {
-  name               = lookup(var.resource_names, "service_account_role", join("-", [var.name, "service-account-role", var.random_string_salt]))
-  assume_role_policy = data.aws_iam_policy_document.service_account_assume_role_policy.json
-  tags               = var.tags
+  name = lookup(var.resource_names, "service_account_role", join("-", [var.name, "service-account-role", var.random_string_salt]))
+  tags = var.tags
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.eks.arn
+      }
+      Action = ["sts:AssumeRoleWithWebIdentity"]
+      Condition = {
+        # StringEquals with exact subjects. A StringLike pattern such as
+        # `system:serviceaccount:*:...` lets a service account of that name in any
+        # namespace assume this role.
+        StringEquals = {
+          "${local.oidc_provider_path}:aud" = "sts.amazonaws.com"
+          "${local.oidc_provider_path}:sub" = local.service_account_subjects
+        }
+      }
+    }]
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "service_account_dpc_policy" {
@@ -192,7 +192,7 @@ resource "aws_eks_fargate_profile" "fargate_profile" {
   subnet_ids             = length(var.fargate_subnet_ids) > 0 ? var.fargate_subnet_ids : var.subnet_ids
 
   selector {
-    namespace = "matillion"
+    namespace = var.namespace
   }
 
   selector {
@@ -209,12 +209,24 @@ resource "aws_eks_fargate_profile" "fargate_profile" {
 # Patch CoreDNS to run on Fargate nodes
 # EKS Fargate nodes have the eks.amazonaws.com/compute-type=fargate taint
 # which CoreDNS doesn't tolerate by default
+#
+# The patch talks to the cluster through a throwaway kubeconfig rather than the
+# operator's own. Without --kubeconfig, update-kubeconfig writes into
+# ~/.kube/config and switches its current context to this cluster, so whatever
+# the operator runs next lands here instead of where they were working
+# (DPC-58374). The auth_config_command output is there for adding the cluster
+# deliberately.
 resource "terraform_data" "coredns_fargate_patch" {
   depends_on = [aws_eks_fargate_profile.fargate_profile]
 
   provisioner "local-exec" {
-    command = <<-EOT
-      aws eks update-kubeconfig --region ${var.region} --name ${aws_eks_cluster.eks_cluster.name}
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      KUBECONFIG="$(mktemp)"
+      export KUBECONFIG
+      trap 'rm -f "$KUBECONFIG"' EXIT
+      aws eks update-kubeconfig --region ${var.region} --name ${aws_eks_cluster.eks_cluster.name} --kubeconfig "$KUBECONFIG"
       kubectl patch deployment coredns -n kube-system --type json \
         -p='[{"op": "add", "path": "/spec/template/spec/tolerations/-", "value": {"key": "eks.amazonaws.com/compute-type", "operator": "Equal", "value": "fargate", "effect": "NoSchedule"}}]'
     EOT

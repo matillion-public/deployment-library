@@ -62,3 +62,21 @@ variable "resource_names" {
   type        = map(string)
   default     = {}
 }
+
+variable "namespace" {
+  description = "Kubernetes namespace the runner is installed into. The IRSA role trusts service accounts in this namespace only."
+  type        = string
+  default     = "matillion"
+}
+
+variable "service_account_name" {
+  description = "Runner service account name. Must match serviceAccount.name in the Helm values; the chart default is matillion-runner-sa."
+  type        = string
+  default     = "matillion-runner-sa"
+}
+
+variable "script_runner_service_account_name" {
+  description = "Script runner service account name. Must match the name the chart renders, which is scriptRunner.serviceAccount.name or, when empty, <fullname>-script-runner-sa. For `helm install matillion-runner` the chart renders matillion-runner-script-runner-sa."
+  type        = string
+  default     = "matillion-runner-script-runner-sa"
+}

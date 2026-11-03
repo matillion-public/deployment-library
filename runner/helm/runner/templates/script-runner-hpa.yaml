@@ -1,0 +1,36 @@
+---
+{{- if and .Values.scriptRunner.enabled .Values.scriptRunner.hpa.enabled }}
+{{- if not .Values.scriptRunner.metrics.enabled }}
+{{- fail "scriptRunner.hpa.enabled needs scriptRunner.metrics.enabled: the HPA scales on the runner's script_runner_active_sessions metric" }}
+{{- end }}
+{{- $target := required "scriptRunner.hpa.targetSessionsPerPod is required when scriptRunner.hpa.enabled is true" .Values.scriptRunner.hpa.targetSessionsPerPod }}
+{{- if le (float64 $target) 0.0 }}
+{{- fail (printf "scriptRunner.hpa.targetSessionsPerPod=%v: must be above 0" $target) }}
+{{- end }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "matillion-runner.scriptRunner.fullname" . }}-hpa
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "matillion-runner.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "matillion-runner.scriptRunner.fullname" . }}
+  minReplicas: {{ .Values.scriptRunner.hpa.minReplicas }}
+  maxReplicas: {{ .Values.scriptRunner.hpa.maxReplicas }}
+  metrics:
+  # One session per Script Pushdown execution in flight, served by the
+  # prometheus chart's adapter (DPC-55686).
+  - type: Pods
+    pods:
+      metric:
+        name: script_runner_active_sessions
+      target:
+        type: AverageValue
+        averageValue: {{ $target | quote }}
+  behavior:
+    {{- toYaml .Values.scriptRunner.hpa.behavior | nindent 4 }}
+{{- end }}

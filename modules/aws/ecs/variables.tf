@@ -234,3 +234,45 @@ variable "resource_names" {
   type        = map(string)
   default     = {}
 }
+
+variable "metrics_ingress_cidr_blocks" {
+  description = <<-EOT
+    CIDR blocks allowed to scrape the runner's Prometheus metrics on
+    metrics_ingress_ports. Empty by default: no ingress rule is created and the
+    metrics endpoints stay unreachable from outside the task, as before.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.metrics_ingress_cidr_blocks : can(cidrnetmask(c))])
+    error_message = "metrics_ingress_cidr_blocks must contain valid IPv4 CIDR blocks, e.g. 10.0.0.0/16."
+  }
+
+  validation {
+    condition     = !contains(var.metrics_ingress_cidr_blocks, "0.0.0.0/0")
+    error_message = "metrics_ingress_cidr_blocks must not include 0.0.0.0/0. The metrics endpoints are unauthenticated; name the scraper's network instead."
+  }
+}
+
+variable "metrics_ingress_security_group_ids" {
+  description = "Security groups (e.g. a Prometheus task's) allowed to scrape the runner's metrics on metrics_ingress_ports. Empty by default."
+  type        = list(string)
+  default     = []
+}
+
+variable "metrics_ingress_ports" {
+  description = <<-EOT
+    Runner metrics ports opened to the sources above: 9464 is the OpenTelemetry
+    endpoint (/metrics), 8080 the deprecated Micrometer one
+    (/actuator/prometheus). 8080 also serves the runner's actuator health and
+    info endpoints, so drop it to expose OpenTelemetry metrics only.
+  EOT
+  type        = list(number)
+  default     = [9464, 8080]
+
+  validation {
+    condition     = length(var.metrics_ingress_ports) > 0 && alltrue([for p in var.metrics_ingress_ports : p >= 1 && p <= 65535])
+    error_message = "metrics_ingress_ports must contain at least one port between 1 and 65535."
+  }
+}
