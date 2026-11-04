@@ -14,9 +14,14 @@ config:
   oauthClientId: "your-oauth-client-id"
   oauthClientSecret: "your-oauth-client-secret"
 
-serviceAccount:
-  # Optional: Override the default service account name
-  name: ""
+# Service account names are pinned to the ones this repo's Terraform creates
+# its workload-identity bindings for: matillion-runner-sa for the runner (the
+# chart default) and matillion-runner-script-runner-sa for the script runner
+# (pinned at the end of this file). An empty name falls back to a
+# release-derived one, which only matches when the release is called
+# matillion-runner; any other release then can't obtain cloud credentials and
+# never becomes ready. Changing either name means changing the matching
+# Terraform variable too.
 
 dpcAgent:
   dpcAgent:
@@ -120,3 +125,7 @@ podSecurityContext:
 # Example: Schedule pods on specific node pools
 nodeSelector: {}
 #   cloud.google.com/gke-nodepool: default-pool
+
+scriptRunner:
+  serviceAccount:
+    name: matillion-runner-script-runner-sa
