@@ -82,7 +82,7 @@ module "queue_adapter" {
   location                     = var.location
   resource_group_name          = var.resource_group_name
   container_app_environment_id = module.container_apps.container_app_environment_id
-  image                        = "${var.acr_login_server}/maia-queue-adapter-azure:current"
+  image                        = "${var.acr_login_server}/maia-queue-adapter:current"
   container_acr_id             = var.acr_id
   key_vault_id                 = module.container_apps.key_vault_id
   key_vault_url                = module.container_apps.key_vault_uri
