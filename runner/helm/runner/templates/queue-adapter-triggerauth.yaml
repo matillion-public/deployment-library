@@ -1,7 +1,9 @@
 ---
-{{- if .Values.queueAdapter.enabled }}
-# KEDA authenticates the Service Bus queue-depth scaler via Azure Workload
-# Identity (no connection string), matching the adapter pod's own auth.
+{{- $aws := eq (include "matillion-runner.cloudProvider" .) "aws" }}
+{{- if and .Values.queueAdapter.enabled (or (not $aws) (include "matillion-runner.queueAdapter.aws.usesKeda" .)) }}
+# KEDA authenticates the queue-depth scaler with the adapter's own identity, so
+# no connection string or access key is stored: Azure Workload Identity on
+# Azure, the IRSA role on the adapter's ServiceAccount on AWS.
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
 metadata:
@@ -11,6 +13,14 @@ metadata:
 {{- include "matillion-runner.labels" . | nindent 4 }}
 spec:
   podIdentity:
+    {{- if $aws }}
+    # identityOwner: workload — KEDA assumes the role named on the workload's
+    # ServiceAccount, using its own IRSA identity. That role's trust policy must
+    # allow the KEDA operator's role to assume it (see queueAdapter.aws in values).
+    provider: aws
+    identityOwner: workload
+    {{- else }}
     provider: azure-workload
     identityId: {{ required "queueAdapter.serviceAccount.clientId is required when queueAdapter.enabled" .Values.queueAdapter.serviceAccount.clientId | quote }}
+    {{- end }}
 {{- end }}

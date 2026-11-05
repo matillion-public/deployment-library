@@ -1,9 +1,10 @@
 ---
-{{- if .Values.queueAdapter.enabled }}
+{{- if and .Values.queueAdapter.enabled (ne (include "matillion-runner.cloudProvider" .) "aws") }}
 # Azure Queue (Service Bus) → Maia Foundations pipeline-trigger adapter, run as a
 # KEDA ScaledJob: one Job per scale event drains the queue and exits. Uses the
 # same maia-queue-adapter image and the same azure-servicebus trigger definition
-# as the managed Container App Job path (agent-deployment TF module).
+# as the managed Container App Job path (agent-deployment TF module). The AWS
+# (EKS) path is in queue-adapter-aws.yaml.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledJob
 metadata:
