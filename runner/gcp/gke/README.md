@@ -2,6 +2,8 @@
 
 This directory contains Terraform configurations for deploying the Matillion Maia Runner using Google Kubernetes Engine (GKE) — Google Cloud's managed Kubernetes service.
 
+To put a runner into a GKE cluster you already run, beside other runners, use [`../gke-existing-cluster`](../gke-existing-cluster/) instead. Each runner gets its own namespace, Google service accounts and secrets prefix, and the cluster is left alone.
+
 ## Overview
 
 GKE deployment provides:
@@ -519,6 +521,26 @@ kubectl exec -it <pod-name> -n matillion -- \
   curl -H "Metadata-Flavor: Google" \
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email"
 ```
+
+## Script runner sizing and scaling
+
+How many sessions a pod holds, how many pods to run, and when to turn on the
+HPA are the same on every cloud. They're in
+[Sizing the script runner](../../helm/README.md#sizing-the-script-runner). This
+section covers what is specific to GKE.
+
+- **The node pool only grows by two.** This module's node pool autoscales from
+  `desired_node_count` to `desired_node_count + 2`, and the `+ 2` isn't a
+  variable. When the agent and script runner HPAs together need more than that,
+  new pods stay Pending. Raise `desired_node_count` (which also raises the
+  billed floor), or run the script runner in its own node pool.
+- **Autopilot** (a cluster you bring, not one this module creates) sets each
+  pod's resources itself. It can lower the CPU limit to match the request,
+  removing the burst headroom that lets many scripts start at once, and it
+  bills on requests. If you run on Autopilot, size up rather than relying on
+  the CPU limit.
+- **Prometheus runs in `monitoring`** when installed as this README describes,
+  which matches the runner chart's default `networkPolicy.prometheusNamespace`.
 
 ## Cleanup
 
