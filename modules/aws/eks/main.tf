@@ -1,9 +1,5 @@
 # modules/aws/eks/main.tf
 
-provider "aws" {
-  region = var.region
-}
-
 resource "aws_iam_role" "eks_role" {
   name = lookup(var.resource_names, "eks_role", join("-", [var.name, "eks-role", var.random_string_salt]))
 
@@ -41,7 +37,45 @@ resource "aws_eks_cluster" "eks_cluster" {
     security_group_ids      = var.security_group_ids
   }
 
+  access_config {
+    authentication_mode = var.authentication_mode
+
+    # The provider treats an unset value as false on create, which leaves the creating
+    # principal without an access entry. It records true in state for clusters that
+    # predate access_config, so leaving it unset plans a replacement of those clusters.
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
   tags = var.tags
+}
+
+resource "aws_eks_access_entry" "admin" {
+  for_each = toset(var.additional_admin_principal_arns)
+
+  cluster_name  = aws_eks_cluster.eks_cluster.name
+  principal_arn = each.value
+  type          = "STANDARD"
+
+  tags = var.tags
+
+  lifecycle {
+    precondition {
+      condition     = var.authentication_mode != "CONFIG_MAP"
+      error_message = "additional_admin_principal_arns requires authentication_mode API_AND_CONFIG_MAP or API; access entries do not exist in CONFIG_MAP mode."
+    }
+  }
+}
+
+resource "aws_eks_access_policy_association" "admin" {
+  for_each = aws_eks_access_entry.admin
+
+  cluster_name  = aws_eks_cluster.eks_cluster.name
+  principal_arn = each.value.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
 }
 
 resource "aws_eks_addon" "vpc-cni" {
@@ -145,39 +179,39 @@ resource "aws_iam_openid_connect_provider" "eks" {
   tags            = var.tags
 }
 
-# Create IAM role for service accounts with S3 and Secrets Manager access
-data "aws_iam_policy_document" "service_account_assume_role_policy" {
-  statement {
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-    effect  = "Allow"
+locals {
+  oidc_provider_path = replace(aws_iam_openid_connect_provider.eks.url, "https://", "")
 
-    condition {
-      test     = "StringLike"
-      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub"
-      values = [
-        "system:serviceaccount:matillion:matillion-runner-sa",
-        "system:serviceaccount:*:matillion-runner-sa",
-        "system:serviceaccount:*:*-script-runner-sa"
-      ] # runner SA (any namespace) + script-runner SA (any release name / namespace)
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-
-    principals {
-      identifiers = [aws_iam_openid_connect_provider.eks.arn]
-      type        = "Federated"
-    }
-  }
+  service_account_subjects = [
+    "system:serviceaccount:${var.namespace}:${var.service_account_name}",
+    "system:serviceaccount:${var.namespace}:${var.script_runner_service_account_name}",
+  ]
 }
 
+# Create IAM role for service accounts with S3 and Secrets Manager access
 resource "aws_iam_role" "service_account_role" {
-  name               = lookup(var.resource_names, "service_account_role", join("-", [var.name, "service-account-role", var.random_string_salt]))
-  assume_role_policy = data.aws_iam_policy_document.service_account_assume_role_policy.json
-  tags               = var.tags
+  name = lookup(var.resource_names, "service_account_role", join("-", [var.name, "service-account-role", var.random_string_salt]))
+  tags = var.tags
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.eks.arn
+      }
+      Action = ["sts:AssumeRoleWithWebIdentity"]
+      Condition = {
+        # StringEquals with exact subjects. A StringLike pattern such as
+        # `system:serviceaccount:*:...` lets a service account of that name in any
+        # namespace assume this role.
+        StringEquals = {
+          "${local.oidc_provider_path}:aud" = "sts.amazonaws.com"
+          "${local.oidc_provider_path}:sub" = local.service_account_subjects
+        }
+      }
+    }]
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "service_account_dpc_policy" {
@@ -192,7 +226,7 @@ resource "aws_eks_fargate_profile" "fargate_profile" {
   subnet_ids             = length(var.fargate_subnet_ids) > 0 ? var.fargate_subnet_ids : var.subnet_ids
 
   selector {
-    namespace = "matillion"
+    namespace = var.namespace
   }
 
   selector {
@@ -206,19 +240,30 @@ resource "aws_eks_fargate_profile" "fargate_profile" {
   tags = var.tags
 }
 
-# Patch CoreDNS to run on Fargate nodes
-# EKS Fargate nodes have the eks.amazonaws.com/compute-type=fargate taint
-# which CoreDNS doesn't tolerate by default
-resource "terraform_data" "coredns_fargate_patch" {
-  depends_on = [aws_eks_fargate_profile.fargate_profile]
+# CoreDNS runs on Fargate nodes, which carry the eks.amazonaws.com/compute-type=fargate
+# taint that CoreDNS does not tolerate by default. The toleration is supplied through the
+# addon configuration, so it is applied through the AWS API and needs no access to the
+# cluster endpoint. The addon waits for CoreDNS to become healthy, so the Fargate profile
+# must exist first.
+resource "aws_eks_addon" "coredns" {
+  cluster_name = aws_eks_cluster.eks_cluster.name
+  addon_name   = "coredns"
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      aws eks update-kubeconfig --region ${var.region} --name ${aws_eks_cluster.eks_cluster.name}
-      kubectl patch deployment coredns -n kube-system --type json \
-        -p='[{"op": "add", "path": "/spec/template/spec/tolerations/-", "value": {"key": "eks.amazonaws.com/compute-type", "operator": "Equal", "value": "fargate", "effect": "NoSchedule"}}]'
-    EOT
-  }
+  # Clusters created by earlier versions of this module have a self-managed CoreDNS
+  # deployment that was patched with kubectl. OVERWRITE lets the addon adopt it; the
+  # configuration below reproduces that patch.
+  resolve_conflicts_on_create = "OVERWRITE"
+
+  configuration_values = jsonencode({
+    tolerations = [{
+      key      = "eks.amazonaws.com/compute-type"
+      operator = "Equal"
+      value    = "fargate"
+      effect   = "NoSchedule"
+    }]
+  })
+
+  depends_on = [aws_eks_fargate_profile.fargate_profile]
 }
 
 resource "aws_s3_bucket" "log_bucket" {

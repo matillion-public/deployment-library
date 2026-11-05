@@ -6,26 +6,31 @@ output "aks_identity_principal_id" {
   value = azurerm_user_assigned_identity.aks_identity.principal_id
 }
 
+# kube_config is sensitive in the provider schema, so these values already are.
+# Declaring it lets the module be planned as a root module, which is how
+# `terraform test` runs it.
 output "k8s_host" {
-  value = azurerm_kubernetes_cluster.aks_cluster.kube_config.0.host
+  value     = azurerm_kubernetes_cluster.aks_cluster.kube_config.0.host
+  sensitive = true
 }
 
 output "client_certificate" {
-  value = base64decode(azurerm_kubernetes_cluster.aks_cluster.kube_config.0.client_certificate)
+  value     = base64decode(azurerm_kubernetes_cluster.aks_cluster.kube_config.0.client_certificate)
+  sensitive = true
 }
 
 output "client_key" {
-  value = base64decode(azurerm_kubernetes_cluster.aks_cluster.kube_config.0.client_key)
-
+  value     = base64decode(azurerm_kubernetes_cluster.aks_cluster.kube_config.0.client_key)
+  sensitive = true
 }
 
 output "cluster_ca_certificate" {
-  value = base64decode(azurerm_kubernetes_cluster.aks_cluster.kube_config.0.cluster_ca_certificate)
-
+  value     = base64decode(azurerm_kubernetes_cluster.aks_cluster.kube_config.0.cluster_ca_certificate)
+  sensitive = true
 }
 
 output "runner_workload_identity_client_id" {
-  value = var.workload_identity_enabled ? azurerm_user_assigned_identity.runner_workload_identity[0].client_id : ""
+  value = local.create_runner_identity ? azurerm_user_assigned_identity.runner_workload_identity[0].client_id : ""
 }
 
 output "oidc_issuer_url" {
