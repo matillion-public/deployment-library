@@ -79,6 +79,19 @@ variable "storage_account_id" {
   default     = ""
 }
 
+variable "storage_container_name" {
+  type        = string
+  description = "Blob container in storage_account_id to scope Storage Blob Data Contributor to. Empty, the default, grants it on the whole account. Set this when several tenants share one storage account: an account-scoped grant lets every tenant's runner read and write every other tenant's blobs. The container must already exist."
+  default     = ""
+
+  validation {
+    # Azure container naming: 3-63 characters of lowercase letters, digits and
+    # single hyphens, starting and ending with a letter or digit.
+    condition     = var.storage_container_name == "" || (can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.storage_container_name)) && length(regexall("--", var.storage_container_name)) == 0)
+    error_message = "storage_container_name must be a valid blob container name: 3-63 lowercase letters, digits and hyphens, starting and ending with a letter or digit, with no consecutive hyphens."
+  }
+}
+
 variable "tags" {
   type        = map(string)
   description = "Tags applied to the managed identity"

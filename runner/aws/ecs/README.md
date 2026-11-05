@@ -374,6 +374,22 @@ ECS automatically performs rolling updates:
 - Starts new tasks with updated configuration
 - Maintains service availability during updates
 
+#### Upgrading from a version with fixed secret names
+
+Earlier versions named the OAuth secret `matillion-oauth-credentials` and, with `enable_script_runner = true`, the keypair secret `<name>-runner-keypair`. The defaults are now `<name>-<salt>-oauth-credentials` and `<name>-<salt>-runner-keypair`.
+
+If `secret_name` and `runner_keypair_secret_name` are not set, the next `terraform apply` replaces both secrets, both task definitions, and updates the ECS services and the task execution role policies. The order is: old task definitions and secret versions are destroyed, the old secrets are destroyed (the previous version leaves them in Secrets Manager for 30 days), the new secrets and task definitions are created, then the services are updated. A task that starts between the old secret being destroyed and the service update may fail to start, because its task definition still references the deleted secret. Apply while the runner is not scaling or restarting tasks.
+
+The old names cannot be reused for 30 days after the apply. Rolling back to the previous version, or setting `secret_name = "matillion-oauth-credentials"`, fails with `a secret with this name is already scheduled for deletion` until the window ends or the secret is removed with `aws secretsmanager delete-secret --force-delete-without-recovery`.
+
+Deployments that set both names explicitly are updated in place and keep their secrets. The module now sets `recovery_window_in_days = 0` on both secrets, so a later deletion is immediate.
+
+#### Upgrading from a version with an EC2 instance profile
+
+Earlier versions created an IAM instance profile `<name>-<salt>-matillion-ecs-task-instance-profile` for the runner task role, and the task role trusted `ec2.amazonaws.com` as well as `ecs-tasks.amazonaws.com`. The runner runs on Fargate and used neither.
+
+The next `terraform apply` destroys the instance profile and updates the task role trust policy in place to trust only `ecs-tasks.amazonaws.com`. The runner tasks are not replaced. If anything outside this module attached the instance profile to an EC2 instance, detach it before applying.
+
 ### Troubleshooting
 
 #### Service Issues
@@ -471,7 +487,7 @@ aws application-autoscaling put-scheduled-action \
 
 ### Metrics
 
-The runner natively exposes Prometheus-compatible metrics at `/actuator/prometheus` on port 8080. For ECS deployments, consider using CloudWatch Container Insights for monitoring.
+The runner exposes Prometheus metrics at `/actuator/prometheus` on port 8080 (deprecated) and, on runner 12.150.3 or later, at `/metrics` on port 9464. Neither port is reachable from outside the task by default; to scrape them, set `metrics_ingress_security_group_ids` or `metrics_ingress_cidr_blocks` (and optionally `metrics_ingress_ports`), described in [Scraping Runner Metrics](../../../modules/aws/ecs/README.md#scraping-runner-metrics). See [Runner Metrics: Moving to the OpenTelemetry Endpoint](../../../blogs/runner-metrics-migration.md).
 
 ## Migration Paths
 
