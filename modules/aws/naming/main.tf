@@ -53,7 +53,6 @@ locals {
     ecs_task_role                     = { type = "role", max_length = 64, charset = "iam", purpose = "ecstask" }
     ecs_task_execution_role           = { type = "role", max_length = 64, charset = "iam", purpose = "ecsexec" }
     script_runner_task_role           = { type = "role", max_length = 64, charset = "iam", purpose = "scriptrunner" }
-    ecs_task_instance_profile         = { type = "instprof", max_length = 128, charset = "iam", purpose = "ecstask" }
     ecs_task_role_policy              = { type = "policy", max_length = 128, charset = "iam", purpose = "ecstask" }
     ecs_task_execution_secret_policy  = { type = "policy", max_length = 128, charset = "iam", purpose = "ecsexecsecret" }
     ecs_task_execution_keypair_policy = { type = "policy", max_length = 128, charset = "iam", purpose = "ecsexeckeypair" }

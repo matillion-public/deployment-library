@@ -25,6 +25,13 @@ module "eks" {
   endpoint_public_access  = !var.is_private_cluster
   endpoint_private_access = var.is_private_cluster
   public_access_cidrs     = var.authorized_ip_ranges
+
+  authentication_mode             = var.authentication_mode
+  additional_admin_principal_arns = var.additional_admin_principal_arns
+
+  namespace                          = var.namespace
+  service_account_name               = var.service_account_name
+  script_runner_service_account_name = var.script_runner_service_account_name
 }
 # ---------------------------------------------------------------------------
 # Optional SQS -> DPC pipeline-execution Lambda adapter ("Option A").

@@ -2,6 +2,8 @@
 
 This directory contains Terraform configurations for deploying the Matillion Maia Runner using Google Kubernetes Engine (GKE) — Google Cloud's managed Kubernetes service.
 
+To put a runner into a GKE cluster you already run, beside other runners, use [`../gke-existing-cluster`](../gke-existing-cluster/) instead. Each runner gets its own namespace, Google service accounts and secrets prefix, and the cluster is left alone.
+
 ## Overview
 
 GKE deployment provides:
@@ -60,6 +62,7 @@ GKE deployment provides:
   gcloud services enable secretmanager.googleapis.com
   gcloud services enable storage.googleapis.com
   gcloud services enable iam.googleapis.com
+  gcloud services enable cloudresourcemanager.googleapis.com
   ```
 
 ### Required GCP Permissions
@@ -80,6 +83,8 @@ Required IAM roles for the Terraform runner:
 - `roles/storage.admin` — GCS bucket management
 - `roles/secretmanager.admin` — Secret Manager management
 - `roles/resourcemanager.projectIamAdmin` — IAM bindings
+- `roles/iam.roleAdmin` — Custom role creation (`runner_secret_creator`)
+- `roles/iam.serviceAccountUser` — Lets the cluster use the default compute service account (`<project-number>-compute@developer.gserviceaccount.com`) and the node pool use the node service account this module creates; grant it on both service accounts or at project level
 
 ## Quick Start
 
@@ -99,6 +104,7 @@ gcloud services enable \
   secretmanager.googleapis.com \
   storage.googleapis.com \
   iam.googleapis.com \
+  cloudresourcemanager.googleapis.com \
   --project=<your-project-id>
 ```
 
@@ -197,7 +203,7 @@ Always pick a node one tier above the request — kubelet, system daemons and th
 
 #### Development Environment
 ```hcl
-desired_node_count   = 2
+desired_node_count   = 2                 # per zone
 machine_type         = "e2-standard-4"   # supports runnerSize=small or medium
 is_private_cluster   = false
 enable_cloud_nat     = false
@@ -206,13 +212,17 @@ authorized_ip_ranges = ["<your-office-ip>/32"]
 
 #### Production Environment
 ```hcl
-desired_node_count     = 3
+desired_node_count     = 3             # per zone
 machine_type           = "e2-standard-8" # supports runnerSize=large
 is_private_cluster     = true
 enable_cloud_nat       = true          # Required for private nodes
 authorized_ip_ranges   = ["10.0.0.0/8", "203.0.113.0/24"]
 master_ipv4_cidr_block = "172.16.0.0/28"
 ```
+
+#### Node count
+
+`desired_node_count` applies to each zone. The cluster and its node pool both use `location = var.region`, so the node pool runs in every zone of the region. The total number of nodes is `desired_node_count` times the number of zones, and the autoscaler range is `desired_node_count` to `desired_node_count + 2` per zone. For example, with the default of 2 in `europe-west1`, which has three zones (b, c, d), the cluster starts with 6 nodes and can grow to 12. The Production example above (3) therefore starts 9 nodes of `e2-standard-8` in a three-zone region. To run fewer nodes, lower `desired_node_count`.
 
 ### Workload Identity
 
@@ -520,6 +530,27 @@ kubectl exec -it <pod-name> -n matillion -- \
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email"
 ```
 
+## Script runner sizing and scaling
+
+How many sessions a pod holds, how many pods to run, and when to turn on the
+HPA are the same on every cloud. They're in
+[Sizing the script runner](../../helm/README.md#sizing-the-script-runner). This
+section covers what is specific to GKE.
+
+- **The node pool only grows by two per zone.** This module's node pool
+  autoscales from `desired_node_count` to `desired_node_count + 2` in each zone
+  of the region, and the `+ 2` isn't a variable. When the agent and script
+  runner HPAs together need more than that, new pods stay Pending. Raise
+  `desired_node_count` (which raises the billed floor in every zone), or run the
+  script runner in its own node pool.
+- **Autopilot** (a cluster you bring, not one this module creates) sets each
+  pod's resources itself. It can lower the CPU limit to match the request,
+  removing the burst headroom that lets many scripts start at once, and it
+  bills on requests. If you run on Autopilot, size up rather than relying on
+  the CPU limit.
+- **Prometheus runs in `monitoring`** when installed as this README describes,
+  which matches the runner chart's default `networkPolicy.prometheusNamespace`.
+
 ## Cleanup
 
 ```bash
@@ -527,6 +558,15 @@ kubectl exec -it <pod-name> -n matillion -- \
 helm uninstall matillion-runner -n matillion
 kubectl delete namespace matillion
 
-# Destroy infrastructure
+# Empty the staging bucket (see below), then destroy infrastructure
+gcloud storage rm "gs://$(terraform output -raw gcs_bucket_name)/**"
 terraform destroy
 ```
+
+### Empty the staging bucket first
+
+This deployment creates a GCS staging bucket (`google_storage_bucket.staging` in `modules/gcp/gke`) with `force_destroy = false`. The runner's service account has `roles/storage.objectAdmin` on it, so it can write objects. If anything has been written to the bucket, `terraform destroy` fails on it with `Error trying to delete bucket <name> without force_destroy set to true`, leaving the bucket in state.
+
+Run the Helm uninstall and namespace deletion first, so the runner stops writing to the bucket, as in the commands above. `terraform output -raw gcs_bucket_name` prints the bucket name, and `gcloud storage rm` deletes every object (the bucket is not versioned by this module). Empty the bucket before `terraform destroy`.
+
+Objects in the bucket are not recoverable after `gcloud storage rm`. If a destroy has already failed on the bucket, empty it and run `terraform destroy` again.
