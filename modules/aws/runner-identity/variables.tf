@@ -32,8 +32,29 @@ variable "script_runner_service_account_name" {
 
 variable "secret_arns" {
   type        = list(string)
-  description = "Secrets Manager ARNs this runner may read. The runner cannot read anything not listed here. Read only — a runner consumes credentials and has no reason to be able to overwrite them."
+  description = "Secrets Manager ARNs this runner may read, read only. To let the runner also save secrets created in Matillion, use secret_name_prefix."
   default     = []
+}
+
+variable "secret_name_prefix" {
+  type        = string
+  description = <<-EOT
+    Secrets whose names start with this the runner may read, create and update, such as
+    "matillion/finance/". This is what lets a runner shared with other business units
+    still save secrets created in Matillion: a secret's name has to start with the
+    prefix, and anything else is refused. Secrets Manager can't limit ListSecrets to
+    some secrets, so every secret's metadata stays listable (name, description, tags,
+    KMS key ID), but not values outside the prefix. Empty gives no such access.
+  EOT
+  default     = ""
+
+  validation {
+    # Exactly two segments, each closed by "/": then no valid prefix can contain another.
+    # "matillion/fin" would also match "matillion/finance/", and "matillion/" every
+    # runner's secrets.
+    condition     = var.secret_name_prefix == "" || can(regex("^[a-zA-Z0-9_+=.@-]+/[a-zA-Z0-9_+=.@-]+/$", var.secret_name_prefix))
+    error_message = "secret_name_prefix must be two segments each ending in \"/\", such as \"matillion/finance/\", so it can't also match another runner's secrets."
+  }
 }
 
 variable "s3_bucket_arns" {

@@ -88,8 +88,22 @@ spec:
         matchLabels:
           app: matillion-runner-pods
     ports:
+    {{- include "prometheus.runnerScrapePorts" $ | nindent 4 }}
+  {{- /* Only while the job exists: prometheusYml replaces the composed config. */}}
+  {{- $scrapeScriptRunner := and .Values.config.scriptRunner.enabled (not .Values.config.prometheusYml) }}
+  {{- if $scrapeScriptRunner }}
+  - to:
+    {{- with .Values.networkPolicy.scriptRunnerPodSelector }}
+    - podSelector:
+        matchLabels:
+          {{- toYaml . | nindent 10 }}
+    {{- else }}
+    - podSelector: {}
+    {{- end }}
+    ports:
     - protocol: TCP
-      port: 8080
+      port: {{ .Values.config.scriptRunner.port }}
+  {{- end }}
   {{- /*
   A bare podSelector is namespace-local, so the rule above only reaches runners
   sharing Prometheus's namespace. Every other tenant's namespace needs naming
@@ -107,8 +121,21 @@ spec:
           {{- toYaml . | nindent 10 }}
       {{- end }}
     ports:
+    {{- include "prometheus.runnerScrapePorts" $ | nindent 4 }}
+  {{- if $scrapeScriptRunner }}
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ . }}
+      {{- with $.Values.networkPolicy.scriptRunnerPodSelector }}
+      podSelector:
+        matchLabels:
+          {{- toYaml . | nindent 10 }}
+      {{- end }}
+    ports:
     - protocol: TCP
-      port: 8080
+      port: {{ $.Values.config.scriptRunner.port }}
+  {{- end }}
   {{- end }}
   - to: []
     ports:
