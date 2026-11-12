@@ -1,8 +1,9 @@
 # Per-Runner Identity — GCP
 
 One Google service account per runner deployment, bound to that runner's
-Kubernetes service account through Workload Identity, with Secret Manager access
-granted **one secret at a time**.
+Kubernetes service account through Workload Identity. Secret Manager access is
+granted **one secret at a time**, read only, or read and write under one name
+prefix (below).
 
 The GCP member of a three-cloud set — see
 `modules/azure/runner-identity/readme.md` for the shared rationale and the
@@ -63,6 +64,36 @@ identical — the Workload Identity binding names that exact member.
 
 `name` is truncated to 30 characters to fit the service account ID limit, so
 keep tenant prefixes short enough to stay distinct after truncation.
+
+## Secrets a runner saves itself
+
+`secret_ids` grants read access to secrets that already exist. A runner that also
+saves secrets created in Matillion needs `secret_name_prefix` instead, such as
+`"matillion_finance_"`. It can then read any secret whose ID starts with the
+prefix and add versions to it, through a project-level grant with an IAM
+condition on `resource.name` (which names the project by number). Secret IDs allow
+only letters, digits, `-` and `_`, so the prefix must be exactly two segments
+without `_`, each ending in `_`. Then no prefix can match another runner's
+secrets: `matillion_fin_` can't match `matillion_fin-ops_`, and `matillion_`,
+which would match them all, is refused.
+
+IAM checks creating and listing secrets against the project, not against the
+secret, so a condition on the secret's name can't limit them. They are granted
+on the whole project, with nothing else, in a separate custom role. So the
+runner can:
+
+- **list** every secret in the project with its metadata (name, labels,
+  annotations, replication, expiry, rotation and notification settings), but no
+  value;
+- **create** a secret with any ID. It can't read or update one outside its
+  prefix, but it can create one under another runner's prefix before that runner
+  does, with settings it chose, such as an expiry. The other runner then saves
+  into it, or gets "already exists".
+
+Keep sensitive information out of secret labels and annotations in a shared
+project. Where one runner pre-creating another's secrets matters, give each
+runner its own project: the project is the only boundary GCP enforces on
+creating secrets.
 
 ## Verifying the isolation
 

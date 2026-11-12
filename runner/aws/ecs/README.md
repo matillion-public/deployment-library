@@ -112,7 +112,7 @@ Required IAM permissions:
 
 ```bash
 git clone <repository-url>
-cd poc-agent-deployment/runner/aws/ecs
+cd agent-deployment/runner/aws/ecs
 ```
 
 ### 2. Configure Variables
@@ -127,7 +127,7 @@ name   = "matillion-runner"
 # Matillion Configuration
 account_id         = "your-matillion-account-id"
 agent_id          = "your-unique-agent-id"
-matillion_region  = "us-east-1"
+matillion_region  = "us1"
 client_id        = "your-oauth-client-id"
 client_secret    = "your-oauth-client-secret"
 
@@ -147,7 +147,6 @@ ephemeral_storage_size = 30  # GiB
 
 # Optional: Extension Libraries
 extension_library_location = ""
-extension_library_protocol = ""
 
 # Optional: S3 Bucket
 create_bucket = true
@@ -173,7 +172,7 @@ terraform apply
 aws ecs describe-services --cluster <cluster-name> --services <service-name>
 
 # View task logs
-aws logs tail /aws/ecs/<cluster-name> --follow
+aws logs tail /ecs/<name>-<suffix>-task --follow
 
 # Check running tasks
 aws ecs list-tasks --cluster <cluster-name> --service-name <service-name>
@@ -234,6 +233,10 @@ subnet_ids = ["subnet-private-1", "subnet-private-2"]
 # - DNS (53) for name resolution
 ```
 
+The runner tasks always carry a security group created by this deployment, which holds the metrics ingress rules and is the source the script runner security group admits on port 2222. With `use_existing_security_group = false` (the default) that group allows all outbound traffic. With `use_existing_security_group = true` it has no egress rules, and an apply removes any egress rules it already has, so the outbound traffic the runner can send is exactly what the groups in `security_group_ids` allow. Those groups must then allow the destinations listed above and the image registry endpoints described in [Network Requirements for Pulling the Runner Image](../../../blogs/runner-image-pull-network-requirements.md).
+
+The script runner security group (`enable_script_runner = true`) allows all outbound traffic in both cases. There is no input to supply its egress rules. With the script runner enabled and `use_existing_security_group = true`, the groups in `security_group_ids` must also allow TCP 2222 outbound to the script runner tasks.
+
 ### CPU and Memory Combinations
 
 | CPU Units | Memory (MB) | vCPU | Use Case |
@@ -259,10 +262,10 @@ ECS automatically integrates with CloudWatch:
 
 ```bash
 # View log groups
-aws logs describe-log-groups --log-group-name-prefix "/aws/ecs/"
+aws logs describe-log-groups --log-group-name-prefix "/ecs/"
 
 # Stream logs
-aws logs tail "/aws/ecs/<service-name>" --follow
+aws logs tail "/ecs/<name>-<suffix>-task" --follow
 ```
 
 ### CloudWatch Alarms
@@ -301,7 +304,7 @@ The deployment creates two IAM roles:
 ```hcl
 # OAuth credentials stored in AWS Secrets Manager
 module "secrets_manager" {
-  source = "../../../modules/aws/secrets-manager"
+  source = "../../../modules/aws/secerts-manager"
   
   client_id     = var.client_id
   client_secret = var.client_secret
@@ -374,6 +377,36 @@ ECS automatically performs rolling updates:
 - Starts new tasks with updated configuration
 - Maintains service availability during updates
 
+#### Upgrading from a version with fixed secret names
+
+Earlier versions named the OAuth secret `matillion-oauth-credentials` and, with `enable_script_runner = true`, the keypair secret `<name>-runner-keypair`. The defaults are now `<name>-<salt>-oauth-credentials` and `<name>-<salt>-runner-keypair`.
+
+If `secret_name` and `runner_keypair_secret_name` are not set, the next `terraform apply` replaces both secrets, both task definitions, and updates the ECS services and the task execution role policies. The order is: old task definitions and secret versions are destroyed, the old secrets are destroyed (the previous version leaves them in Secrets Manager for 30 days), the new secrets and task definitions are created, then the services are updated. A task that starts between the old secret being destroyed and the service update may fail to start, because its task definition still references the deleted secret. Apply while the runner is not scaling or restarting tasks.
+
+The old names cannot be reused for 30 days after the apply. Rolling back to the previous version, or setting `secret_name = "matillion-oauth-credentials"`, fails with `a secret with this name is already scheduled for deletion` until the window ends or the secret is removed with `aws secretsmanager delete-secret --force-delete-without-recovery`.
+
+Deployments that set both names explicitly are updated in place and keep their secrets. The module now sets `recovery_window_in_days = 0` on both secrets, so a later deletion is immediate.
+
+#### Upgrading with `use_existing_security_group = true`
+
+Earlier versions gave the runner security group created by this deployment an egress rule allowing all outbound traffic, including when `use_existing_security_group = true`. AWS applies the union of the rules on every attached group, so that rule overrode any egress restrictions in `security_group_ids`.
+
+With `use_existing_security_group = true`, the next `terraform apply` updates that group in place and removes the allow-all egress rule. The runner's outbound traffic is then limited to what the groups in `security_group_ids` allow. Before applying, check that those groups allow the destinations in [Security Group Requirements](#security-group-requirements), otherwise the runner cannot pull its image or connect to Matillion after the apply. Deployments with `use_existing_security_group = false` are unchanged.
+
+#### Upgrading from a version with an EC2 instance profile
+
+Earlier versions created an IAM instance profile `<name>-<salt>-matillion-ecs-task-instance-profile` for the runner task role, and the task role trusted `ec2.amazonaws.com` as well as `ecs-tasks.amazonaws.com`. The runner runs on Fargate and used neither.
+
+The next `terraform apply` destroys the instance profile and updates the task role trust policy in place to trust only `ecs-tasks.amazonaws.com`. The runner tasks are not replaced. If anything outside this module attached the instance profile to an EC2 instance, detach it before applying.
+
+#### Upgrading with `enable_sqs_pipeline_trigger = true`
+
+The SQS adapter resources are now named `<name>-<salt>-maia-sqs-adapter` so that two deployments sharing `name` no longer collide. The next `terraform apply` replaces the adapter Lambda function, its IAM role and policies, log group, SNS alerts topic, CloudWatch alarms and the Lambda dead-letter queue. Messages in the Lambda dead-letter queue and the old log group's history are lost. The source queue and the project-mapping table keep their names and are not replaced. Replacing the IAM role needs `iam:ListInstanceProfilesForRole`, as any role deletion does.
+
+`sqs_adapter_matillion_api_url` now defaults to `https://<matillion_region>.api.matillion.com/dpc/v1` instead of the eu1 URL. A deployment with `matillion_region` other than `eu1` that left the variable unset changes its adapter's `MATILLION_API_URL` on the next apply.
+
+The source queue (`matillion-dpc-requests`) and mapping table (`matillion-project-mappings`) still default to fixed names. A second deployment in the same account and region must set `sqs_adapter_queue_name` and `sqs_adapter_mapping_table_name`, otherwise the table creation fails and the queue creation reuses the first deployment's queue.
+
 ### Troubleshooting
 
 #### Service Issues
@@ -401,7 +434,7 @@ aws ecs describe-tasks \
 
 # Check task logs
 aws logs get-log-events \
-  --log-group-name "/aws/ecs/<service-name>" \
+  --log-group-name "/ecs/<name>-<suffix>-task" \
   --log-stream-name "<log-stream-name>"
 ```
 
@@ -471,7 +504,7 @@ aws application-autoscaling put-scheduled-action \
 
 ### Metrics
 
-The runner natively exposes Prometheus-compatible metrics at `/actuator/prometheus` on port 8080. For ECS deployments, consider using CloudWatch Container Insights for monitoring.
+The runner exposes Prometheus metrics at `/actuator/prometheus` on port 8080 (deprecated) and, on runner 12.150.3 or later, at `/metrics` on port 9464. Neither port is reachable from outside the task by default; to scrape them, set `metrics_ingress_security_group_ids` or `metrics_ingress_cidr_blocks` (and optionally `metrics_ingress_ports`), described in [Scraping Runner Metrics](../../../modules/aws/ecs/README.md#scraping-runner-metrics). See [Runner Metrics: Moving to the OpenTelemetry Endpoint](../../../blogs/runner-metrics-migration.md).
 
 ## Migration Paths
 
@@ -508,6 +541,40 @@ aws secretsmanager list-secrets
 aws s3 ls
 ```
 
+#### Empty the staging bucket first
+
+With `create_bucket = true` (the default) this deployment creates an S3 staging bucket without `force_destroy`. If anything has been written to it, `terraform destroy` finishes the other resources and then fails on the bucket with `BucketNotEmpty`, leaving the bucket in state. Empty the bucket before destroying:
+
+```bash
+# Find the bucket name in state
+terraform state show 'module.runner.aws_s3_bucket.staging_bucket[0]' | grep -E '^\s+bucket\s'
+
+# Delete every object (the bucket is not versioned by this module)
+aws s3 rm s3://<bucket-name> --recursive
+
+terraform destroy
+```
+
+Objects in the bucket are not recoverable after `aws s3 rm`. If a destroy has already failed with `BucketNotEmpty`, empty the bucket and run `terraform destroy` again.
+
+#### Delete the task definition revisions
+
+`terraform destroy` deregisters the runner and script runner task definitions but does not delete them. The revisions stay listed as `INACTIVE` and keep the Matillion account ID, agent ID and the ARN of the credentials secret in their container definitions. The AWS provider has no option to delete a revision on destroy.
+
+After `terraform destroy`, list and delete them. The families are `<name>-<salt>-task` and `<name>-<salt>-script-runner-task`, where `<salt>` is the six characters after `name` in the ECS cluster name (`terraform state show random_string.salt` shows it before the destroy). If the `modules/aws/ecs` module is used directly and `resource_names` sets `ecs_task_family` or `script_runner_task_family`, use those values as the family names and prefixes instead.
+
+```bash
+aws ecs list-task-definitions \
+  --status INACTIVE \
+  --family-prefix <name>-<salt>- \
+  --query 'taskDefinitionArns' --output text
+
+# Up to 10 ARNs per call
+aws ecs delete-task-definitions --task-definitions <arn> [<arn> ...]
+```
+
+The caller needs `ecs:DeleteTaskDefinitions`. Deleted revisions show `DELETE_IN_PROGRESS` until AWS finishes removing them.
+
 ### Manual Cleanup (if needed)
 
 ```bash
@@ -523,7 +590,7 @@ aws ecs delete-service \
 
 # Delete CloudWatch logs
 aws logs delete-log-group \
-  --log-group-name "/aws/ecs/<service-name>"
+  --log-group-name "/ecs/<name>-<suffix>-task"
 ```
 
 ## Performance Considerations

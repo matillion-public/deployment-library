@@ -42,6 +42,20 @@ run "a_custom_role_id_uses_underscores_and_no_hyphens" {
   }
 }
 
+run "runner_identity_role_ids_use_underscores" {
+  command = plan
+
+  assert {
+    condition     = output.names["runner_secret_prefix_role"] == join("_", [var.tokens.bu, var.tokens.env, var.tokens.region, var.tokens.purpose, "secretprefix", var.tokens.instance])
+    error_message = "runner_secret_prefix_role was ${output.names["runner_secret_prefix_role"]}"
+  }
+
+  assert {
+    condition     = output.names["runner_secret_project_role"] == join("_", [var.tokens.bu, var.tokens.env, var.tokens.region, var.tokens.purpose, "secretproject", var.tokens.instance])
+    error_message = "runner_secret_project_role was ${output.names["runner_secret_project_role"]}"
+  }
+}
+
 run "a_hyphenated_role_id_fails_the_plan" {
   command = plan
 
