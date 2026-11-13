@@ -17,16 +17,24 @@ resource "aws_vpc" "main_vpc" {
 }
 
 locals {
-  vpc_id                     = var.use_existing_vpc ? var.vpc_id : aws_vpc.main_vpc[0].id
-  runner_keypair_secret_name = var.runner_keypair_secret_name != "" ? var.runner_keypair_secret_name : join("-", [var.name, "runner-keypair"])
+  vpc_id = var.use_existing_vpc ? var.vpc_id : aws_vpc.main_vpc[0].id
+
+  sqs_adapter_matillion_api_url = var.sqs_adapter_matillion_api_url != "" ? var.sqs_adapter_matillion_api_url : "https://${var.matillion_region}.api.matillion.com/dpc/v1"
 }
 
 data "aws_vpc" "vpc" {
   id = local.vpc_id
 }
 
+# Zone IDs, unlike zone names, are the same in every account. These are the zones EKS cannot place a control plane in
+# (use1-az3, usw1-az2, cac1-az3), excluded here so both runner deployments select from the same set of zones.
+locals {
+  unsupported_zone_ids = ["use1-az3", "usw1-az2", "cac1-az3"]
+}
+
 data "aws_availability_zones" "available" {
-  state = "available"
+  state            = "available"
+  exclude_zone_ids = local.unsupported_zone_ids
 }
 
 # Look up existing subnets to avoid CIDR conflicts when creating subnets in an existing VPC
@@ -45,6 +53,15 @@ data "aws_subnet" "existing_details" {
 }
 
 locals {
+  own_subnet_name_prefix = "${join("-", [var.name, random_string.salt.result, "ecs", "subnet"])}-"
+
+  # The deployment's own subnets keep their current CIDR blocks, so a later apply never moves them.
+  own_subnet_cidrs = {
+    for s in data.aws_subnet.existing_details :
+    trimprefix(s.tags["Name"], local.own_subnet_name_prefix) => s.cidr_block
+    if startswith(try(s.tags["Name"], ""), local.own_subnet_name_prefix)
+  }
+
   existing_subnet_cidrs = [for s in data.aws_subnet.existing_details : s.cidr_block]
 
   # CIDR overlap detection using IP-to-integer arithmetic (Terraform-compatible, no cidrcontains)
@@ -80,14 +97,31 @@ locals {
     ])
   ]
 
+  # Only subnets the deployment does not have yet take free blocks.
+  missing_subnet_indexes = [for subnet_index in [0, 1] : subnet_index if !contains(keys(local.own_subnet_cidrs), tostring(subnet_index))]
+
   subnet_netnums = var.use_existing_vpc && !var.use_existing_subnet ? (
-    length(local.available_netnums) >= 2 ? slice(local.available_netnums, 0, 2) : error("Insufficient available CIDR blocks in VPC. Found ${length(local.available_netnums)} available netnums, need at least 2.")
+    length(local.available_netnums) >= length(local.missing_subnet_indexes) ? slice(local.available_netnums, 0, length(local.missing_subnet_indexes)) : error("Insufficient available CIDR blocks in VPC. Found ${length(local.available_netnums)} available netnums, need at least ${length(local.missing_subnet_indexes)}.")
   ) : [0, 1]
+
+  # Empty when existing subnets are supplied, because the VPC may be too small for a /8-extended block.
+  subnet_cidrs = var.use_existing_subnet ? [] : [
+    for subnet_index in [0, 1] : (
+      contains(local.missing_subnet_indexes, subnet_index)
+      ? cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.subnet_netnums[index(local.missing_subnet_indexes, subnet_index)])
+      : local.own_subnet_cidrs[tostring(subnet_index)]
+    )
+  ]
 }
 
 resource "random_shuffle" "aws_availability_zone_names" {
   input        = data.aws_availability_zones.available.names
   result_count = 2
+
+  # Changing the input forces a new shuffle, which would replace the subnets of existing deployments.
+  lifecycle {
+    ignore_changes = [input]
+  }
 }
 
 resource "aws_internet_gateway" "igw" {
@@ -116,12 +150,19 @@ resource "aws_subnet" "ecs_subnet" {
   count = var.use_existing_subnet ? 0 : 2
 
   vpc_id                  = data.aws_vpc.vpc.id
-  cidr_block              = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.subnet_netnums[count.index])
+  cidr_block              = local.subnet_cidrs[count.index]
   availability_zone       = element(random_shuffle.aws_availability_zone_names.result, count.index)
   map_public_ip_on_launch = true
   tags = merge(var.tags, {
     Name = join("-", [var.name, random_string.salt.result, "ecs", "subnet", count.index])
   })
+
+  lifecycle {
+    precondition {
+      condition     = !var.use_existing_vpc || local.vpc_prefix_len <= 20
+      error_message = "The existing VPC has primary CIDR ${data.aws_vpc.vpc.cidr_block}. Subnets are created 8 bits longer than the VPC prefix and must be /28 or larger, so the VPC prefix must be /20 or shorter. Use a larger VPC, or set use_existing_subnet = true."
+    }
+  }
 }
 
 data "aws_route_table" "existing" {
@@ -164,12 +205,13 @@ module "secert_manager" {
 
   name        = join("-", [var.name, random_string.salt.result])
   secret_name = var.secret_name
+  tags        = var.tags
 
   client_id     = var.client_id
   client_secret = var.client_secret
 
   enable_keypair_secret      = var.enable_script_runner
-  runner_keypair_secret_name = local.runner_keypair_secret_name
+  runner_keypair_secret_name = var.runner_keypair_secret_name
   runner_authorized_keys     = var.runner_authorized_keys
 }
 
@@ -199,8 +241,12 @@ module "runner" {
   vpc_id             = data.aws_vpc.vpc.id
   subnet_ids         = var.use_existing_subnet ? var.subnet_ids : aws_subnet.ecs_subnet[*].id
   security_group_ids = var.use_existing_security_group ? var.security_group_ids : [aws_security_group.ecs_security_group[0].id]
-  create_bucket      = var.create_bucket
-  image_url          = var.image_url
+  allow_all_egress   = !var.use_existing_security_group
+
+  metrics_ingress_cidr_blocks        = var.metrics_ingress_cidr_blocks
+  metrics_ingress_security_group_ids = var.metrics_ingress_security_group_ids
+  metrics_ingress_ports              = var.metrics_ingress_ports
+  image_url                          = var.image_url
 
   extension_library_location = var.extension_library_location
   proxy_http                 = var.proxy_http
@@ -255,7 +301,7 @@ module "sqs_dpc_adapter" {
   count  = var.enable_sqs_pipeline_trigger ? 1 : 0
   source = "../../../modules/aws/lambda/sqs-dpc-adapter"
 
-  name_prefix = join("-", [var.name, "maia-sqs-adapter"])
+  name_prefix = join("-", [var.name, random_string.salt.result, "maia-sqs-adapter"])
   aws_region  = var.region
   image_uri   = var.sqs_adapter_image_uri
   secret_name = var.sqs_adapter_secret_name
@@ -270,7 +316,7 @@ module "sqs_dpc_adapter" {
   existing_mapping_table_name = var.sqs_adapter_existing_mapping_table_name
   existing_mapping_table_arn  = var.sqs_adapter_existing_mapping_table_arn
 
-  matillion_api_url   = var.sqs_adapter_matillion_api_url
+  matillion_api_url   = local.sqs_adapter_matillion_api_url
   matillion_token_url = var.sqs_adapter_matillion_token_url
 
   tags = var.tags

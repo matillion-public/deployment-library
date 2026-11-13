@@ -15,7 +15,7 @@ variable "region" {
 
 variable "desired_node_count" {
   type        = number
-  description = "Initial number of nodes in the GKE node pool"
+  description = "Initial and minimum number of nodes per zone in the GKE node pool. The cluster is regional, so the pool runs in every zone of the region and the total is this value times the number of zones. The autoscaler allows up to desired_node_count + 2 per zone."
   default     = 2
 }
 
@@ -56,9 +56,9 @@ variable "enable_cloud_nat" {
 
 variable "existing_network" {
   type = object({
-    network_id                     = string
-    subnet_id                      = string
-    pod_secondary_range_name       = string
+    network_id                    = string
+    subnet_id                     = string
+    pod_secondary_range_name      = string
     services_secondary_range_name = string
   })
   description = "Existing VPC network and subnet to deploy into instead of creating new ones. Leave null (default) to create a new VPC and subnet."
