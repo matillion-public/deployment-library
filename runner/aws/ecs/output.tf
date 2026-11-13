@@ -7,7 +7,8 @@ output "RunnerSecret" {
 }
 
 output "ECSService" {
-  value = module.runner.ECSService
+  description = "Name of the runner ECS service."
+  value       = module.runner.ECSService
 }
 
 output "vpc_id" {

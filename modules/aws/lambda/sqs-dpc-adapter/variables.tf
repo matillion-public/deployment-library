@@ -24,7 +24,7 @@ variable "aws_region" {
 }
 
 variable "image_uri" {
-  description = "Container image URI (arm64) for the SQS->DPC adapter Lambda, e.g. an ECR image reference."
+  description = "Private ECR image URI (arm64) for the SQS->DPC adapter Lambda, in the same region as the function. Lambda will not run an ECR Public image: copy public.ecr.aws/matillion/maia-queue-adapter:<version>-arm64 into your own ECR first (see the maia-queueing-adapter README)."
   type        = string
 }
 

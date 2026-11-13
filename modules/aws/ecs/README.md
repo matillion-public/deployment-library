@@ -6,12 +6,12 @@ This module deploys an AWS ECS cluster with a Fargate task definition and servic
 
 ## Features
 
-- Creates an ECS cluster with container insights enabled
+- Creates an ECS cluster with container insights enabled, and manages the container insights log group (30-day retention, tagged, removed on destroy)
 - Configures a Fargate task definition with customizable resources
 - Sets up CloudWatch logging for the ECS tasks
 - Supports optional ephemeral storage configuration
 - Creates an ECS service with deployment circuit breaker and network configuration
-- Optionally creates an S3 staging bucket with appropriate permissions
+- Creates an S3 staging bucket with appropriate permissions
 
 ## Usage
 
@@ -55,14 +55,38 @@ module "ecs" {
 | runner_task_role_execution_arn | ARN of the ECS task execution role | string | n/a | yes |
 | runner_secret_arn | ARN of the runner's secret | string | n/a | yes |
 | desired_count | Desired count of the runner tasks | number | 2 | no |
-| create_bucket | Whether to create an S3 staging bucket | bool | true | no |
 | extension_library_location | Location of the extension library | string | "" | no |
 | extension_library_protocol | Protocol for the extension library | string | "" | no |
 | runner_memory | Memory allocation for the runner task in MiB | number | n/a | yes |
 | runner_cpu | CPU allocation for the runner task in units | number | n/a | yes |
 | ephemeral_storage_size | Optional ephemeral storage size in GiB for the ECS task | number | null | no |
+| metrics_ingress_cidr_blocks | CIDR blocks allowed to scrape the runner's Prometheus metrics. `0.0.0.0/0` is rejected | list(string) | [] | no |
+| metrics_ingress_security_group_ids | Security groups allowed to scrape the runner's Prometheus metrics | list(string) | [] | no |
+| metrics_ingress_ports | Metrics ports opened to those sources: 9464 (OpenTelemetry) and 8080 (deprecated `/actuator/prometheus`) | list(number) | [9464, 8080] | no |
 
 > **Note**: `agent_id` is preserved as the input name because it maps directly to the `AGENT_ID` env var consumed by the Matillion runner image — it is part of the Matillion API contract.
+
+## Scraping Runner Metrics
+
+The runner serves Prometheus metrics on `:9464/metrics` (OpenTelemetry, images
+12.150.3 or later) and `:8080/actuator/prometheus` (deprecated). The
+task's security group has no ingress rules by default, so neither is reachable
+from outside the task.
+
+To scrape them from your own Prometheus, name its network or security group:
+
+```hcl
+metrics_ingress_security_group_ids = [aws_security_group.prometheus.id]
+metrics_ingress_ports              = [9464] # OpenTelemetry only
+```
+
+This creates one ingress rule per source and port on the module's own security
+group. Both endpoints are unauthenticated, so `0.0.0.0/0` is rejected. Port
+8080 also serves the runner's actuator health and info endpoints, so leave it
+out of `metrics_ingress_ports` if you only want metrics exposed. Tasks get
+private IPs that change on each deployment, so discover them with ECS service
+discovery rather than fixed targets. See
+[Runner Metrics: Moving to the OpenTelemetry Endpoint](../../../blogs/runner-metrics-migration.md).
 
 ## Ephemeral Storage Configuration
 
@@ -94,6 +118,36 @@ module "ecs" {
 - The ephemeral storage is temporary and will be lost when the task stops.
 - There may be additional costs associated with using larger ephemeral storage sizes.
 
+## Staging bucket
+
+The module always creates the staging bucket, named `<name>-stagging-bucket` unless `resource_names["staging_bucket"]` sets another name, and a bucket policy for it.
+
+### Upgrading from a version with `create_bucket`
+
+The `create_bucket` input is removed. A caller that created the bucket outside the module and set `create_bucket = false` must import it before the next apply, or the apply fails with `BucketAlreadyOwnedByYou`:
+
+```bash
+terraform import 'module.<name>.aws_s3_bucket.staging_bucket[0]' <bucket-name>
+```
+
+The module's bucket policy then replaces any policy already on the bucket.
+
+## Container Insights log group
+
+The module declares `/aws/ecs/containerinsights/<cluster-name>/performance` with 30-day retention and the module tags. `<cluster-name>` is `resource_names["ecs_cluster"]` if set, otherwise `<name>-cluster`. The log group is removed on `terraform destroy`.
+
+The identity running Terraform needs `logs:CreateLogGroup`, `logs:PutRetentionPolicy`, `logs:TagResource`, `logs:DeleteLogGroup` and `logs:DescribeLogGroups` on `arn:aws:logs:<region>:<account-id>:log-group:/aws/ecs/containerinsights/*`. A policy scoped only to `/ecs/<name>-*` does not cover it.
+
+### Upgrading from a version that did not manage the log group
+
+AWS creates this log group when Container Insights is enabled. If it already exists, whether from an existing deployment or left behind by an earlier `terraform destroy`, the first apply fails with `ResourceAlreadyExistsException`. Import it before applying:
+
+```bash
+terraform import 'module.<path>.aws_cloudwatch_log_group.container_insights_performance' /aws/ecs/containerinsights/<cluster-name>/performance
+```
+
+A group created by AWS has no retention. The first apply after import sets `retention_in_days = 30`, and CloudWatch then expires log events older than 30 days. If the group is an orphan from a destroyed deployment and its contents are not needed, delete it instead: `aws logs delete-log-group --log-group-name /aws/ecs/containerinsights/<cluster-name>/performance`.
+
 ## Outputs
 
 | Name | Description |
@@ -101,4 +155,3 @@ module "ecs" {
 | cluster_arn | ARN of the created ECS cluster |
 | service_arn | ARN of the created ECS service |
 | task_definition_arn | ARN of the created ECS task definition |
-| staging_bucket_name | Name of the created S3 staging bucket (if enabled) |
