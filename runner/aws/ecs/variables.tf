@@ -2,6 +2,10 @@ variable "name" {
   description = "Name for the ECS Fargate cluster to be created for hosting your runner(s)"
   type        = string
   default     = "data-insights"
+  validation {
+    condition     = length(var.name) <= 33
+    error_message = "name must be 33 characters or fewer. It is used in the IAM task role name <name>-<6-character suffix>-matillion-ecs-task-role, which AWS limits to 64 characters."
+  }
 }
 
 variable "region" {
@@ -80,9 +84,9 @@ variable "export_logs" {
 }
 
 variable "secret_name" {
-  description = "Name for the Secrets Manager secret. The runner expects 'matillion-oauth-credentials' by default."
+  description = "Name for the OAuth credentials secret. Defaults to '<name>-<salt>-oauth-credentials' when empty. The runner receives the secret ARN, so the name can be anything."
   type        = string
-  default     = "matillion-oauth-credentials"
+  default     = ""
 }
 
 variable "client_id" {
@@ -113,6 +117,11 @@ variable "cidr_block" {
   description = "CIDR block for the VPC (required if use_existing_vpc is false)"
   type        = string
   default     = "10.0.0.0/16"
+  validation {
+    # Subnets are carved 8 bits longer than the VPC prefix, and AWS subnets must be /28 or larger.
+    condition     = can(cidrnetmask(var.cidr_block)) && try(tonumber(split("/", var.cidr_block)[1]) <= 20, false)
+    error_message = "cidr_block must be an IPv4 CIDR block with a prefix of /20 or shorter, for example 10.0.0.0/16."
+  }
 }
 
 variable "use_existing_subnet" {
@@ -220,7 +229,7 @@ variable "runner_authorized_keys" {
 }
 
 variable "runner_keypair_secret_name" {
-  description = "Name for the Secrets Manager secret holding the script runner SSH authorized_keys. Defaults to <name>-runner-keypair when not set."
+  description = "Name for the Secrets Manager secret holding the script runner SSH authorized_keys. Defaults to <name>-<salt>-runner-keypair when not set."
   type        = string
   default     = ""
 }
@@ -263,7 +272,7 @@ variable "enable_sqs_pipeline_trigger" {
 }
 
 variable "sqs_adapter_image_uri" {
-  description = "Container image URI (arm64) for the SQS->DPC adapter Lambda. Required when enable_sqs_pipeline_trigger = true."
+  description = "Private ECR image URI (arm64) for the SQS->DPC adapter Lambda, in the same region as the function. Lambda will not run an ECR Public image: copy public.ecr.aws/matillion/maia-queue-adapter:<version>-arm64 into your own ECR first (see the maia-queueing-adapter README). Required when enable_sqs_pipeline_trigger = true."
   type        = string
   default     = ""
 }
@@ -323,13 +332,31 @@ variable "sqs_adapter_existing_mapping_table_arn" {
 }
 
 variable "sqs_adapter_matillion_api_url" {
-  description = "DPC pipeline-execution API base URL."
+  description = "DPC pipeline-execution API base URL. Leave empty to use https://<matillion_region>.api.matillion.com/dpc/v1."
   type        = string
-  default     = "https://eu1.api.matillion.com/dpc/v1"
+  default     = ""
 }
 
 variable "sqs_adapter_matillion_token_url" {
   description = "DPC OAuth token endpoint."
   type        = string
   default     = "https://id.core.matillion.com/oauth/dpc/token"
+}
+
+variable "metrics_ingress_cidr_blocks" {
+  description = "CIDR blocks allowed to scrape the runner's Prometheus metrics. Empty (the default) creates no ingress rule. See modules/aws/ecs."
+  type        = list(string)
+  default     = []
+}
+
+variable "metrics_ingress_security_group_ids" {
+  description = "Security groups allowed to scrape the runner's Prometheus metrics. Empty by default."
+  type        = list(string)
+  default     = []
+}
+
+variable "metrics_ingress_ports" {
+  description = "Runner metrics ports opened to the sources above: 9464 (OpenTelemetry /metrics) and 8080 (deprecated /actuator/prometheus)."
+  type        = list(number)
+  default     = [9464, 8080]
 }

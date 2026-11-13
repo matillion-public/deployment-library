@@ -247,14 +247,14 @@ If you install the optional Prometheus monitoring chart at `runner/helm/promethe
 | Image | Default registry | Notes |
 |---|---|---|
 | `prom/prometheus:v2.22.0` | Docker Hub (`docker.io`) | Prometheus server |
-| `gcr.io/k8s-staging-prometheus-adapter/prometheus-adapter-amd64:v0.12.0` | Google Container Registry (`gcr.io`) | Kubernetes metrics adapter |
+| `registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0` | Kubernetes registry (`registry.k8s.io`) | Kubernetes metrics adapter (multi-arch) |
 | `curlimages/curl:8.5.0` | Docker Hub (`docker.io`) | Init container used for readiness checks across deployments |
 
 These registries are global and do not have the AWS-specific single-region anchoring that `public.ecr.aws` has — but they still require an internet-reachable path from your cluster nodes to the relevant public endpoints.
 
 The same egress decision tree applies:
 
-- **Open or whitelisted egress:** permit outbound HTTPS to `docker.io` / `registry-1.docker.io` (and Docker Hub's CDN: `*.cloudflare.docker.com` and `production.cloudflare.docker.com`) and to `gcr.io` (and `storage.googleapis.com` for layer downloads). Confirm exact endpoints from the registry providers' own documentation, as both have evolved over time.
+- **Open or whitelisted egress:** permit outbound HTTPS to `docker.io` / `registry-1.docker.io` (and Docker Hub's CDN: `*.cloudflare.docker.com` and `production.cloudflare.docker.com`) and to `registry.k8s.io`, which redirects layer downloads to cloud-provider-hosted mirrors (for example `*.pkg.dev` or regional `prod-registry-k8s-io-*` S3 buckets), so an allow-list needs those backends too. Confirm exact endpoints from the registry providers' own documentation, as both have evolved over time.
 - **Zero or restricted egress:** mirror these images into the same customer-managed private registry that hosts your Runner image, then override the Helm chart's image references for each component.
 
 The Prometheus Helm chart at `runner/helm/prometheus` exposes image-repository values that can be overridden in your values file. If you are mirroring the Runner image into a private registry for a zero-egress deployment, plan to mirror these images at the same time so the full stack pulls from a single internal source.

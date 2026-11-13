@@ -46,6 +46,11 @@ locals {
 
     # --- modules/gcp/runner-identity --------------------------------------------
     runner_service_account = { type = "sa", max_length = 30, min_length = 6, charset = "rfc1035", purpose = "runner" }
+
+    # Custom role ids for secret_name_prefix, in the underscore form for the same
+    # reason as runner_secret_creator_role.
+    runner_secret_prefix_role  = { type = "secretprefix", form = "underscore", max_length = 64, min_length = 3, charset = "role", purpose = "runner" }
+    runner_secret_project_role = { type = "secretproject", form = "underscore", max_length = 64, min_length = 3, charset = "role", purpose = "runner" }
   }
 
   default_formats = {
