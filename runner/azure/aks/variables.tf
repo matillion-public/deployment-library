@@ -62,6 +62,45 @@ variable "node_pool_zones" {
   default     = []
 }
 
+variable "network_plugin_mode" {
+  type        = string
+  description = "Azure CNI mode: \"overlay\", or null (the default) for node-subnet mode. Required for the Cilium data plane. Adding overlay to an existing cluster is an in-place Azure CNI migration that reimages every node; removing it forces the cluster to be replaced. See the \"Network policy\" section of modules/azure/aks/readme.md."
+  default     = null
+
+  validation {
+    condition     = var.network_plugin_mode == null || var.network_plugin_mode == "overlay"
+    error_message = "network_plugin_mode must be \"overlay\", or null for node-subnet mode."
+  }
+}
+
+variable "pod_cidr" {
+  type        = string
+  description = "Pod address range under overlay, e.g. \"10.244.0.0/16\". Only valid with network_plugin_mode = \"overlay\"; null lets AKS use its default of 10.244.0.0/16. Once set, changing it forces the cluster to be replaced. See the \"Network policy\" section of modules/azure/aks/readme.md."
+  default     = null
+}
+
+variable "network_policy" {
+  type        = string
+  description = "Engine that enforces the runner chart's NetworkPolicies: azure, calico or cilium. Null (the default) installs no engine, so the policies are stored and not enforced. cilium needs network_data_plane = \"cilium\" and network_plugin_mode = \"overlay\". Adding an engine to an existing cluster reimages its nodes; azure or calico can later move to cilium in place, but changing to any other engine replaces the cluster. Setting this back to null leaves an installed engine in place. See the \"Network policy\" section of modules/azure/aks/readme.md."
+  default     = null
+
+  validation {
+    condition     = var.network_policy == null || contains(["azure", "calico", "cilium"], coalesce(var.network_policy, "none"))
+    error_message = "network_policy must be azure, calico or cilium, or null for no policy engine."
+  }
+}
+
+variable "network_data_plane" {
+  type        = string
+  description = "Pod networking data plane: azure (the default) or cilium. cilium is required for network_policy = \"cilium\". Moving an existing cluster from azure to cilium is an in-place upgrade that reimages every node; moving back replaces the cluster. See the \"Network policy\" section of modules/azure/aks/readme.md."
+  default     = "azure"
+
+  validation {
+    condition     = contains(["azure", "cilium"], var.network_data_plane)
+    error_message = "network_data_plane must be azure or cilium."
+  }
+}
+
 variable "workload_identity_enabled" {
   type        = bool
   description = "Enable Azure Workload Identity for the runner workload (requires OIDC issuer)"

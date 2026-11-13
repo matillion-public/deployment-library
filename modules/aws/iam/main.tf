@@ -19,7 +19,7 @@ resource "aws_iam_role" "ecs_task_role" {
     Statement = [{
       Effect = "Allow"
       Principal = {
-        Service = ["ecs-tasks.amazonaws.com", "ec2.amazonaws.com"]
+        Service = ["ecs-tasks.amazonaws.com"]
       }
       Action = ["sts:AssumeRole"]
     }]
@@ -40,12 +40,6 @@ resource "aws_iam_role_policy" "ecs_task_role_policy" {
   name   = lookup(var.resource_names, "ecs_task_role_policy", "matillion_etl_runner_role")
   role   = aws_iam_role.ecs_task_role.id
   policy = file("${path.module}/templates/ecs_task_role_policy.json")
-}
-
-resource "aws_iam_instance_profile" "ecs_task_role_instance_profile" {
-  name = lookup(var.resource_names, "ecs_task_instance_profile", join("-", [var.name, "matillion-ecs-task-instance-profile"]))
-  path = "/"
-  role = aws_iam_role.ecs_task_role.name
 }
 
 resource "aws_iam_role" "ecs_task_execution_role" {

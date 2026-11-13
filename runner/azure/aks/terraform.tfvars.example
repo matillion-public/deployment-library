@@ -79,6 +79,22 @@ vnet_address_space = "10.0.0.0/16"
 enable_nat_gateway       = false
 nat_gateway_idle_timeout = 10
 
+# Network policy engine. The runner chart creates NetworkPolicies, but without
+# network_policy set the cluster has no engine, so they are stored and not
+# enforced. Cilium runs on overlay and needs all three settings together.
+# Adding an engine to an existing cluster reimages every node. See the
+# "Network policy" section of modules/azure/aks/readme.md.
+# Before enabling an engine, check two rules in the runner chart's NetworkPolicies:
+# - Egress is allowed only on ports 53, 443, 80 (networkPolicy.allowHttp) and 2222
+#   (script runner). Set networkPolicy.additionalEgressRules for data sources on
+#   other ports, such as 5432, 1433, 3306 or 5439.
+# - Metrics ingress selects the Prometheus namespace by the label name=monitoring
+#   (networkPolicy.prometheusNamespace), which Kubernetes does not set. Label that
+#   namespace, or scrapes of ports 8080 and 9464 are dropped without an error.
+# network_plugin_mode = "overlay"
+# network_policy      = "cilium"
+# network_data_plane  = "cilium"
+
 # ========================================
 # Authentication Configuration
 # ========================================
