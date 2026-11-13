@@ -1,5 +1,9 @@
 ---
 {{- if .Values.scriptRunner.enabled }}
+{{- $metricsPort := int .Values.scriptRunner.metrics.port }}
+{{- if and .Values.scriptRunner.metrics.enabled (or (lt $metricsPort 1024) (gt $metricsPort 65535) (eq $metricsPort 2222)) }}
+{{- fail (printf "scriptRunner.metrics.port=%v: the image runs unprivileged and sshd owns 2222, so it must be 1024-65535 and not 2222" .Values.scriptRunner.metrics.port) }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,7 +13,13 @@ metadata:
     app: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
 {{- include "matillion-runner.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.scriptRunner.replicas | default 1 }}
+  {{- /*
+  Left out while the HPA owns the count, so a helm upgrade doesn't reset the
+  replicas it has scaled to.
+  */}}
+  {{- if not .Values.scriptRunner.hpa.enabled }}
+  replicas: {{ .Values.scriptRunner.replicas }}
+  {{- end }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -30,12 +40,25 @@ spec:
         {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
         azure.workload.identity/use: "true"
         {{- end }}
-      {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+      {{- $azureWI := and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
+      {{- if or $azureWI .Values.scriptRunner.metrics.enabled }}
       annotations:
+        {{- if $azureWI }}
         azure.workload.identity/service-account-token-expiration: {{ quote .Values.azure.workloadIdentity.tokenExpiration }}
         azure.workload.identity/inject-proxy-sidecar: "true"
+        {{- end }}
+        {{- if .Values.scriptRunner.metrics.enabled }}
+        # For a Prometheus that discovers by annotation. The bundled prometheus
+        # chart doesn't read these; it scrapes by pod label and port.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.scriptRunner.metrics.port | quote }}
+        prometheus.io/path: /metrics
+        {{- end }}
       {{- end }}
     spec:
+      # The image drains on SIGTERM, waiting for in-flight sessions; this is the
+      # deadline it drains against (DPC-55687).
+      terminationGracePeriodSeconds: {{ .Values.scriptRunner.terminationGracePeriodSeconds }}
       serviceAccountName: {{ include "matillion-runner.scriptRunner.serviceAccountName" . }}
       {{- if or (and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled) (and (eq (include "matillion-runner.cloudProvider" .) "gcp") .Values.gcp.workloadIdentity.enabled) }}
       automountServiceAccountToken: true
@@ -46,6 +69,25 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      # Prefer one script runner pod per node, so a node failure or drain doesn't
+      # take out every replica at once (DPC-55688). ScheduleAnyway: on a cluster
+      # with fewer nodes than replicas the pods still schedule, just doubled up.
+      # Zone spread follows the runner's topologySpread setting.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
+        {{- if .Values.topologySpread.enabled }}
+        - maxSkew: {{ .Values.topologySpread.maxSkew }}
+          topologyKey: {{ .Values.topologySpread.topologyKey }}
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              app: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
+        {{- end }}
       {{- with .Values.scriptRunner.initContainers }}
       # Separate from the runner's .Values.initContainers on purpose: the two
       # workloads hydrate independently, and Script Pushdown is where the heavier
@@ -75,18 +117,44 @@ spec:
         ports:
         - containerPort: 2222
           name: ssh
+        {{- if .Values.scriptRunner.metrics.enabled }}
+        - containerPort: {{ .Values.scriptRunner.metrics.port }}
+          name: metrics
+        {{- end }}
         # Restart the pod if sshd stops accepting connections. Destructive-test
         # H8 (DPC-49795) showed a runner can end up in a broken state with sshd
         # dead but the container still "running" (RESTARTS: 0) — without a probe
         # Kubernetes never self-heals and an operator has to delete the pod by
-        # hand. A TCP check on the listen port catches a dead/wedged sshd.
+        # hand. A TCP connect to the listen port catches a dead/wedged sshd.
+        #
+        # Not a plain tcpSocket probe: on SIGTERM the image closes its listener
+        # and waits for in-flight scripts (DPC-55687), so a TCP check fails
+        # mid-drain and the kubelet kills the container — and every script on
+        # it — after failureThreshold x periodSeconds, long before the grace
+        # period. The image raises /run/sshd/draining for the whole drain, so
+        # the probe passes while it's there. Against an image that doesn't
+        # drain, the flag never appears and this is the same TCP check.
         livenessProbe:
-          tcpSocket:
-            port: ssh
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - '[ -e /run/sshd/draining ] || exec 3<>/dev/tcp/127.0.0.1/2222'
           initialDelaySeconds: 10
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
+        # Not Ready until sshd is listening, so a pod the HPA has just added
+        # isn't sent connections while the entry point is still hydrating
+        # libraries and certificates. Fails once a draining pod closes its
+        # listener too, which takes it out of the Service: wanted, as it accepts
+        # nothing new by then.
+        readinessProbe:
+          tcpSocket:
+            port: ssh
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 1
         {{- if and (eq (include "matillion-runner.cloudProvider" .) "azure") .Values.azure.workloadIdentity.enabled }}
         lifecycle:
           postStart:
@@ -108,6 +176,12 @@ spec:
         # projected service-account token mounts (AWS IRSA / Azure WI) can be created.
         - name: RUNNER_AUTHORIZED_KEYS_FILE
           value: /etc/matillion/runner-keys/runner_authorized_keys
+        # Passed through so the exporter can't bind a different port from the
+        # one the chart opens.
+        - name: RUNNER_METRICS_ENABLED
+          value: {{ .Values.scriptRunner.metrics.enabled | quote }}
+        - name: RUNNER_METRICS_PORT
+          value: {{ .Values.scriptRunner.metrics.port | quote }}
         - name: EXTENSION_LIBRARY_LOCATION
           value: {{ quote .Values.dpcAgent.dpcAgent.env.extensionLibraryLocation }}
         {{- if and (eq (include "matillion-runner.cloudProvider" .) "aws") (include "matillion-runner.aws.region" .) }}

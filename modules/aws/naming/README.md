@@ -68,14 +68,14 @@ plan.
 
 ## Resource keys
 
-71 keys, one per resource the modules name, grouped by the module that consumes them:
+70 keys, one per resource the modules name, grouped by the module that consumes them:
 
 | Module | Keys |
 |---|---|
 | `aws/deployment` | `vpc`, `internet_gateway`, `public_route_table`, `private_route_table`, `public_subnet`, `private_subnet`, `nat_eip`, `nat_gateway`, `k8s_security_group` |
 | `aws/ecs` | `staging_bucket`, `ecs_security_group`, `ecs_cluster`, `ecs_task_family`, `ecs_service`, `service_discovery_namespace`, `ecs_task_log_group`, `script_runner_security_group`, `script_runner_log_group`, `script_runner_task_family`, `script_runner_service` |
 | `aws/eks` | `eks_cluster`, `eks_role`, `fargate_pod_execution_role`, `service_account_role`, `dpc_policy`, `fargate_profile`, `log_bucket`, `eks_secret` |
-| `aws/iam` | `ecs_task_role`, `ecs_task_execution_role`, `script_runner_task_role`, `ecs_task_instance_profile`, `ecs_task_role_policy`, `ecs_task_execution_secret_policy`, `ecs_task_execution_keypair_policy`, `script_runner_s3_policy` |
+| `aws/iam` | `ecs_task_role`, `ecs_task_execution_role`, `script_runner_task_role`, `ecs_task_role_policy`, `ecs_task_execution_secret_policy`, `ecs_task_execution_keypair_policy`, `script_runner_s3_policy` |
 | `aws/runner-identity` | `runner_role`, `runner_secrets_policy`, `runner_s3_policy` |
 | `aws/state-management` | `state_bucket`, `state_lock_table` |
 | `aws/lambda/saturation-monitor` | `saturation_function`, `saturation_lambda_role`, `saturation_lambda_policy`, `saturation_lambda_sg`, `saturation_schedule_rule`, `saturation_dashboard`, `saturation_alarm_task`, `saturation_alarm_queue`, `saturation_alarm_errors`, `vpc_endpoints_security_group`, `vpc_endpoint_ecs`, `vpc_endpoint_cloudwatch`, `vpc_endpoint_logs` |

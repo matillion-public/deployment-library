@@ -1,6 +1,13 @@
 variable "name" {
   type    = string
   default = "matillion-runner"
+
+  validation {
+    # The cluster is named <name>-gke-cluster-<6-character salt>, and GKE cluster
+    # names are capped at 40 characters: 40 - 13 - 6 = 21.
+    condition     = can(regex("^[a-z][a-z0-9-]*[a-z0-9]$", var.name)) && length(var.name) <= 21
+    error_message = "name must start with a lowercase letter, end with a lowercase letter or digit, use only lowercase letters, digits and hyphens, and be at most 21 characters."
+  }
 }
 
 variable "project_id" {
@@ -15,7 +22,7 @@ variable "region" {
 
 variable "desired_node_count" {
   type        = number
-  description = "Initial number of nodes in the GKE node pool"
+  description = "Initial and minimum number of nodes per zone in the GKE node pool. The cluster is regional, so the pool runs in every zone of the region and the total is this value times the number of zones. The autoscaler allows up to desired_node_count + 2 per zone."
   default     = 2
 }
 
@@ -46,6 +53,11 @@ variable "master_ipv4_cidr_block" {
 variable "authorized_ip_ranges" {
   type        = list(string)
   description = "CIDR blocks authorised to access the GKE API server. There is no safe default — set this explicitly to your office/VPN CIDRs for private clusters, or to [\"0.0.0.0/0\"] only for temporary dev clusters."
+
+  validation {
+    condition     = alltrue([for range in var.authorized_ip_ranges : can(cidrhost(range, 0))])
+    error_message = "Each authorized_ip_ranges entry must be a CIDR block with a prefix length, e.g. 203.0.113.0/24."
+  }
 }
 
 variable "enable_cloud_nat" {
@@ -56,9 +68,9 @@ variable "enable_cloud_nat" {
 
 variable "existing_network" {
   type = object({
-    network_id                     = string
-    subnet_id                      = string
-    pod_secondary_range_name       = string
+    network_id                    = string
+    subnet_id                     = string
+    pod_secondary_range_name      = string
     services_secondary_range_name = string
   })
   description = "Existing VPC network and subnet to deploy into instead of creating new ones. Leave null (default) to create a new VPC and subnet."
@@ -68,6 +80,14 @@ variable "existing_network" {
 variable "labels" {
   type        = map(string)
   description = "Labels applied to all GCP resources"
+
+  validation {
+    condition = alltrue([
+      for key, value in var.labels :
+      can(regex("^[a-z][a-z0-9_-]{0,62}$", key)) && can(regex("^[a-z0-9_-]{0,63}$", value))
+    ])
+    error_message = "Label keys must start with a lowercase letter and use only lowercase letters, digits, \"_\" and \"-\", up to 63 characters. Label values must use only lowercase letters, digits, \"_\" and \"-\", up to 63 characters."
+  }
 }
 
 variable "k8s_namespace" {
