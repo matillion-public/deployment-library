@@ -1,4 +1,5 @@
 {{- if .Values.hpa.enabled }}
+{{- $metrics := include "matillion-runner.hpa.metrics" . | fromYaml }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -21,13 +22,13 @@ spec:
   metrics:
   - pods:
       metric:
-        name: app_active_task_count
+        name: {{ $metrics.tasks }}
       target:
         {{ .Values.hpa.metrics.target | toYaml | nindent 8 }}
     type: Pods
   - pods:
       metric:
-        name: app_active_request_count
+        name: {{ $metrics.requests }}
       target:
         {{ .Values.hpa.metrics.target | toYaml | nindent 8 }}
     type: Pods
