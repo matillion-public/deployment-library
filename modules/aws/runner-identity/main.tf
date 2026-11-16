@@ -1,6 +1,6 @@
 # Per-runner AWS identity: one IRSA role per runner deployment, trusted by that
-# runner's Kubernetes service account alone, with Secrets Manager access granted
-# one secret ARN at a time.
+# runner's Kubernetes service account alone. Secrets Manager access is either read
+# only, one secret ARN at a time, or read and write under one name prefix.
 #
 # The AWS counterpart of modules/azure/runner-identity. It exists for the same
 # reason: the existing ECS task role attaches the AWS-managed
@@ -68,6 +68,39 @@ resource "aws_iam_role_policy" "secrets" {
   })
 }
 
+# Read, create and update for every secret under the runner's prefix: the calls the
+# runner makes to save a secret created in Matillion (PutSecretValue, then
+# CreateSecret if it doesn't exist yet). ListSecrets takes no resource, so it is
+# granted on all secrets: it returns each one's metadata (name, description, tags,
+# KMS key ID), never a value.
+resource "aws_iam_role_policy" "secrets_by_prefix" {
+  count = var.secret_name_prefix != "" ? 1 : 0
+
+  name = lookup(var.resource_names, "runner_secret_prefix_policy", "RunnerSecretPrefixAccess")
+  role = aws_iam_role.runner.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:CreateSecret",
+        ]
+        Resource = "arn:${var.partition}:secretsmanager:*:${data.aws_caller_identity.current.account_id}:secret:${var.secret_name_prefix}*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:ListSecrets"]
+        Resource = "*"
+      },
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "s3" {
   count = length(var.s3_bucket_arns) > 0 ? 1 : 0
 
@@ -83,6 +116,7 @@ resource "aws_iam_role_policy" "s3" {
         "s3:PutObject",
         "s3:DeleteObject",
         "s3:ListBucket",
+        "s3:GetBucketLocation",
       ]
       Resource = concat(
         var.s3_bucket_arns,
