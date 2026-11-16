@@ -12,7 +12,7 @@ name       = "matillion-runner"        # Name prefix for all resources
 
 # Resource labels applied to all GCP resources
 labels = {
-  environment = "Test"
+  environment = "test"
   project     = "matillion-runner"
   team        = "data-platform"
   managed_by  = "terraform"
@@ -22,7 +22,7 @@ labels = {
 # GKE Cluster Configuration
 # -----------------------------------------------------------------------------
 
-desired_node_count     = 2             # Initial nodes (autoscaler adds up to +2)
+desired_node_count     = 2             # Nodes per zone (autoscaler adds up to +2 per zone)
 machine_type           = "e2-standard-4"  # 4 vCPU, 16 GB RAM
 node_disk_size         = 100           # Node boot disk size in GB
 
@@ -61,12 +61,12 @@ enable_cloud_nat = true
 # is_private_cluster   = false
 # enable_cloud_nat     = false
 # authorized_ip_ranges = ["<your-office-ip>/32"]
-# desired_node_count   = 2
+# desired_node_count   = 2             # per zone
 
 # Example 2: Production (private nodes + Cloud NAT)
 # -------------------------------------------------
 # is_private_cluster   = true
 # enable_cloud_nat     = true
 # authorized_ip_ranges = ["10.0.0.0/8", "203.0.113.0/24"]
-# desired_node_count   = 3
+# desired_node_count   = 3             # per zone
 # machine_type         = "n2-standard-4"
