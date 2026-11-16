@@ -7,7 +7,8 @@ output "RunnerSecret" {
 }
 
 output "ECSService" {
-  value = aws_security_group.ecs_security_group.name
+  description = "Name of the runner ECS service."
+  value       = aws_ecs_service.matillion_dpc_service.name
 }
 
 output "script_runner_endpoint" {
