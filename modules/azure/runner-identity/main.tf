@@ -32,6 +32,15 @@ resource "azurerm_user_assigned_identity" "runner" {
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
+
+  lifecycle {
+    precondition {
+      # Without an account the storage grant is skipped, so a container name on
+      # its own would quietly grant nothing.
+      condition     = var.storage_container_name == "" || var.storage_account_id != ""
+      error_message = "storage_container_name is set but storage_account_id is empty. The container scope is built from the account ID, so without it no storage access is granted at all."
+    }
+  }
 }
 
 # Binds the identity to exactly one Kubernetes service account in one namespace.
@@ -92,10 +101,20 @@ resource "azurerm_role_assignment" "vault_reader" {
   principal_id         = azurerm_user_assigned_identity.runner.principal_id
 }
 
+# Account scope reaches every container in the account, so tenants sharing one
+# account read and write each other's blobs. A container scope keeps each
+# tenant to its own container, the same way the secret grants above keep each
+# tenant to its own secrets.
 resource "azurerm_role_assignment" "storage" {
   count = var.storage_account_id != "" ? 1 : 0
 
-  scope                = var.storage_account_id
+  scope                = var.storage_container_name == "" ? var.storage_account_id : "${var.storage_account_id}/blobServices/default/containers/${var.storage_container_name}"
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = azurerm_user_assigned_identity.runner.principal_id
+
+  # Moving between account and container scope replaces the assignment. Creating
+  # the new one first keeps the runner's staging access unbroken in between.
+  lifecycle {
+    create_before_destroy = true
+  }
 }

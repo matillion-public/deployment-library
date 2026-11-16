@@ -15,14 +15,26 @@ spec:
   - Ingress
   - Egress
   ingress:
+  {{- /*
+  One rule per exposed metrics endpoint. With neither exposed the rule is
+  dropped entirely: a rule with an empty port list would admit every port.
+  */}}
+  {{- if or .Values.metrics.legacy.enabled .Values.metrics.otel.enabled }}
   - from:
     # Allow Prometheus scraping
     - namespaceSelector:
         matchLabels:
           name: {{ .Values.networkPolicy.prometheusNamespace | default "monitoring" }}
     ports:
+    {{- if .Values.metrics.legacy.enabled }}
     - protocol: TCP
-      port: 8080
+      port: {{ .Values.metrics.legacy.port }}
+    {{- end }}
+    {{- if .Values.metrics.otel.enabled }}
+    - protocol: TCP
+      port: {{ .Values.metrics.otel.port }}
+    {{- end }}
+  {{- end }}
   egress:
   # Allow DNS resolution
   - to: []

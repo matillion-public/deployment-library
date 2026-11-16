@@ -40,7 +40,7 @@ variable "services_secondary_range_name" {
 
 variable "desired_node_count" {
   type        = number
-  description = "Initial and minimum number of nodes in the GKE node pool. Autoscaler allows up to desired_node_count + 2."
+  description = "Initial and minimum number of nodes per zone in the GKE node pool. The cluster is regional, so the pool runs in every zone of the region and the total is this value times the number of zones. The autoscaler allows up to desired_node_count + 2 per zone."
   default     = 2
 }
 
