@@ -124,21 +124,21 @@ aws ec2 describe-subnets \
 ### Recommended Setup (Created by Terraform)
 
 ```
-VPC (172.5.0.0/16)
+VPC (10.0.0.0/16)
 │
-├── Public Subnet 1 (172.5.0.0/24) [us-east-1a]
+├── Public Subnet 1 (10.0.0.0/24) [us-east-1a]
 │   ├── Internet Gateway ← Routes here
 │   └── NAT Gateway 1 (Elastic IP)
 │
-├── Public Subnet 2 (172.5.1.0/24) [us-east-1b]
+├── Public Subnet 2 (10.0.1.0/24) [us-east-1b]
 │   ├── Internet Gateway ← Routes here
 │   └── NAT Gateway 2 (Elastic IP)
 │
-├── Private Subnet 1 (172.5.2.0/24) [us-east-1a]
+├── Private Subnet 1 (10.0.2.0/24) [us-east-1a]
 │   └── NAT Gateway 1 ← Routes here
 │       └── EKS Fargate Pods run here
 │
-└── Private Subnet 2 (172.5.3.0/24) [us-east-1b]
+└── Private Subnet 2 (10.0.3.0/24) [us-east-1b]
     └── NAT Gateway 2 ← Routes here
         └── EKS Fargate Pods run here
 ```
@@ -202,7 +202,7 @@ Destination      Target
 # terraform.tfvars
 use_existing_vpc    = false
 use_existing_subnet = false
-cidr_block         = "172.5.0.0/16"
+cidr_block         = "10.0.0.0/16"
 region             = "us-east-1"
 ```
 
@@ -219,7 +219,7 @@ This creates:
 use_existing_vpc    = true
 existing_vpc_id     = "vpc-0123456789abcdef0"
 use_existing_subnet = false
-cidr_block         = "172.5.0.0/16"  # Must match existing VPC CIDR
+cidr_block         = "10.0.0.0/16"  # Must match existing VPC CIDR
 region             = "us-east-1"
 ```
 

@@ -10,6 +10,8 @@ resource "azurerm_user_assigned_identity" "aks_identity" {
   name                = lookup(var.resource_names, "aks_identity", join("-", [var.name, "aks-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
+
+  tags = var.tags
 }
 
 # Azure Kubernetes Service (AKS) Cluster
@@ -21,6 +23,21 @@ locals {
   # Default the ceiling to double the desired size. Raising desired_node_count
   # raises the floor with it, so headroom is the cheaper dial of the two.
   max_node_count = coalesce(var.max_node_count, var.desired_node_count * 2)
+
+  # The shared runner identity needs the cluster's OIDC issuer, but the issuer
+  # does not need it: a shared cluster federates per-tenant identities instead.
+  create_runner_identity = var.workload_identity_enabled && var.create_runner_identity
+
+  # Key Vault names are limited to 24 characters. The default is the base name, a
+  # hyphen and the salt, cut at 24, so a long base name loses salt characters.
+  key_vault_name = lookup(var.resource_names, "key_vault", substr(join("-", [var.name, var.random_string_salt]), 0, 24))
+
+  # The salt is unknown at plan on a new deployment, so the Key Vault name checks
+  # read only var.name and assume the root's 6-character alphanumeric salt.
+  key_vault_salt_length         = 6
+  key_vault_name_without_salt   = substr("${var.name}-", 0, 24)
+  key_vault_name_keeps_salt     = length(var.name) + 1 + local.key_vault_salt_length <= 24
+  key_vault_name_ends_in_hyphen = length(var.name) >= 23 && endswith(local.key_vault_name_without_salt, "-")
 }
 
 resource "azurerm_kubernetes_cluster" "aks_cluster" {
@@ -64,6 +81,14 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
     # already have. Node pool zones are immutable in Azure, so populating this
     # on a live cluster forces the pool to be replaced.
     zones = var.node_pool_zones
+    # AKS sets max_surge on the pool when none is given. For drain and soak it
+    # returns no value and the provider records 0. Leaving the block out plans a
+    # removal of all three after every apply.
+    upgrade_settings {
+      max_surge                     = "10%"
+      drain_timeout_in_minutes      = 0
+      node_soak_duration_in_minutes = 0
+    }
   }
 
   identity {
@@ -72,11 +97,19 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
   }
 
   network_profile {
-    network_plugin    = "azure"
-    load_balancer_sku = "standard"
-    service_cidr      = "10.2.0.0/16"
-    dns_service_ip    = "10.2.0.10"
-    outbound_type     = var.enable_nat_gateway ? "userAssignedNATGateway" : "loadBalancer"
+    network_plugin = "azure"
+    # Null is node-subnet mode, which is what existing clusters run: every pod
+    # takes a VNet address. Overlay moves pods onto pod_cidr instead.
+    network_plugin_mode = var.network_plugin_mode
+    pod_cidr            = var.pod_cidr
+    load_balancer_sku   = "standard"
+    service_cidr        = "10.2.0.0/16"
+    dns_service_ip      = "10.2.0.10"
+    outbound_type       = var.enable_nat_gateway ? "userAssignedNATGateway" : "loadBalancer"
+    # Null installs no policy engine and azure is the provider's own default
+    # data plane, which together are what existing clusters run.
+    network_policy     = var.network_policy
+    network_data_plane = var.network_data_plane
   }
 
   private_cluster_enabled = var.is_private_cluster
@@ -87,6 +120,35 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
   workload_identity_enabled = var.workload_identity_enabled
 
   tags = var.tags
+
+  lifecycle {
+    precondition {
+      condition     = var.pod_cidr == null || var.network_plugin_mode == "overlay"
+      error_message = "pod_cidr only applies with network_plugin_mode = \"overlay\". In node-subnet mode pods take their addresses from the node subnet, and Azure rejects a pod CIDR."
+    }
+
+    # Cilium is one choice made in two places: the Cilium data plane enforces
+    # policy only through Cilium, and Cilium policy needs the Cilium data plane.
+    precondition {
+      condition     = (var.network_policy == "cilium") == (var.network_data_plane == "cilium")
+      error_message = "network_policy = \"cilium\" and network_data_plane = \"cilium\" must be set together. The Cilium data plane cannot run Azure NPM or Calico, and Cilium policy cannot run on the Azure data plane."
+    }
+
+    # Azure requires the Cilium data plane to run on overlay or a dedicated pod
+    # subnet; this module offers overlay only.
+    precondition {
+      condition     = var.network_data_plane != "cilium" || var.network_plugin_mode == "overlay"
+      error_message = "network_data_plane = \"cilium\" requires network_plugin_mode = \"overlay\". Azure does not run the Cilium data plane in node-subnet mode."
+    }
+
+    # The azurerm provider rejects a node_count below min_count when auto scaling is
+    # on, but only while expanding the resource at apply, after the rest of the
+    # root has been created.
+    precondition {
+      condition     = var.desired_node_count >= local.min_node_count
+      error_message = "desired_node_count (${var.desired_node_count}) must be at least the autoscaler floor (${local.min_node_count}). The floor defaults to one node per zone in node_pool_zones, or 2 when the pool is zone-unaware. Raise desired_node_count, or set min_node_count lower."
+    }
+  }
 }
 
 # Log Analytics for AKS Logs
@@ -95,6 +157,8 @@ resource "azurerm_log_analytics_workspace" "aks_log_workspace" {
   location            = var.location
   resource_group_name = var.resource_group_name
   sku                 = "PerGB2018"
+
+  tags = var.tags
 }
 
 # Blob Storage Account
@@ -109,17 +173,35 @@ resource "azurerm_storage_account" "stagging" {
   # not move underneath anyone.
   account_replication_type        = var.storage_account_replication_type
   allow_nested_items_to_be_public = false
+
+  tags = var.tags
 }
 
 # Key Vault
 resource "azurerm_key_vault" "keyvault" {
-  name                       = lookup(var.resource_names, "key_vault", substr(join("-", [var.name, var.random_string_salt]), 0, 24))
+  name                       = local.key_vault_name
   location                   = var.location
   resource_group_name        = var.resource_group_name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
   soft_delete_retention_days = 7
   enable_rbac_authorization  = true
+
+  tags = var.tags
+
+  lifecycle {
+    precondition {
+      condition     = contains(keys(var.resource_names), "key_vault") || !local.key_vault_name_ends_in_hyphen
+      error_message = "The derived Key Vault name \"${local.key_vault_name_without_salt}\" ends in a hyphen, which Azure rejects. Shorten name to ${24 - 1 - local.key_vault_salt_length} characters or fewer so the name keeps the full salt, or set resource_names[\"key_vault\"]."
+    }
+  }
+}
+
+check "key_vault_name_keeps_full_salt" {
+  assert {
+    condition     = contains(keys(var.resource_names), "key_vault") || local.key_vault_name_keeps_salt
+    error_message = "name is ${length(var.name)} characters, so the default Key Vault name keeps ${max(0, 24 - length(var.name) - 1)} of the ${local.key_vault_salt_length} salt characters. Vault names are global and soft-deleted vaults keep their names for 7 days, so fewer salt characters make a collision more likely. Keep name at ${24 - 1 - local.key_vault_salt_length} characters or fewer, or set resource_names[\"key_vault\"]."
+  }
 }
 
 # Assign Key Vault Administrator role to current client for management
@@ -132,6 +214,7 @@ resource "azurerm_role_assignment" "current_client_key_vault_admin" {
 # Assign Storage Blob Data Contributor Role to Managed Identity
 resource "azurerm_role_assignment" "blob_storage_role" {
   principal_id         = azurerm_user_assigned_identity.aks_identity.principal_id
+  principal_type       = "ServicePrincipal"
   role_definition_name = "Storage Account Contributor"
   scope                = azurerm_storage_account.stagging.id
 }
@@ -139,6 +222,7 @@ resource "azurerm_role_assignment" "blob_storage_role" {
 # Assign Key Vault Secrets User Role to Managed Identity
 resource "azurerm_role_assignment" "key_vault_officer_role" {
   principal_id         = azurerm_user_assigned_identity.aks_identity.principal_id
+  principal_type       = "ServicePrincipal"
   role_definition_name = "Key Vault Secrets Officer"
   scope                = azurerm_key_vault.keyvault.id
 }
@@ -146,38 +230,44 @@ resource "azurerm_role_assignment" "key_vault_officer_role" {
 # Assign Key Vault Secrets User Role to Managed Identity
 resource "azurerm_role_assignment" "key_vault_role" {
   principal_id         = azurerm_user_assigned_identity.aks_identity.principal_id
+  principal_type       = "ServicePrincipal"
   role_definition_name = "Key Vault Secrets User"
   scope                = azurerm_key_vault.keyvault.id
 }
 
 # User Assigned Managed Identity for Runner Workload
 resource "azurerm_user_assigned_identity" "runner_workload_identity" {
-  count               = var.workload_identity_enabled ? 1 : 0
+  count               = local.create_runner_identity ? 1 : 0
   name                = lookup(var.resource_names, "runner_identity", join("-", [var.name, "runner-workload-identity", var.random_string_salt]))
   location            = var.location
   resource_group_name = var.resource_group_name
+
+  tags = var.tags
 }
 
 # Assign Storage Blob Data Contributor Role to Runner Workload Identity
 resource "azurerm_role_assignment" "runner_blob_storage_role" {
-  count                = var.workload_identity_enabled ? 1 : 0
+  count                = local.create_runner_identity ? 1 : 0
   principal_id         = azurerm_user_assigned_identity.runner_workload_identity[0].principal_id
+  principal_type       = "ServicePrincipal"
   role_definition_name = "Storage Blob Data Contributor"
   scope                = azurerm_storage_account.stagging.id
 }
 
 # Assign Key Vault Secrets User Role to Runner Workload Identity
 resource "azurerm_role_assignment" "runner_key_vault_role" {
-  count                = var.workload_identity_enabled ? 1 : 0
+  count                = local.create_runner_identity ? 1 : 0
   principal_id         = azurerm_user_assigned_identity.runner_workload_identity[0].principal_id
+  principal_type       = "ServicePrincipal"
   role_definition_name = "Key Vault Secrets User"
   scope                = azurerm_key_vault.keyvault.id
 }
 
 # Assign Reader Role to Runner Workload Identity for Key Vault metadata
 resource "azurerm_role_assignment" "runner_key_vault_reader_role" {
-  count                = var.workload_identity_enabled ? 1 : 0
+  count                = local.create_runner_identity ? 1 : 0
   principal_id         = azurerm_user_assigned_identity.runner_workload_identity[0].principal_id
+  principal_type       = "ServicePrincipal"
   role_definition_name = "Reader"
   scope                = azurerm_key_vault.keyvault.id
 }
@@ -185,15 +275,16 @@ resource "azurerm_role_assignment" "runner_key_vault_reader_role" {
 # Assign Reader Role to Runner Workload Identity at Subscription level
 # This allows az login --identity to list subscriptions and authenticate properly
 resource "azurerm_role_assignment" "runner_subscription_reader_role" {
-  count                = var.workload_identity_enabled ? 1 : 0
+  count                = local.create_runner_identity ? 1 : 0
   principal_id         = azurerm_user_assigned_identity.runner_workload_identity[0].principal_id
+  principal_type       = "ServicePrincipal"
   role_definition_name = "Reader"
   scope                = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
 }
 
 # Federated Identity Credential for Runner Service Account
 resource "azurerm_federated_identity_credential" "runner_federated_credential" {
-  count               = var.workload_identity_enabled ? 1 : 0
+  count               = local.create_runner_identity ? 1 : 0
   name                = lookup(var.resource_names, "runner_federated_credential", join("-", [var.name, "runner-federated-credential", var.random_string_salt]))
   resource_group_name = var.resource_group_name
   parent_id           = azurerm_user_assigned_identity.runner_workload_identity[0].id
@@ -204,7 +295,7 @@ resource "azurerm_federated_identity_credential" "runner_federated_credential" {
 
 # Federated Identity Credential for Script-Runner Service Account
 resource "azurerm_federated_identity_credential" "script_runner_federated_credential" {
-  count               = var.workload_identity_enabled ? 1 : 0
+  count               = local.create_runner_identity ? 1 : 0
   name                = lookup(var.resource_names, "script_runner_federated_credential", join("-", [var.name, "script-runner-federated-credential", var.random_string_salt]))
   resource_group_name = var.resource_group_name
   parent_id           = azurerm_user_assigned_identity.runner_workload_identity[0].id

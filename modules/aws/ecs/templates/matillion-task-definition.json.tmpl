@@ -3,6 +3,7 @@
         "name": "${name}-task-definition",
         "image": "${image}",
         "essential": true,
+        "stopTimeout": 120,
         "readonlyRootFilesystem": true,
         "mountPoints": [
             {

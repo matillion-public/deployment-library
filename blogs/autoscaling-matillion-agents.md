@@ -19,6 +19,13 @@ This repository implements **application-aware autoscaling** using custom metric
 
 1. **`app_active_task_count`** - Number of data processing tasks currently executing
 2. **`app_active_request_count`** - Number of active API requests being handled
+
+> **Moving to OpenTelemetry metrics.** These are the legacy names, from the
+> deprecated `/actuator/prometheus` endpoint. With runner chart 0.6.0 and
+> prometheus chart 0.4.0, set `hpa.metricSource: otel` to scale on
+> `matillion_agent_task_running` / `matillion_agent_request_active` instead. The
+> target stays the same. See
+> [Runner Metrics: Moving to the OpenTelemetry Endpoint](./runner-metrics-migration.md).
 3. **Task completion rate** - Historical data for predictive scaling
 
 These metrics provide a true picture of runner workload and enable more accurate scaling decisions.

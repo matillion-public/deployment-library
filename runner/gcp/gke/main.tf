@@ -4,6 +4,14 @@ resource "random_string" "salt" {
   upper   = false
   numeric = false
   special = false
+
+  # Variable validation cannot read other variables before Terraform 1.9, so the check sits here.
+  lifecycle {
+    precondition {
+      condition     = !var.is_private_cluster || var.enable_cloud_nat || var.existing_network != null
+      error_message = "enable_cloud_nat must be true when is_private_cluster = true and this deployment creates the VPC (existing_network is null). Private nodes then have no route to the internet and the runner cannot reach Matillion. Set enable_cloud_nat = true, or deploy into an existing VPC (existing_network) that provides its own egress."
+    }
+  }
 }
 
 module "networking" {
