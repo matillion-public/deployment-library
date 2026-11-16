@@ -38,6 +38,9 @@ Managed Kubernetes service deployment using Amazon EKS.
 - Sidecar container support
 - Extensive ecosystem tooling
 
+### [EKS: existing cluster](./eks-existing-cluster/)
+One runner in an EKS cluster you already run, beside any other runners. Each gets its own namespace, IAM role and secrets prefix, and the cluster is left alone.
+
 ## Quick Comparison
 
 | Feature | ECS Fargate | EKS |

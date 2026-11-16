@@ -132,8 +132,8 @@ az aks get-credentials --resource-group matillion-runner-rg --name <cluster-name
 kubectl get pods -n matillion-runner
 
 # Check metrics endpoint
-kubectl port-forward -n matillion-runner deployment/matillion-runner-dpc-agent 8000:8000
-curl http://localhost:8000/metrics
+kubectl port-forward -n matillion-runner deployment/matillion-runner-app 8080:8080
+curl http://localhost:8080/actuator/prometheus
 ```
 
 ## Configuration Options
@@ -227,9 +227,13 @@ The deployment automatically includes metrics collection:
 ```yaml
 # Prometheus annotations (automatically applied)
 prometheus.io/scrape: "true"
-prometheus.io/port: "8000"
-prometheus.io/path: "/metrics"
+prometheus.io/port: "8080"
+prometheus.io/path: "/actuator/prometheus"
 ```
+
+Runner 12.150.3 or later also serves OpenTelemetry metrics on
+`:9464/metrics`, which the bundled Prometheus scrapes as a second job. See
+[Runner Metrics: Moving to the OpenTelemetry Endpoint](../../blogs/runner-metrics-migration.md).
 
 Available metrics:
 - `app_version_info` - Build information
@@ -369,6 +373,31 @@ az identity show --ids $(terraform output managed_identity_id)
 # Verify Key Vault access
 az keyvault secret list --vault-name <vault-name>
 ```
+
+## Script runner sizing and scaling
+
+How many sessions a pod holds, how many pods to run, and when to turn on the
+HPA are the same on every cloud. They're in
+[Sizing the script runner](../helm/README.md#sizing-the-script-runner). This
+section covers what is specific to AKS.
+
+- **Pods scale; nodes have to follow.** The default node pool runs the
+  cluster autoscaler, between `min_node_count` (at least 2, or one per zone) and
+  `max_node_count` (twice `desired_node_count` by default). Script runner and
+  agent pods share that pool. A script runner HPA that outgrows the nodes leaves
+  pods Pending until the autoscaler adds one, which typically takes a few
+  minutes. Set `max_node_count` so that agent `maxReplicas` plus script runner
+  `maxReplicas`, each at its size's requests, fit.
+- **Each pod's requests have to fit on one node**, after AKS's system
+  reservations. On this module's default `vm_size`, `Standard_D4s_v4` (4 vCPU,
+  16 GiB), `small` and `medium` fit and **`large` doesn't**: it requests the
+  node's entire 4 vCPU and 16 GiB. `xlarge` (8 vCPU, 32 GiB) doesn't fit a
+  `Standard_D8s_v4` either. A pod that fits no node stays Pending, and the
+  autoscaler can't help because it only adds nodes of the same size. Choose
+  `vm_size` one step above the largest size you run.
+- **Prometheus namespace.** Set the runner chart's
+  `networkPolicy.prometheusNamespace` to the namespace you installed the
+  prometheus chart into.
 
 ## Cost Optimization
 

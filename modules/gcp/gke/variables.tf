@@ -40,7 +40,7 @@ variable "services_secondary_range_name" {
 
 variable "desired_node_count" {
   type        = number
-  description = "Initial and minimum number of nodes in the GKE node pool. Autoscaler allows up to desired_node_count + 2."
+  description = "Initial and minimum number of nodes per zone in the GKE node pool. The cluster is regional, so the pool runs in every zone of the region and the total is this value times the number of zones. The autoscaler allows up to desired_node_count + 2 per zone."
   default     = 2
 }
 
@@ -58,7 +58,7 @@ variable "node_disk_size" {
 
 variable "is_private_cluster" {
   type        = bool
-  description = "Enable private nodes (nodes have no external IPs). Requires enable_cloud_nat = true for outbound internet access."
+  description = "Enable private nodes (nodes have no external IPs). Requires egress to the internet (Cloud NAT) for outbound internet access."
   default     = true
 }
 

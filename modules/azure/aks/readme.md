@@ -10,6 +10,7 @@ This repository contains Terraform configurations for deploying an Azure Kuberne
   - [variables.tf](#variablestf)
   - [outputs.tf](#outputstf)
 - [Usage](#usage)
+- [Key Vault name](#key-vault-name)
 - [Outputs](#outputs)
 
 ## Prerequisites
@@ -42,6 +43,15 @@ Defines the input variables used in the Terraform configurations:
 - `tags`: Tags to apply to resources
 - `desired_node_count`: Desired number of nodes in the AKS cluster
 - `node_pool_zones`: Availability zones for the default node pool (see [Availability zones](#availability-zones))
+- `workload_identity_enabled`: Enable the OIDC issuer and workload identity addon
+- `create_runner_identity`: Create the shared, vault-wide runner identity when workload identity is on; set false on a shared cluster (see [Workload identity on a shared cluster](#workload-identity-on-a-shared-cluster))
+- `network_plugin_mode`: `overlay` for Azure CNI Overlay; null (default) keeps node-subnet mode (see [Pod networking](#pod-networking))
+- `pod_cidr`: Pod address range under overlay; null uses the AKS default
+- `network_policy`: Engine that enforces NetworkPolicy objects (`azure`, `calico`, `cilium`); null (default) installs none (see [Network policy](#network-policy))
+- `network_data_plane`: `azure` (default) or `cilium`
+- `azure_rbac_enabled`: Enable Entra ID integration with Azure RBAC for Kubernetes; false (default) keeps no Entra integration (see [Cluster access](#cluster-access))
+- `admin_group_object_ids`: Entra ID group object IDs bound to cluster-admin; only used with `azure_rbac_enabled = true`
+- `local_account_disabled`: Disable local accounts and the admin kubeconfig; requires `azure_rbac_enabled = true`
 - `random_string_salt`: Random string for uniqueness
 - `is_private_cluster`: Boolean to enable private cluster
 - `authorized_ip_ranges`: List of authorized IP ranges for API server
@@ -68,6 +78,9 @@ spread in the Helm values so the replicas actually use them:
 ```hcl
 node_pool_zones = ["1", "2", "3"]
 ```
+
+`desired_node_count` must be at least the number of zones, because the autoscaler
+floor defaults to one node per zone; the plan fails otherwise.
 
 ```yaml
 # runner/helm/runner values
@@ -111,6 +124,218 @@ the workload:
    `podDisruptionBudget` first so the drain cannot take every replica at once.
 4. Once the old pool is empty, remove it and set `node_pool_zones` on the default
    pool, confirming with `terraform plan` that nothing else is being replaced.
+
+## Workload identity on a shared cluster
+
+With `workload_identity_enabled` (the default) the module turns on the cluster's
+OIDC issuer and workload identity addon, and also creates one shared runner
+identity, federated to the runner and script-runner service accounts in
+`namespace`. That identity holds `Key Vault Secrets User` and `Reader` on the
+whole vault, `Reader` on the subscription and `Storage Blob Data Contributor` on
+the staging account — right for one runner, wrong once the cluster and vault
+are shared between tenants.
+
+On a shared cluster, give each tenant its own identity with
+[`modules/azure/runner-identity`](../runner-identity/readme.md) and turn the
+shared one off while keeping workload identity on:
+
+```hcl
+workload_identity_enabled = true
+create_runner_identity    = false
+```
+
+`runner_workload_identity_client_id` is then empty; take each tenant's client
+ID from its `runner-identity` module instead.
+
+Setting `create_runner_identity = false` on an existing deployment **destroys**
+the shared identity, its grants and its federated credentials. Move every runner
+onto a per-tenant identity first, or it loses access to Key Vault and storage
+on the next apply.
+
+### Role assignment principal type
+
+The module sets `principal_type = "ServicePrincipal"` on the role assignments
+for the cluster identity and the shared runner identity, so Azure does not look
+the principal up in Entra ID before assigning the role.
+
+On existing deployments `terraform plan` shows no change for these assignments.
+In a test on 2026-11-13 (seven assignments), Azure and Terraform state already
+stored `principalType` as `ServicePrincipal` for all seven, the plan of the
+changed configuration showed no changes, and the apply was 0 added, 0 changed,
+0 destroyed.
+
+Role assignments that Azure stored with an empty `principalType` were not
+tested. For such a deployment, run `terraform plan` before applying and check
+the action on each role assignment. Do not apply a plan that replaces a role
+assignment without reviewing it.
+
+## Pod networking
+
+The cluster uses Azure CNI. By default it runs in **node-subnet mode**: every
+pod takes an address from the node subnet, and each node reserves addresses for
+its maximum pod count when it joins. The subnet therefore has to hold every node
+*and* every pod those nodes could run. On a shared cluster, where many tenants'
+runners and script runners scale independently, the subnet fills long before
+the nodes run out of capacity, and the autoscaler can no longer add nodes.
+
+**Azure CNI Overlay** gives pods addresses from a private range that is not part
+of the VNet, so the node subnet only needs to be sized for nodes. Set it on new
+clusters:
+
+```hcl
+network_plugin_mode = "overlay"
+pod_cidr            = "10.244.0.0/16" # optional; this is the AKS default
+```
+
+`pod_cidr` must not overlap the VNet, the service CIDR (`10.2.0.0/16`) or any
+network the runner has to reach, such as a peered data warehouse VNet. Pod
+traffic leaving the cluster is SNATed to the node's address, so firewall rules
+on the far side keep matching the node subnet.
+
+### Existing clusters
+
+Both inputs default to null, so an existing cluster plans clean after upgrading
+the module. Changing them later is not a Terraform-only edit:
+
+- Adding `network_plugin_mode = "overlay"` to a node-subnet cluster is an
+  in-place Azure CNI migration that **reimages every node**. Follow Azure's
+  [Azure CNI upgrade guidance](https://learn.microsoft.com/azure/aks/update-azure-cni),
+  enable the runner's `podDisruptionBudget` first, and do not let a
+  `terraform apply` be the first thing that attempts it.
+- Removing it again, or changing `pod_cidr` once set, **replaces the cluster**.
+
+### Network policy
+
+The runner chart creates NetworkPolicy objects by default
+(`networkPolicy.enabled: true`) to limit what runner and script-runner pods can
+reach. Kubernetes only stores those objects; a **network policy engine** enforces
+them. Without `network_policy` set the cluster has no engine, the policies do
+nothing, and on a shared cluster one tenant's pods can reach another's.
+
+Microsoft recommends Cilium, which is one choice made in two inputs and runs on
+overlay:
+
+```hcl
+network_plugin_mode = "overlay"
+network_policy      = "cilium"
+network_data_plane  = "cilium"
+```
+
+The module fails the plan if `network_policy = "cilium"` and
+`network_data_plane = "cilium"` are not set together, or if the Cilium data plane
+is chosen without overlay — Azure runs it only on overlay or a dedicated pod
+subnet, and this module offers overlay. `calico` and `azure` run on the default
+`azure` data plane in either networking mode. Azure Network Policy Manager
+(`azure`) loses support on Linux nodes on 30 September 2028, so prefer Cilium
+for new clusters.
+
+On an existing cluster:
+
+- Adding `calico` or `azure` installs the engine in place but **reimages every
+  node pool at once**.
+- Moving the data plane from `azure` to `cilium`, or the policy from `azure` or
+  `calico` to `cilium`, is an in-place upgrade that reimages every node. See
+  [Upgrade to Azure CNI Powered by Cilium](https://learn.microsoft.com/azure/aks/upgrade-aks-ipam-and-dataplane).
+- Changing to any other engine **replaces the cluster**. Setting
+  `network_policy` back to null does not remove an installed engine: the
+  provider reads the current engine back and plans no change.
+
+## Cluster access
+
+By default local accounts are enabled and the cluster has no Entra ID
+integration. Anyone with Contributor on the cluster
+(`Microsoft.ContainerService/managedClusters/listClusterAdminCredential/action`)
+can run `az aks get-credentials --admin` and get a kubeconfig whose client
+certificate is `O=system:masters, CN=masterclient`. The credential is not tied
+to the caller, keeps working after the caller's role is removed until the
+cluster certificates are rotated, and Kubernetes audit logs record
+`masterclient`.
+
+Three inputs change this. All are off by default:
+
+```hcl
+azure_rbac_enabled     = true
+admin_group_object_ids = ["<group object id>"]
+local_account_disabled = true
+```
+
+- `azure_rbac_enabled = true` enables Entra ID integration with Azure RBAC for
+  Kubernetes authorization.
+- `admin_group_object_ids` lists Entra ID groups whose members get
+  cluster-admin. It may be empty, in which case access comes only from Azure
+  role assignments on the cluster. Setting it without `azure_rbac_enabled`
+  fails the plan.
+- `local_account_disabled = true` removes the admin kubeconfig. It requires
+  `azure_rbac_enabled = true`, and the plan fails without it.
+
+With Entra integration on, users, operators and `az aks command invoke` callers
+need an Azure RBAC role on the cluster (for example Azure Kubernetes Service
+RBAC Cluster Admin, or the Reader, Writer and Admin variants) or membership of
+a group in `admin_group_object_ids`. kubectl and helm need `kubelogin`:
+
+```bash
+az aks get-credentials -g <resource group> -n <cluster>
+kubelogin convert-kubeconfig -l azurecli
+```
+
+The Terraform principal that later installs the Helm release needs the same
+access. This module creates no role assignments: grant the roles outside this
+configuration.
+
+When the provider returns no usable kube_config, which is the case with local
+accounts disabled, the `k8s_host`, `client_certificate`, `client_key` and
+`cluster_ca_certificate` outputs are empty strings.
+
+### Existing clusters
+
+- With the defaults the plan shows no change.
+- Enabling Entra integration or disabling local accounts on a live cluster
+  changes how every user authenticates. Grant the roles and confirm access
+  through Entra before setting `local_account_disabled = true`.
+- Whether enabling Entra integration on an existing cluster is an in-place
+  update or a replacement has not been measured. Read the plan before applying.
+- Treat enabling Entra integration as one-way. Azure documents that AKS-managed Entra integration cannot be disabled once it is enabled. Setting `azure_rbac_enabled` back to `false` after an apply is not a supported way back, and the provider's response to removing the block has not been checked.
+- The defaults are expected to change in a later breaking release.
+
+## Key Vault name
+
+The default Key Vault name is `name`, `-` and the 6-character salt, cut at 24
+characters, the Azure limit for a vault name. A `name` longer than 17 characters
+loses salt characters:
+
+| `name` length | Salt characters kept |
+|---|---|
+| 17 or fewer | 6 |
+| 18 | 5 |
+| 22 | 1 |
+| 23 | none; the vault name ends in `-` and the plan fails |
+| 24 or more | none |
+
+Vault names are global across Azure, and a deleted vault keeps its name for the
+soft-delete retention period (7 days in this module). Fewer salt characters
+make a collision with another deployment, or with a vault destroyed in the last
+7 days, more likely.
+
+A `name` of 18 characters or more gives a warning at plan (`Check block
+assertion failed`). A derived vault name that ends in `-` fails the plan. Both
+checks read only `name` and assume the 6-character alphanumeric salt that
+`runner/azure/aks` generates, so they run at plan on a new deployment, before
+the salt exists. Setting `resource_names["key_vault"]`, for example from
+[`modules/azure/naming`](../naming), replaces the default name and skips both
+checks.
+
+Effect on existing deployments:
+
+- `name` of 17 characters or fewer: no change.
+- `name` of 18 to 22 characters: a warning at every plan. The vault name and
+  the planned changes are unchanged, and the plan exits 0. Do not shorten
+  `name` to clear the warning: changing the vault name replaces the vault.
+- `name` of 23 characters: the plan fails. Azure rejects a vault name ending in
+  `-`, so no existing deployment can use this name with the default vault name.
+- `name` of 24 or more characters: a warning, and the vault name has no salt.
+  A `name` whose 24th character is `-` fails the plan.
+- Terraform 1.2 to 1.4: `terraform init` fails on the version constraint. The
+  module now needs Terraform 1.5 or later for the `check` block.
 
 ## Service Principal Setup
 
@@ -176,3 +401,4 @@ After applying the Terraform configurations, the following outputs will be avail
 - kubeconfig: Path to the Kubernetes configuration file for use with kubectl
 - cluster_name: Name of the deployed AKS cluster
 - aks_identity_principal_id: Principal ID of the User Assigned Managed Identity
+- k8s_host, client_certificate, client_key, cluster_ca_certificate: empty strings when the provider returns no usable kube_config (local accounts disabled)

@@ -1,4 +1,8 @@
 # Description: This file is the main entry point for the EKS module. It creates the EKS cluster and the associated resources.
+locals {
+  public_access_cidrs = var.authorized_ip_ranges == null ? ["0.0.0.0/0"] : var.authorized_ip_ranges
+}
+
 module "deployment" {
   source = "../../../modules/aws/deployment"
 
@@ -15,16 +19,22 @@ module "deployment" {
 module "eks" {
   source = "../../../modules/aws/eks"
 
-  name                    = var.name
-  region                  = var.region
-  random_string_salt      = random_string.salt.result
-  subnet_ids              = var.use_existing_subnet ? var.existing_subnet_ids : module.deployment.all_subnet_ids
-  fargate_subnet_ids      = var.use_existing_subnet ? var.existing_subnet_ids : module.deployment.private_subnet_ids
-  security_group_ids      = [module.deployment.k8s_security_group_id]
-  tags                    = var.tags
-  endpoint_public_access  = !var.is_private_cluster
-  endpoint_private_access = var.is_private_cluster
-  public_access_cidrs     = var.authorized_ip_ranges
+  name                   = var.name
+  region                 = var.region
+  random_string_salt     = random_string.salt.result
+  subnet_ids             = var.use_existing_subnet ? var.existing_subnet_ids : module.deployment.all_subnet_ids
+  fargate_subnet_ids     = var.use_existing_subnet ? var.existing_subnet_ids : module.deployment.private_subnet_ids
+  security_group_ids     = [module.deployment.k8s_security_group_id]
+  tags                   = var.tags
+  endpoint_public_access = !var.is_private_cluster
+  public_access_cidrs    = local.public_access_cidrs
+
+  authentication_mode             = var.authentication_mode
+  additional_admin_principal_arns = var.additional_admin_principal_arns
+
+  namespace                          = var.namespace
+  service_account_name               = var.service_account_name
+  script_runner_service_account_name = var.script_runner_service_account_name
 }
 # ---------------------------------------------------------------------------
 # Optional SQS -> DPC pipeline-execution Lambda adapter ("Option A").
