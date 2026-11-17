@@ -38,3 +38,13 @@ output "runner_sp_tenant_id" {
 output "nat_gateway_public_ip" {
   value = try(module.networking[0].nat_gateway_public_ip, null)
 }
+
+output "log_analytics_workspace_id" {
+  description = "ID of the Log Analytics workspace Container Insights writes to, or null when enable_container_insights is false."
+  value       = module.aks.log_analytics_workspace_id
+}
+
+output "log_analytics_workspace_name" {
+  description = "Name of the Log Analytics workspace Container Insights writes to, or null when enable_container_insights is false."
+  value       = module.aks.log_analytics_workspace_name
+}

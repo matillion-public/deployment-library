@@ -2,6 +2,14 @@ resource "random_string" "salt" {
   length  = 8
   numeric = false
   special = false
+
+  lifecycle {
+    # Variable validation cannot read is_private_cluster before Terraform 1.9, so the check sits on this resource.
+    precondition {
+      condition     = var.is_private_cluster || (var.authorized_ip_ranges != null && length(var.authorized_ip_ranges) > 0)
+      error_message = "authorized_ip_ranges must be set when is_private_cluster = false. Use [\"<your-office-ip>/32\"], or [\"0.0.0.0/0\"] to allow any address."
+    }
+  }
 }
 
 variable "use_existing_vpc" {
@@ -16,7 +24,7 @@ variable "existing_vpc_id" {
 
 variable "cidr_block" {
   type    = string
-  default = "172.5.0.0/16"
+  default = "10.0.0.0/16"
 
 }
 
@@ -44,14 +52,58 @@ variable "existing_subnet_ids" {
 }
 
 variable "is_private_cluster" {
-  type    = bool
-  default = true
+  type        = bool
+  default     = true
+  description = "When true, the public API server endpoint is disabled and only the private endpoint is available. When false, both are enabled; restrict public access with authorized_ip_ranges."
+}
+
+variable "namespace" {
+  type        = string
+  default     = "matillion"
+  description = "Kubernetes namespace the runner is installed into. The IRSA role trusts service accounts in this namespace only."
+}
+
+variable "service_account_name" {
+  type        = string
+  default     = "matillion-runner-sa"
+  description = "Runner service account name. Must match serviceAccount.name in the Helm values."
+}
+
+variable "script_runner_service_account_name" {
+  type        = string
+  default     = "matillion-runner-script-runner-sa"
+  description = "Script runner service account name. Must match the name the chart renders: scriptRunner.serviceAccount.name, or <fullname>-script-runner-sa when that is empty."
 }
 
 variable "authorized_ip_ranges" {
-  type    = list(string)
-  default = ["0.0.0.0/0"]
+  type        = list(string)
+  default     = null
+  description = "CIDR blocks allowed to reach the public API endpoint. Required when is_private_cluster = false; use [\"0.0.0.0/0\"] only to allow any address. Optional when is_private_cluster = true; a value set then is still passed to the cluster but applies only while the public endpoint is enabled."
 }
+
+variable "authentication_mode" {
+  description = "EKS cluster authentication mode: CONFIG_MAP, API_AND_CONFIG_MAP or API. The mode can only be raised on an existing cluster, never lowered."
+  type        = string
+  default     = "API_AND_CONFIG_MAP"
+}
+
+variable "additional_admin_principal_arns" {
+  description = "IAM role or user ARNs granted cluster-admin through EKS access entries, in addition to the principal that runs terraform."
+  type        = list(string)
+  default     = []
+}
+
+variable "dpc_policy_arn" {
+  description = "ARN of a pre-created IAM policy to attach to the runner's IRSA role instead of creating a per-deployment DataProductivityCloudAccess-<salt> policy. Null keeps the per-deployment policy. See README, Pre-created runner access policy."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.dpc_policy_arn == null || can(regex("^arn:aws[a-z-]*:iam::([0-9]{12}|aws):policy/.+$", var.dpc_policy_arn))
+    error_message = "dpc_policy_arn must be an IAM policy ARN, for example arn:aws:iam::123456789012:policy/DataProductivityCloudAccess."
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Optional: SQS -> DPC pipeline-execution Lambda adapter ("Option A").
 # Disabled by default so existing deployments are unaffected.
@@ -63,7 +115,7 @@ variable "enable_sqs_pipeline_trigger" {
 }
 
 variable "sqs_adapter_image_uri" {
-  description = "Container image URI (arm64) for the SQS->DPC adapter Lambda. Required when enable_sqs_pipeline_trigger = true."
+  description = "Private ECR image URI (arm64) for the SQS->DPC adapter Lambda, in the same region as the function. Lambda will not run an ECR Public image: copy public.ecr.aws/matillion/maia-queue-adapter:<version>-arm64 into your own ECR first (see the maia-queueing-adapter README). Required when enable_sqs_pipeline_trigger = true."
   type        = string
   default     = ""
 }

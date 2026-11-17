@@ -104,9 +104,59 @@ variable "node_pool_zones" {
   }
 }
 
+variable "network_plugin_mode" {
+  type        = string
+  description = "Azure CNI mode. \"overlay\" gives pods addresses from pod_cidr, a private range off the VNet, so the node subnet only has to be sized for nodes. In node-subnet mode (null, the default) every pod takes a VNet address, and on a shared cluster running many tenants' runners the subnet runs out of addresses long before the nodes run out of capacity. Choose this when the cluster is created: adding it to an existing cluster is an in-place Azure CNI migration that reimages every node, and removing it forces the cluster to be replaced."
+  default     = null
+
+  validation {
+    condition     = var.network_plugin_mode == null || var.network_plugin_mode == "overlay"
+    error_message = "network_plugin_mode must be \"overlay\", or null for node-subnet mode."
+  }
+}
+
+variable "pod_cidr" {
+  type        = string
+  description = "Pod address range under Azure CNI Overlay, e.g. \"10.244.0.0/16\". Only valid with network_plugin_mode = \"overlay\"; null lets AKS use its default of 10.244.0.0/16. It must not overlap the VNet, the service CIDR (10.2.0.0/16) or any network the pods need to reach. Once set, changing it forces the cluster to be replaced."
+  default     = null
+
+  validation {
+    condition     = var.pod_cidr == null || (can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}/[0-9]{1,2}$", var.pod_cidr)) && try(cidrsubnet(var.pod_cidr, 0, 0) == var.pod_cidr, false))
+    error_message = "pod_cidr must be an IPv4 CIDR block with no host bits set, e.g. 10.244.0.0/16."
+  }
+}
+
+variable "network_policy" {
+  type        = string
+  description = "Engine that enforces Kubernetes NetworkPolicy objects: azure, calico or cilium. The runner chart ships NetworkPolicies (networkPolicy.enabled defaults to true), but without an engine the API server stores them and nothing enforces them, so on a shared cluster one tenant's pods can still reach another's. Microsoft recommends cilium, which needs network_data_plane = \"cilium\"; azure (Azure Network Policy Manager) loses support on Linux nodes on 30 September 2028. Null, the default, installs no engine. Adding an engine to an existing cluster reimages its nodes; azure or calico can later move to cilium in place, but changing to any other engine replaces the cluster. Setting this back to null leaves an installed engine in place."
+  default     = null
+
+  validation {
+    condition     = var.network_policy == null || contains(["azure", "calico", "cilium"], coalesce(var.network_policy, "none"))
+    error_message = "network_policy must be azure, calico or cilium, or null for no policy engine."
+  }
+}
+
+variable "network_data_plane" {
+  type        = string
+  description = "Pod networking data plane. azure, the default, is what clusters have always run. cilium is Azure CNI Powered by Cilium, an eBPF data plane; it is required for network_policy = \"cilium\" and needs network_plugin_mode = \"overlay\". Moving an existing cluster from azure to cilium is an in-place upgrade that reimages every node; moving back replaces the cluster."
+  default     = "azure"
+
+  validation {
+    condition     = contains(["azure", "cilium"], var.network_data_plane)
+    error_message = "network_data_plane must be azure or cilium."
+  }
+}
+
 variable "workload_identity_enabled" {
   type        = bool
   description = "Enable Azure Workload Identity for the runner workload (requires OIDC issuer)"
+  default     = true
+}
+
+variable "create_runner_identity" {
+  type        = bool
+  description = "Create the shared runner managed identity: its federated credentials for the runner and script-runner service accounts in var.namespace, and its Key Vault Secrets User and Reader grants on the whole vault, Reader on the subscription and Storage Blob Data Contributor on the staging account. Only takes effect with workload_identity_enabled. Set false on a shared cluster where each tenant gets its own identity from modules/azure/runner-identity, because the shared identity can read every secret in the vault, which is the access per-tenant identities exist to withhold. The OIDC issuer and workload identity addon stay enabled either way."
   default     = true
 }
 
@@ -164,6 +214,12 @@ variable "sku_tier" {
   }
 }
 
+variable "enable_container_insights" {
+  type        = bool
+  description = "Create a Log Analytics workspace and connect the cluster to it with the oms_agent addon (Container Insights). False, the default, creates neither, so no workspace is billed or left soft-deleted after destroy. Container Insights bills for the data ingested into the workspace. Enabling it on an existing cluster is applied by the azurerm provider as an update to the cluster's oms_agent block."
+  default     = false
+}
+
 variable "resource_names" {
   description = <<-EOT
     Resource key to explicit name, overriding the generated default. Intended to be
@@ -173,4 +229,28 @@ variable "resource_names" {
   EOT
   type        = map(string)
   default     = {}
+}
+
+variable "azure_rbac_enabled" {
+  description = "Enable Microsoft Entra ID integration and Azure RBAC for Kubernetes authorization. Default false keeps the cluster as it is today: no Entra integration. When true, access through kubectl and helm needs kubelogin and an Azure role assignment on the cluster (for example Azure Kubernetes Service RBAC Cluster Admin) or membership of a group in admin_group_object_ids. See the \"Cluster access\" section of readme.md."
+  type        = bool
+  default     = false
+}
+
+variable "admin_group_object_ids" {
+  description = "Object IDs of Entra ID groups whose members get cluster-admin through Kubernetes RBAC. Only used when azure_rbac_enabled is true. May be empty: access is then granted only through Azure RBAC role assignments on the cluster."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition     = alltrue([for id in var.admin_group_object_ids : can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", id))])
+    error_message = "admin_group_object_ids must contain Entra ID group object IDs (GUIDs)."
+  }
+}
+
+variable "local_account_disabled" {
+  description = "Disable the cluster's local accounts, which removes the admin kubeconfig that Contributor on the cluster can otherwise download. Requires azure_rbac_enabled = true: with no Entra integration nobody could authenticate. Default false keeps local accounts enabled. See the \"Cluster access\" section of readme.md before enabling."
+  type        = bool
+  default     = false
 }
