@@ -10,5 +10,6 @@ terraform {
     }
   }
 
-  required_version = ">= 1.0"
+  # 1.5+ for the check block and 1.3+ for endswith, 1.2+ for the lifecycle precondition in main.tf.
+  required_version = ">= 1.5"
 }

@@ -26,14 +26,8 @@ variable "security_group_ids" {
   type        = list(string)
 }
 
-variable "endpoint_private_access" {
-  description = "Indicates whether or not the API server endpoint is private"
-  type        = bool
-
-}
-
 variable "endpoint_public_access" {
-  description = "Indicates whether or not the API server endpoint is public. The private endpoint is always enabled; see agent/aws/eks/NETWORKING.md."
+  description = "Indicates whether or not the API server endpoint is public. The private endpoint is always enabled; see runner/aws/eks/NETWORKING.md."
   type        = bool
 }
 
@@ -61,4 +55,43 @@ variable "resource_names" {
   EOT
   type        = map(string)
   default     = {}
+}
+
+variable "namespace" {
+  description = "Kubernetes namespace the runner is installed into. The IRSA role trusts service accounts in this namespace only."
+  type        = string
+  default     = "matillion"
+}
+
+variable "service_account_name" {
+  description = "Runner service account name. Must match serviceAccount.name in the Helm values; the chart default is matillion-runner-sa."
+  type        = string
+  default     = "matillion-runner-sa"
+}
+
+variable "script_runner_service_account_name" {
+  description = "Script runner service account name. Must match the name the chart renders, which is scriptRunner.serviceAccount.name or, when empty, <fullname>-script-runner-sa. For `helm install matillion-runner` the chart renders matillion-runner-script-runner-sa."
+  type        = string
+  default     = "matillion-runner-script-runner-sa"
+}
+
+variable "authentication_mode" {
+  description = <<-EOT
+    Cluster authentication mode. API_AND_CONFIG_MAP makes EKS access entries usable
+    alongside the aws-auth ConfigMap. AWS allows CONFIG_MAP -> API_AND_CONFIG_MAP -> API
+    and does not allow moving back, so lowering this value on an existing cluster fails.
+  EOT
+  type        = string
+  default     = "API_AND_CONFIG_MAP"
+
+  validation {
+    condition     = contains(["CONFIG_MAP", "API_AND_CONFIG_MAP", "API"], var.authentication_mode)
+    error_message = "authentication_mode must be CONFIG_MAP, API_AND_CONFIG_MAP or API."
+  }
+}
+
+variable "additional_admin_principal_arns" {
+  description = "IAM role or user ARNs granted cluster-admin through EKS access entries. Requires authentication_mode other than CONFIG_MAP."
+  type        = list(string)
+  default     = []
 }
