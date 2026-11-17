@@ -34,7 +34,7 @@ variable "max_receive_count" {
 }
 
 variable "adapter_image_uri" {
-  description = "ECR image URI for the SQS->DPC trigger adapter Lambda. See README: for production use the richer modules/aws/lambda/sqs-dpc-adapter module (PR #118)."
+  description = "Private ECR image URI for the SQS->DPC trigger adapter Lambda (same region; copied from public.ecr.aws/matillion/maia-queue-adapter). See README: for production use the richer modules/aws/lambda/sqs-dpc-adapter module (PR #118)."
   type        = string
 }
 

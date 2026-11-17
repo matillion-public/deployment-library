@@ -1,0 +1,10 @@
+# One runner in an existing EKS cluster. Copy to terraform.tfvars and fill in.
+name         = "finance"
+region       = "eu-west-1"
+cluster_name = "platform-shared"
+
+# The business unit's own buckets, to keep runners out of each other's data.
+# s3_bucket_arns = ["arn:aws:s3:::finance-staging"]
+
+# Only when the cluster runs pods on Fargate: private subnets for the runner's profile.
+# fargate_subnet_ids = ["subnet-0abc", "subnet-0def"]
