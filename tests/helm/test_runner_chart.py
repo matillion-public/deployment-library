@@ -515,10 +515,10 @@ class TestScriptRunner:
         assert port['targetPort'] == 'ssh'
 
     def test_runner_deployment_shape(self, base_values):
-        """Runner: 1 replica, RollingUpdate maxUnavailable 0, :22, size-mapped resources, securityContext."""
+        """Runner: 2 replicas, RollingUpdate maxUnavailable 0, :22, size-mapped resources, securityContext."""
         documents = self.helm_template(self.enabled_values(base_values))
         dep = next(d for d in self._runner_docs(documents) if d['kind'] == 'Deployment')
-        assert dep['spec']['replicas'] == 1
+        assert dep['spec']['replicas'] == 2
         assert dep['spec']['strategy']['rollingUpdate']['maxUnavailable'] == 0
         # Consistency with the other new resources — namespace metadata present.
         assert dep['metadata']['namespace'] == 'default'
@@ -628,7 +628,10 @@ class TestScriptRunner:
     def test_runner_netpol_ingress_only_from_agent_on_2222(self, base_values):
         documents = self.helm_template(self.enabled_values(base_values))
         runner_np = next(d for d in self._runner_docs(documents) if d['kind'] == 'NetworkPolicy')
-        ingress = runner_np['spec']['ingress']
+        # The other ingress rule admits Prometheus on the metrics port only
+        # (DPC-55687, covered in test_script_runner_scaling); SSH stays agent-only.
+        ingress = [r for r in runner_np['spec']['ingress']
+                   if any(p['port'] == 2222 for p in r['ports'])]
         assert len(ingress) == 1
         # NetworkPolicy enforces at the pod level — uses the runner's actual
         # listen port (2222), not the Service's external :22 mapping.
@@ -660,12 +663,19 @@ class TestScriptRunner:
 
     def test_runner_has_tcp_liveness_probe_on_ssh_port(self, base_values):
         """Runner self-heals if sshd dies (DPC-49795 / destructive-test H8) — a TCP
-        liveness probe on the SSH listen port lets Kubernetes restart a wedged pod."""
+        connect to the SSH listen port lets Kubernetes restart a wedged pod. The
+        check is skipped while the image is draining (DPC-55687): it closes the
+        listener mid-drain, and a failing probe would kill the scripts it's
+        waiting for. Behaviour verified against the image in all three states
+        (healthy, draining with a session open, sshd dead)."""
         documents = self.helm_template(self.enabled_values(base_values))
         runner = next(d for d in self._runner_docs(documents) if d['kind'] == 'Deployment')
         container = runner['spec']['template']['spec']['containers'][0]
         probe = container['livenessProbe']
-        assert probe['tcpSocket']['port'] == 'ssh'
+        assert 'tcpSocket' not in probe
+        assert probe['exec']['command'] == [
+            '/bin/bash', '-c',
+            '[ -e /run/sshd/draining ] || exec 3<>/dev/tcp/127.0.0.1/2222']
         # Anchor the defaults so accidental drift is caught.
         assert probe['initialDelaySeconds'] == 10
         assert probe['periodSeconds'] == 30
@@ -1002,3 +1012,120 @@ class TestAzureSubscriptionId:
 
         env = self._agent_env(base_values)
         assert 'AZURE_DEFAULT_SUBSCRIPTION_ID' not in env
+
+
+class TestQueueAdapterAws:
+    """Queue adapter on EKS (queueAdapter.aws.*) — DPC-57541."""
+
+    helm_template = TestRunnerChart.helm_template
+
+    @pytest.fixture
+    def base_values(self):
+        return {
+            'cloudProvider': 'aws',
+            'config': {'oauthClientId': 'id', 'oauthClientSecret': 'secret'},
+            'serviceAccount': {'roleArn': 'arn:aws:iam::123456789012:role/agent'},
+            'dpcAgent': {
+                'dpcAgent': {
+                    'env': {'accountId': '12345', 'agentId': 'test-agent-id', 'matillionRegion': 'us1'},
+                    'image': {'repository': 'nginx', 'tag': 'latest'},
+                }
+            },
+            'hpa': {'maxReplicas': 10, 'metrics': {'target': {'averageValue': '50'}}},
+        }
+
+    def enabled_values(self, base_values, **aws):
+        v = dict(base_values)
+        v['queueAdapter'] = {
+            'enabled': True,
+            'image': {'repository': 'public.ecr.aws/matillion/maia-queue-adapter-eks', 'tag': '1.2.3'},
+            'aws': {
+                'roleArn': 'arn:aws:iam::123456789012:role/queue-adapter',
+                'region': 'eu-west-1',
+                'queueUrl': 'https://sqs.eu-west-1.amazonaws.com/123456789012/q',
+                'dlqUrl': 'https://sqs.eu-west-1.amazonaws.com/123456789012/q-dlq',
+                **aws,
+            },
+        }
+        return v
+
+    def _adapter_docs(self, documents):
+        return {d['kind']: d for d in documents
+                if 'queue-adapter' in d.get('metadata', {}).get('name', '')}
+
+    def _env(self, container):
+        return {e['name']: e.get('value') for e in container['env']}
+
+    def _render_error(self, values):
+        with pytest.raises(subprocess.CalledProcessError) as exc:
+            self.helm_template(values)
+        return exc.value.stderr
+
+    def test_disabled_by_default_renders_nothing(self, base_values):
+        assert self._adapter_docs(self.helm_template(base_values)) == {}
+
+    def test_default_mode_is_a_deployment_without_keda(self, base_values):
+        docs = self._adapter_docs(self.helm_template(self.enabled_values(base_values)))
+        assert set(docs) == {'ServiceAccount', 'Deployment'}
+        assert docs['Deployment']['spec']['replicas'] == 1
+
+    def test_azure_resources_are_not_rendered_on_aws(self, base_values):
+        docs = self.helm_template(self.enabled_values(base_values, mode='scaledJob'))
+        triggers = [t['type'] for d in docs if d['kind'] == 'ScaledJob' for t in d['spec']['triggers']]
+        assert triggers == ['aws-sqs-queue']
+
+    def test_service_account_uses_the_adapter_irsa_role(self, base_values):
+        sa = self._adapter_docs(self.helm_template(self.enabled_values(base_values)))['ServiceAccount']
+        assert sa['metadata']['annotations'] == {
+            'eks.amazonaws.com/role-arn': 'arn:aws:iam::123456789012:role/queue-adapter'}
+        assert 'azure.workload.identity/use' not in sa['metadata']['labels']
+
+    def test_deployment_runs_the_loop_with_queue_settings(self, base_values):
+        dep = self._adapter_docs(self.helm_template(self.enabled_values(base_values)))['Deployment']
+        pod = dep['spec']['template']['spec']
+        container = pod['containers'][0]
+        env = self._env(container)
+        assert container['image'] == 'public.ecr.aws/matillion/maia-queue-adapter-eks:1.2.3'
+        assert env['MATILLION_AWS_RUN_MODE'] == 'loop'
+        assert env['AWS_REGION'] == env['MATILLION_AWS_REGION'] == 'eu-west-1'
+        assert env['MATILLION_AWS_QUEUE_URL'].endswith('/q')
+        assert env['MATILLION_AWS_DLQ_URL'].endswith('/q-dlq')
+        assert pod['serviceAccountName'].endswith('-queue-adapter-sa')
+        assert 'restartPolicy' not in pod
+        assert 'livenessProbe' in container
+        assert container['securityContext']['readOnlyRootFilesystem'] is True
+
+    def test_dlq_env_omitted_when_unset(self, base_values):
+        dep = self._adapter_docs(self.helm_template(self.enabled_values(base_values, dlqUrl='')))['Deployment']
+        assert 'MATILLION_AWS_DLQ_URL' not in self._env(dep['spec']['template']['spec']['containers'][0])
+
+    def test_autoscale_adds_scaledobject_and_drops_replicas(self, base_values):
+        docs = self._adapter_docs(self.helm_template(self.enabled_values(base_values, autoscale=True)))
+        assert set(docs) == {'ServiceAccount', 'Deployment', 'ScaledObject', 'TriggerAuthentication'}
+        assert 'replicas' not in docs['Deployment']['spec']
+        trigger = docs['ScaledObject']['spec']['triggers'][0]
+        assert trigger['type'] == 'aws-sqs-queue'
+        assert trigger['metadata']['scaleOnInFlight'] == 'true'
+        assert trigger['authenticationRef']['name'].endswith('-queue-adapter-auth')
+
+    def test_scaled_job_drains_and_uses_workload_identity(self, base_values):
+        docs = self._adapter_docs(self.helm_template(self.enabled_values(base_values, mode='scaledJob')))
+        assert set(docs) == {'ServiceAccount', 'ScaledJob', 'TriggerAuthentication'}
+        pod = docs['ScaledJob']['spec']['jobTargetRef']['template']['spec']
+        assert self._env(pod['containers'][0])['MATILLION_AWS_RUN_MODE'] == 'drain'
+        assert pod['restartPolicy'] == 'Never'
+        assert 'livenessProbe' not in pod['containers'][0]
+        assert docs['TriggerAuthentication']['spec']['podIdentity'] == {
+            'provider': 'aws', 'identityOwner': 'workload'}
+
+    @pytest.mark.parametrize('key,message', [
+        ('queueUrl', 'queueAdapter.aws.queueUrl is required'),
+        ('region', 'queueAdapter.aws.region is required'),
+        ('roleArn', 'queueAdapter.aws.roleArn is required'),
+    ])
+    def test_required_values(self, base_values, key, message):
+        assert message in self._render_error(self.enabled_values(base_values, **{key: ''}))
+
+    def test_rejects_unknown_mode(self, base_values):
+        assert 'must be deployment or scaledJob' in self._render_error(
+            self.enabled_values(base_values, mode='cronJob'))
