@@ -279,3 +279,186 @@ explicitly, so `helm get values` always says which identity the pod is using.
 {{- fail "azure.workloadIdentity.enabled is false and azure.servicePrincipal.enabled is false, so the runner's ServiceAccount gets no azure.workload.identity/client-id annotation and the pod has no Azure identity: every call to Key Vault, Storage and the Matillion control plane's Azure-backed features fails at runtime, after a successful install. Either set azure.workloadIdentity.clientId and leave azure.workloadIdentity.enabled true, or enable azure.servicePrincipal, or, if the pod is deliberately inheriting the AKS node pool's kubelet managed identity via IMDS, set azure.nodeIdentity.enabled=true to say so. See runner/helm/README.md, 'Cloud Provider Specific'." }}
 {{- end }}
 {{- end }}
+
+{{/*
+The metrics endpoint the prometheus.io/* annotations advertise, as YAML
+(port, path). The annotations can only name one endpoint, so this fails rather
+than advertise an endpoint the chart isn't exposing.
+*/}}
+{{- define "matillion-runner.metrics.annotated" -}}
+{{- $target := .Values.metrics.annotationTarget | default "legacy" -}}
+{{- if not (has $target (list "legacy" "otel")) -}}
+{{- fail (printf "metrics.annotationTarget is %q; must be legacy or otel." $target) -}}
+{{- end -}}
+{{- $endpoint := index .Values.metrics $target -}}
+{{- if not $endpoint.enabled -}}
+{{- fail (printf "metrics.annotationTarget is %s but metrics.%s.enabled is false. Point the annotations at an endpoint the chart exposes." $target $target) -}}
+{{- end -}}
+port: {{ $endpoint.port }}
+path: {{ $endpoint.path }}
+{{- end }}
+
+{{/*
+Custom metric names the HPA scales on, as YAML (tasks, requests). The names
+are the ones the prometheus chart's adapter serves: legacy rules expose the
+app_* series as-is; otel rules expose the matillion_agent_*_unit series under
+the names below.
+*/}}
+{{- define "matillion-runner.hpa.metrics" -}}
+{{- $source := .Values.hpa.metricSource | default "legacy" -}}
+{{- if eq $source "legacy" -}}
+{{- if not .Values.metrics.legacy.enabled -}}
+{{- fail "hpa.metricSource is legacy but metrics.legacy.enabled is false, so Prometheus can no longer scrape the metrics the HPA reads. Set hpa.metricSource=otel." -}}
+{{- end -}}
+tasks: app_active_task_count
+requests: app_active_request_count
+{{- else if eq $source "otel" -}}
+{{- if not .Values.metrics.otel.enabled -}}
+{{- fail "hpa.metricSource is otel but metrics.otel.enabled is false. The HPA would have no metric to read." -}}
+{{- end -}}
+tasks: matillion_agent_task_running
+requests: matillion_agent_request_active
+{{- else -}}
+{{- fail (printf "hpa.metricSource is %q; must be legacy or otel." $source) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Queue adapter, AWS (EKS) path.
+
+usesKeda is non-empty when the AWS path needs KEDA: always for mode=scaledJob,
+and for mode=deployment only when autoscaling is on.
+*/}}
+{{- define "matillion-runner.queueAdapter.aws.usesKeda" -}}
+{{- if and (eq (include "matillion-runner.cloudProvider" .) "aws") (or (eq .Values.queueAdapter.aws.mode "scaledJob") .Values.queueAdapter.aws.autoscale) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{- define "matillion-runner.queueAdapter.aws.trigger" -}}
+- type: aws-sqs-queue
+  metadata:
+    queueURL: {{ .Values.queueAdapter.aws.queueUrl | quote }}
+    awsRegion: {{ .Values.queueAdapter.aws.region | quote }}
+    queueLength: {{ .Values.queueAdapter.scaling.queueLength | quote }}
+    # Counts messages already being worked on as well as waiting ones. Without
+    # it, a backlog the adapter has picked up but not finished reads as an empty
+    # queue and KEDA scales the pod away mid-message.
+    scaleOnInFlight: "true"
+  authenticationRef:
+    name: {{ include "matillion-runner.fullname" . }}-queue-adapter-auth
+{{- end }}
+
+{{/*
+The AWS adapter container. Called with (dict "root" $ "runMode" "loop"|"drain"):
+loop is the persistent poller (Deployment), drain empties the queue and exits
+(ScaledJob).
+*/}}
+{{- define "matillion-runner.queueAdapter.aws.container" -}}
+{{- $v := .root.Values.queueAdapter -}}
+- name: adapter
+  image: "{{ $v.image.repository }}{{ if $v.image.digest }}@{{ $v.image.digest }}{{ else }}:{{ $v.image.tag }}{{ end }}"
+  imagePullPolicy: {{ $v.image.pullPolicy }}
+  env:
+    - name: MATILLION_AWS_RUN_MODE
+      value: {{ .runMode | quote }}
+    - name: MATILLION_AWS_REGION
+      value: {{ $v.aws.region | quote }}
+    # AWS_REGION as well as the MATILLION_ prefixed one: the STS call IRSA makes
+    # goes through botocore's own config, which never sees MATILLION_*.
+    - name: AWS_REGION
+      value: {{ $v.aws.region | quote }}
+    - name: MATILLION_AWS_QUEUE_URL
+      value: {{ $v.aws.queueUrl | quote }}
+    {{- with $v.aws.dlqUrl }}
+    - name: MATILLION_AWS_DLQ_URL
+      value: {{ . | quote }}
+    {{- end }}
+    - name: MATILLION_SECRET_NAME
+      value: {{ $v.aws.secretName | quote }}
+    - name: MATILLION_PROJECT_MAPPING_TABLE
+      value: {{ $v.aws.projectMappingTable | quote }}
+    - name: MATILLION_API_URL
+      value: {{ $v.matillionApiUrl | quote }}
+    - name: MATILLION_TOKEN_URL
+      value: {{ $v.matillionTokenUrl | quote }}
+    - name: MATILLION_LOG_LEVEL
+      value: {{ $v.aws.logLevel | quote }}
+    - name: MATILLION_AWS_MAX_BATCH_SIZE
+      value: {{ $v.aws.maxBatchSize | quote }}
+    - name: MATILLION_AWS_MAX_WAIT_SECONDS
+      value: {{ $v.aws.maxWaitSeconds | quote }}
+    - name: MATILLION_AWS_VISIBILITY_TIMEOUT
+      value: {{ $v.aws.visibilityTimeout | quote }}
+    - name: MATILLION_AWS_RETRY_BACKOFF_BASE
+      value: {{ $v.aws.retryBackoffBase | quote }}
+    - name: MATILLION_AWS_RETRY_BACKOFF_MAX
+      value: {{ $v.aws.retryBackoffMax | quote }}
+    - name: MATILLION_AWS_HEALTH_FILE
+      value: /var/run/adapter/healthy
+    # X-Ray needs a daemon and a Lambda invocation to attach a segment to; the pod
+    # has neither, and leaving it on logs a warning per message.
+    - name: MATILLION_ENABLE_XRAY_TRACING
+      value: "false"
+  volumeMounts:
+    # readOnlyRootFilesystem is on, so the health file and anything boto3 caches
+    # need somewhere writable.
+    - name: runtime
+      mountPath: /var/run/adapter
+    - name: tmp
+      mountPath: /tmp
+  {{- if and $v.aws.livenessProbe.enabled (eq .runMode "loop") }}
+  livenessProbe:
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        # Fails if the loop has not touched the file within staleAfterSeconds —
+        # alive, but no longer polling.
+        - >-
+          test -f /var/run/adapter/healthy &&
+          test $(( $(date +%s) - $(cat /var/run/adapter/healthy) )) -lt {{ $v.aws.livenessProbe.staleAfterSeconds }}
+    initialDelaySeconds: {{ $v.aws.livenessProbe.initialDelaySeconds }}
+    periodSeconds: {{ $v.aws.livenessProbe.periodSeconds }}
+  {{- end }}
+  resources:
+{{- toYaml $v.resources | nindent 4 }}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+{{- end }}
+
+{{- define "matillion-runner.queueAdapter.aws.podSpec" -}}
+serviceAccountName: {{ include "matillion-runner.fullname" .root }}-queue-adapter-sa
+automountServiceAccountToken: true
+{{- if eq .runMode "drain" }}
+restartPolicy: Never
+{{- end }}
+# The drain finishes the message in hand on SIGTERM. Cut this short and a
+# pipeline that was just triggered has its message redelivered, so it runs twice.
+terminationGracePeriodSeconds: {{ .root.Values.queueAdapter.aws.terminationGracePeriodSeconds }}
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+{{- with .root.Values.nodeSelector }}
+nodeSelector:
+{{- toYaml . | nindent 2 }}
+{{- end }}
+containers:
+{{- include "matillion-runner.queueAdapter.aws.container" . | nindent 2 }}
+volumes:
+  - name: runtime
+    emptyDir: {}
+  - name: tmp
+    emptyDir: {}
+{{- end }}

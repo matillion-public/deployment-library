@@ -1,0 +1,26 @@
+---
+{{- /*
+The script runner's voluntary-disruption budget. It follows the runner's own
+podDisruptionBudget setting, with the same rule: a budget over a workload that
+can sit at one replica permits zero evictions, so drains and upgrades would hang.
+*/}}
+{{- if and .Values.scriptRunner.enabled .Values.podDisruptionBudget.enabled }}
+{{- $floor := ternary .Values.scriptRunner.hpa.minReplicas .Values.scriptRunner.replicas .Values.scriptRunner.hpa.enabled | int }}
+{{- if lt $floor 2 }}
+{{- fail (printf "podDisruptionBudget.enabled is true but the script runner's replica floor is %d. A PodDisruptionBudget over a workload that can sit at one replica permits zero voluntary evictions, so node drains and cluster upgrades hang. Raise scriptRunner.replicas (or scriptRunner.hpa.minReplicas when its HPA is on) to at least 2." $floor) }}
+{{- end }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "matillion-runner.scriptRunner.fullname" . }}-pdb
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "matillion-runner.labels" . | nindent 4 }}
+spec:
+  # A pod being evicted drains its sessions for up to the grace period before it
+  # exits, so evicting one at a time keeps the rest serving.
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      app: {{ include "matillion-runner.scriptRunner.fullname" . }}-pods
+{{- end }}

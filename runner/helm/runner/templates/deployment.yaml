@@ -23,9 +23,12 @@ spec:
         azure.workload.identity/use: "true"
         {{- end }}
       annotations:
-        prometheus.io/path: "/actuator/prometheus"
-        prometheus.io/port: "8080"
+        {{- if or .Values.metrics.legacy.enabled .Values.metrics.otel.enabled }}
+        {{- $scrape := include "matillion-runner.metrics.annotated" . | fromYaml }}
+        prometheus.io/path: {{ $scrape.path | quote }}
+        prometheus.io/port: {{ $scrape.port | quote }}
         prometheus.io/scrape: "true"
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -124,6 +127,10 @@ spec:
           value: {{ quote .Values.dpcAgent.dpcAgent.env.matillionEnv }}
         {{- end }}
         {{- end }}
+        {{- if .Values.metrics.otel.enabled }}
+        - name: OTEL_EXPORTER_PROMETHEUS_PORT
+          value: {{ .Values.metrics.otel.port | quote }}
+        {{- end }}
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
         {{- if .Values.scriptRunner.enabled }}
@@ -220,6 +227,20 @@ spec:
           value: {{ quote .Values.dpcAgent.dpcAgent.env.defaultGcpProject }}
         {{- end }}
         {{- end }}
+        {{- if .Values.disableScriptExecution }}
+        # disableScriptExecution: the runner starts Python Script and Bash Script
+        # through these commands, so paths that do not exist make both fail at
+        # Run. All three together are the tested set; do not drop one. Rendered
+        # last in the env list, outside the env.direct branch, because Kubernetes
+        # keeps the last of two entries with the same name: env.direct and
+        # env.fromSecret entries must not be able to override these.
+        - name: SCRIPT_OOM_PROTECTION_ENABLED
+          value: "false"
+        - name: MTLN_PYTHON_3_COMMAND
+          value: "/python-script-disabled-on-this-runner"
+        - name: MTLN_BASH_COMMAND
+          value: "/bash-script-disabled-on-this-runner"
+        {{- end }}
         volumeMounts:
         - name: config-volume
           mountPath: /etc/config
@@ -237,6 +258,10 @@ spec:
         ports:
         - containerPort: 8080
           name: metrics
+        {{- if .Values.metrics.otel.enabled }}
+        - containerPort: {{ .Values.metrics.otel.port }}
+          name: otel-metrics
+        {{- end }}
         securityContext: {}
         {{- if .Values.readinessProbe.enabled }}
         readinessProbe:

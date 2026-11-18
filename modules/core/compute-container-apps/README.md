@@ -14,7 +14,7 @@ Least-privilege deployer role definition mirrors the composer contract:
 ## Key inputs
 `deployment_name`, `container_app_environment_id` *(required)*, `image_url`,
 `agent_identity_id` *(required)*, `runner_size`, `min_replicas`, `max_replicas`,
-`role_scope` *(required)*, `create_deployer_role`, `tags`.
+`role_scope` *(required)*, `disable_script_execution`, `create_deployer_role`, `tags`.
 
 ## Outputs
 `agent_service_id`, `agent_service_name`, `agent_fqdn`,

@@ -14,8 +14,15 @@ data "aws_vpc" "vpc" {
   id = var.use_existing_vpc ? var.existing_vpc_id : aws_vpc.main_vpc[0].id
 }
 
+# Zone IDs, unlike zone names, are the same in every account. EKS cannot place a control plane in these zones
+# and AWS offers no API to list the supported ones: use1-az3, usw1-az2, cac1-az3.
+locals {
+  eks_unsupported_zone_ids = ["use1-az3", "usw1-az2", "cac1-az3"]
+}
+
 data "aws_availability_zones" "available" {
-  state = "available"
+  state            = "available"
+  exclude_zone_ids = local.eks_unsupported_zone_ids
 }
 
 # Look up existing subnets to avoid CIDR conflicts when creating subnets in an existing VPC
@@ -80,6 +87,11 @@ locals {
 resource "random_shuffle" "aws_availability_zone_names" {
   input        = data.aws_availability_zones.available.names
   result_count = 2
+
+  # Changing the input forces a new shuffle, which would replace the subnets of existing deployments.
+  lifecycle {
+    ignore_changes = [input]
+  }
 }
 
 resource "aws_internet_gateway" "igw" {
