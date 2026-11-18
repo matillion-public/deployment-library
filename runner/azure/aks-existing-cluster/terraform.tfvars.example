@@ -1,0 +1,11 @@
+# One runner in an existing AKS cluster. Copy to terraform.tfvars and fill in.
+name                        = "finance"
+azure_subscription_id       = "00000000-0000-0000-0000-000000000000"
+cluster_name                = "platform-shared"
+cluster_resource_group_name = "platform-rg"
+
+# The business unit's own resource group for the runner's identities and Key Vault.
+# resource_group_name = "finance-rg"
+
+# The business unit's own storage accounts, for staging and data.
+# storage_account_ids = ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/finance-rg/providers/Microsoft.Storage/storageAccounts/financestaging"]

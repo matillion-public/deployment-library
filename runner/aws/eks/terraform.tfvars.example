@@ -1,6 +1,6 @@
-# =============================================================================
+# ======================================================================
 # AWS EKS Deployment Configuration
-# =============================================================================
+# ======================================================================
 
 # -----------------------------------------------------------------------------
 # Networking Configuration
@@ -22,9 +22,9 @@ existing_subnet_ids = []              # Private subnet IDs (required if use_exis
                                       # Example: ["subnet-abc123", "subnet-def456"]
 
 # CIDR block for VPC (used when creating new VPC or subnets)
-cidr_block = "172.5.0.0/16"          # Default creates:
-                                      # - Public: 172.5.0.0/24, 172.5.1.0/24
-                                      # - Private: 172.5.2.0/24, 172.5.3.0/24
+cidr_block = "10.0.0.0/16"          # Default creates:
+                                      # - Public: 10.0.0.0/24, 10.0.1.0/24
+                                      # - Private: 10.0.2.0/24, 10.0.3.0/24
 
 # -----------------------------------------------------------------------------
 # AWS Configuration
@@ -51,19 +51,42 @@ tags = {
 # endpoint, and restricting its CIDR range does NOT affect Fargate pods.
 is_private_cluster   = false          # true = private endpoint only (no kubectl from outside VPC)
                                       # false = public endpoint also enabled (in addition to private)
-authorized_ip_ranges = ["0.0.0.0/0"]  # CIDR blocks allowed to access the public endpoint
+authorized_ip_ranges = ["203.0.113.10/32"]  # Replace with your own CIDR blocks; required when is_private_cluster = false
                                       # IMPORTANT: Restrict this in production!
                                       # Example: ["10.0.0.0/8", "203.0.113.0/24"]
 
-# =============================================================================
+# IRSA trust: the role is assumable only by these service accounts, in this namespace.
+# Defaults match `helm install matillion-runner` into the `matillion` namespace.
+namespace                          = "matillion"
+service_account_name               = "matillion-runner-sa"
+script_runner_service_account_name = "matillion-runner-script-runner-sa"
+
+# Cluster administrators
+# The principal that runs terraform is always a cluster admin (EKS access entry).
+# authentication_mode can move CONFIG_MAP -> API_AND_CONFIG_MAP -> API, never back.
+# authentication_mode = "API_AND_CONFIG_MAP" # default
+#
+# Additional cluster admins (IAM role or user ARNs). SSO roles need the full ARN
+# including the aws-reserved/sso.amazonaws.com/ path. Do not list the principal
+# that runs terraform. Not allowed with authentication_mode = "CONFIG_MAP".
+# additional_admin_principal_arns = [
+#   "arn:aws:iam::111122223333:role/platform-admins",
+#   "arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/eu-west-1/AWSReservedSSO_AdministratorAccess_0123456789abcdef",
+# ]
+
+# Optional: attach a pre-created runner access policy instead of creating
+# DataProductivityCloudAccess-<salt> per deployment. See README, Pre-created runner access policy.
+# dpc_policy_arn = "arn:aws:iam::123456789012:policy/DataProductivityCloudAccess"
+
+# ======================================================================
 # Configuration Examples
-# =============================================================================
+# ======================================================================
 
 # Example 1: Create everything from scratch
 # ------------------------------------------
 # use_existing_vpc      = false
 # use_existing_subnet   = false
-# cidr_block           = "172.5.0.0/16"
+# cidr_block           = "10.0.0.0/16"
 # region               = "us-east-1"
 
 # Example 2: Use existing VPC, create new subnets
@@ -71,7 +94,7 @@ authorized_ip_ranges = ["0.0.0.0/0"]  # CIDR blocks allowed to access the public
 # use_existing_vpc      = true
 # existing_vpc_id       = "vpc-0123456789abcdef0"
 # use_existing_subnet   = false
-# cidr_block           = "172.5.0.0/16"  # Must match VPC CIDR
+# cidr_block           = "10.0.0.0/16"  # Must match VPC CIDR
 # region               = "us-east-1"
 
 # Example 3: Use existing VPC and existing private subnets (for Fargate)
