@@ -1,13 +1,19 @@
 variable "name" {
-  description = "Name for the ECS Fargate cluster to be created for hosting your runner(s)"
+  description = "Deployment name. Prefixes the default names of the OAuth credentials and script runner keypair secrets."
   type        = string
   default     = "data-insights"
 }
 
 variable "secret_name" {
-  description = "Name for the Secrets Manager secret. The runner expects 'matillion-oauth-credentials' by default."
+  description = "Name for the OAuth credentials secret. Defaults to '<name>-oauth-credentials' when empty. The runner receives the secret ARN, so the name can be anything."
   type        = string
-  default     = "matillion-oauth-credentials"
+  default     = ""
+}
+
+variable "tags" {
+  description = "Tags applied to the Secrets Manager secrets"
+  type        = map(string)
+  default     = {}
 }
 
 variable "client_id" {
@@ -29,9 +35,15 @@ variable "enable_keypair_secret" {
 }
 
 variable "runner_keypair_secret_name" {
-  description = "Name for the Secrets Manager secret holding the script runner SSH authorized_keys."
+  description = "Name for the Secrets Manager secret holding the script runner SSH authorized_keys. Defaults to '<name>-runner-keypair' when empty."
   type        = string
-  default     = "matillion-runner-keypair"
+  default     = ""
+}
+
+variable "recovery_window_in_days" {
+  description = "Days Secrets Manager keeps a deleted secret before removing it. 0 deletes immediately, so the same name can be reused straight away. The secret values are supplied by Terraform variables and can be recreated."
+  type        = number
+  default     = 0
 }
 
 variable "runner_authorized_keys" {

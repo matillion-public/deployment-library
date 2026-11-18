@@ -67,6 +67,15 @@ module "aks" {
   node_disk_size  = var.node_disk_size
   node_pool_zones = var.node_pool_zones
 
+  network_plugin_mode = var.network_plugin_mode
+  pod_cidr            = var.pod_cidr
+  network_policy      = var.network_policy
+  network_data_plane  = var.network_data_plane
+
+  azure_rbac_enabled     = var.azure_rbac_enabled
+  admin_group_object_ids = var.admin_group_object_ids
+  local_account_disabled = var.local_account_disabled
+
   # Autoscaler bounds and cluster tier. The module defaults are sensible — a floor
   # of one node per zone, a ceiling of double desired_node_count, Standard tier —
   # but without these passthroughs a caller using this root cannot override any of
@@ -74,6 +83,8 @@ module "aks" {
   min_node_count = var.min_node_count
   max_node_count = var.max_node_count
   sku_tier       = var.sku_tier
+
+  enable_container_insights = var.enable_container_insights
 
   storage_account_replication_type = var.storage_account_replication_type
 

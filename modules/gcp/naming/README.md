@@ -70,8 +70,9 @@ This is worth settling during convention review rather than discovering at plan 
 ### Custom role ids reject hyphens
 
 `google_project_iam_custom_role.role_id` allows letters, digits, underscores and
-dots — no hyphens. `runner_secret_creator_role` therefore uses the `underscore`
-form, generating `ng_p_euw1_runner_secretcreator_01`.
+dots — no hyphens. `runner_secret_creator_role`, `runner_secret_prefix_role` and
+`runner_secret_project_role` therefore use the `underscore` form, generating
+`ng_p_euw1_runner_secretcreator_01` and so on.
 
 The name is generated in that form rather than having its hyphens replaced
 afterwards, so the string that is validated for length, charset and uniqueness is
@@ -104,13 +105,13 @@ a hyphen would be invalid for the only key that uses it.
 
 ## Resource keys
 
-16 keys, grouped by the module that consumes them:
+18 keys, grouped by the module that consumes them:
 
 | Module | Keys |
 |---|---|
 | `gcp/networking` | `vpc`, `subnet`, `pod_secondary_range`, `services_secondary_range`, `nat_router`, `nat_ip`, `cloud_nat` |
 | `gcp/gke` | `gke_cluster`, `node_pool`, `gke_node_network_tag`, `node_service_account`, `runner_workload_service_account`, `staging_bucket`, `runner_secret`, `runner_secret_creator_role` |
-| `gcp/runner-identity` | `runner_service_account` |
+| `gcp/runner-identity` | `runner_service_account`, `runner_secret_prefix_role`, `runner_secret_project_role` |
 
 ### Why some keys carry their own purpose
 
@@ -209,7 +210,7 @@ bindings that reference them are rebuilt too. Check the plan.
 cd modules/gcp/naming && terraform test
 ```
 
-16 tests, covering the dashed convention, the hyphen-free role id and a hyphenated
+17 tests, covering the dashed convention, the hyphen-free role ids and a hyphenated
 one failing, a digit-leading and an uppercase convention failing RFC1035, lowercase
 buckets, empty tokens collapsing per form without dangling separators, service
 accounts fitting inside 30 characters, an over-long convention failing that cap, a
