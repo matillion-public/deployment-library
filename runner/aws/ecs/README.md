@@ -104,7 +104,8 @@ Required IAM permissions:
 - IAM role creation and management
 - Secrets Manager access
 - S3 bucket operations
-- CloudWatch logs access
+- CloudWatch logs access, including `logs:PutMetricFilter`, `logs:DeleteMetricFilter` and `logs:DescribeMetricFilters` for the authentication failure metric filter
+- When `auth_failure_alarm_actions` is set: `cloudwatch:PutMetricAlarm`, `cloudwatch:DeleteAlarms`, `cloudwatch:DescribeAlarms`, `cloudwatch:ListTagsForResource`, `cloudwatch:TagResource` and `cloudwatch:UntagResource`
 
 ## Quick Start
 
@@ -283,6 +284,34 @@ aws logs describe-log-groups --log-group-name-prefix "/ecs/"
 aws logs tail "/ecs/<name>-<suffix>-task" --follow
 ```
 
+### Checking that the runner is connected
+
+`terraform apply` and the ECS deployment status do not detect a wrong client secret. A runner that cannot authenticate keeps its tasks `RUNNING`, the deployment completes, and the runner retries indefinitely. Check the runner log instead:
+
+- `SSE Connection Subscription Started` is logged before the token request and does not mean the runner is connected.
+- `Successfully sent in-progress requests to Agent Gateway` appears only on a working runner.
+- `Recoverable error caught [[invalid_token_response] An error occurred while attempting to retrieve the OAuth 2.0 Access Token Response: 401 Unauthorized ...` means Keycloak rejected the runner's credentials, for example a wrong client secret. The same line with another status, a timeout or a connection error means the runner could not reach Keycloak.
+- `invalid_client` on a line without `Recoverable error caught` is usually a pipeline connector's OAuth failure, not the runner's own sign-in.
+
+To list authentication failures, run this CloudWatch Logs Insights query over `/ecs/<name>-<suffix>-task`:
+
+```bash
+aws logs start-query \
+  --log-group-name "/ecs/<name>-<suffix>-task" \
+  --start-time $(($(date +%s) - 3600)) \
+  --end-time $(date +%s) \
+  --query-string 'fields @timestamp, @message | filter @message like "Recoverable error caught [[invalid_" | sort @timestamp desc'
+
+# Then fetch the results with the queryId returned above
+aws logs get-query-results --query-id <query-id>
+```
+
+The deployment also counts these log events in the CloudWatch metric `<name>-<suffix>-runner-auth-failures` in the namespace `Matillion/Runner`. To be notified, set `auth_failure_alarm_actions` to a list of ARNs, for example an SNS topic. An alarm is then created that notifies them when the metric's sum is 1 or more in 2 of the last 3 five-minute periods, and again when it returns to `OK`. The alarm also fires while Keycloak is unreachable, and it does not detect a runner that is not running:
+
+```hcl
+auth_failure_alarm_actions = ["arn:aws:sns:<region>:<account-id>:<topic>"]
+```
+
 ### CloudWatch Alarms
 
 ```bash
@@ -426,6 +455,10 @@ The SQS adapter resources are now named `<name>-<salt>-maia-sqs-adapter` so that
 
 The source queue (`matillion-dpc-requests`) and mapping table (`matillion-project-mappings`) still default to fixed names. A second deployment in the same account and region must set `sqs_adapter_queue_name` and `sqs_adapter_mapping_table_name`, otherwise the table creation fails and the queue creation reuses the first deployment's queue.
 
+#### Upgrading to a version with the authentication failure metric
+
+The next `terraform apply` adds one CloudWatch Logs metric filter on the runner task log group, plus one CloudWatch alarm when `auth_failure_alarm_actions` is set. No existing resource changes. The identity running Terraform needs the permissions listed under [Required AWS Permissions](#required-aws-permissions). See [Checking that the runner is connected](#checking-that-the-runner-is-connected).
+
 ### Troubleshooting
 
 #### Service Issues
@@ -558,6 +591,7 @@ terraform destroy
 aws ecs list-clusters
 aws secretsmanager list-secrets
 aws s3 ls
+aws logs describe-log-groups --log-group-name-prefix /aws/ecs/containerinsights/
 ```
 
 #### Empty the staging bucket first
@@ -593,6 +627,22 @@ aws ecs delete-task-definitions --task-definitions <arn> [<arn> ...]
 ```
 
 The caller needs `ecs:DeleteTaskDefinitions`. Deleted revisions show `DELETE_IN_PROGRESS` until AWS finishes removing them.
+
+#### Delete the Container Insights log group
+
+After `terraform destroy`, the log group `/aws/ecs/containerinsights/<name>-<salt>-cluster/performance` can exist again. The module removes it on destroy, but AWS can create it once more shortly afterwards, so check immediately and again after about 5 minutes. `<name>-<salt>-cluster` is the ECS cluster name. If you use the `modules/aws/ecs` module directly with a fixed cluster name, follow the [module README](../../../modules/aws/ecs/README.md#container-insights-log-group) instead.
+
+```bash
+aws logs describe-log-groups \
+  --log-group-name-prefix /aws/ecs/containerinsights/<cluster-name>/performance \
+  --query 'logGroups[].[logGroupName,retentionInDays]' --output text
+
+aws logs delete-log-group --log-group-name /aws/ecs/containerinsights/<cluster-name>/performance
+```
+
+A recreated group is not in Terraform state and nothing uses it. The salt is regenerated after a full destroy, so a new deployment gets a new cluster name and does not conflict with the leftover group. Importing the group into a new deployment would plan a replacement because the name differs. Delete it instead. Deletion is permanent, so export any log events you need first.
+
+The caller needs `logs:DescribeLogGroups` and `logs:DeleteLogGroup`.
 
 ### Manual Cleanup (if needed)
 

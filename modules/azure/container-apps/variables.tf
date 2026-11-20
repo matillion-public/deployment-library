@@ -79,7 +79,7 @@ variable "container_image_url" {
 
 variable "container_acr_id" {
   type        = string
-  description = "Resource ID of the Azure Container Registry hosting container_image_url. Set for a private registry to scope AcrPull to that registry and wire identity-based pulls; leave null to retain the legacy subscription-scope AcrPull grant (public or pre-existing private registry deployments)."
+  description = "Resource ID of the Azure Container Registry hosting container_image_url. Set for a private registry: grants the runner identity AcrPull on that registry and makes image pulls use the identity. Leave null for a public registry (the default image): the image pulls anonymously and no AcrPull role is assigned."
   default     = null
 }
 
