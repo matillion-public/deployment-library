@@ -292,3 +292,9 @@ variable "metrics_ingress_ports" {
     error_message = "metrics_ingress_ports must contain at least one port between 1 and 65535."
   }
 }
+
+variable "auth_failure_alarm_actions" {
+  description = "ARNs notified (for example an SNS topic) when the runner log shows an authentication failure. The alarm is created only when this list is not empty."
+  type        = list(string)
+  default     = []
+}

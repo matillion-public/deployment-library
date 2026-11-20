@@ -72,7 +72,7 @@ modules/azure/container-apps/   # Container Apps module
 
 ## Prerequisites
 
-- [Terraform 1.0+](https://www.terraform.io/downloads.html)
+- [Terraform 1.5+](https://www.terraform.io/downloads.html)
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Azure subscription with Container Apps enabled
 - A pre-existing resource group
@@ -96,6 +96,42 @@ az account set --subscription "your-subscription-id"
 az provider register --namespace Microsoft.App
 az provider register --namespace Microsoft.OperationalInsights
 ```
+
+The principal that runs Terraform needs:
+
+- On the resource group: permission to create the resources in this deployment
+  (for example Contributor), and `Microsoft.Authorization/roleAssignments/write`
+  and `/delete` (for example Role Based Access Control Administrator or User
+  Access Administrator). The deployment assigns roles on the Key Vault and the
+  storage account it creates, to the runner identity and to the Key Vault
+  administrators.
+- On the container registry, when `container_acr_id` or `script_runner_acr_id`
+  is set: `Microsoft.Authorization/roleAssignments/write` and `/delete`, to
+  assign AcrPull to the runner or script runner identity.
+- On the subscription: permission to register the resource providers above, if
+  they are not registered yet.
+
+No role assignment is created at subscription scope.
+
+### Upgrading: AcrPull scope
+
+Earlier versions assigned AcrPull to the runner identity at subscription scope
+when `container_acr_id` was not set. That assignment is no longer created.
+
+- `container_acr_id` not set (the default): the next plan destroys one resource,
+  `module.container_apps.azurerm_role_assignment.acr_pull[0]` (moved from
+  `azurerm_role_assignment.acr_pull`), the subscription-scope AcrPull
+  assignment. Nothing else changes. The apply needs
+  `Microsoft.Authorization/roleAssignments/delete` at subscription scope. A
+  principal without it can have an administrator delete the assignment
+  (`az role assignment delete`) and then run
+  `terraform state rm 'module.container_apps.azurerm_role_assignment.acr_pull'`
+  before the next plan.
+- `container_acr_id` set: no change. The assignment keeps its registry scope and
+  moves to the address `acr_pull[0]` in state.
+- A deployment that pulls the runner image from a private registry must set
+  `container_acr_id`. Without it the image pull is anonymous, which a private
+  registry rejects whether or not the subscription assignment exists.
 
 ## Networking Requirements
 
@@ -146,11 +182,11 @@ Create `terraform.tfvars` from the example:
 # Azure Configuration
 azure_subscription_id = "12345678-1234-1234-1234-123456789abc"
 azure_tenant_id       = "12345678-1234-1234-1234-123456789abc"
-resource_group_name   = "matillion-runner-rg"
+resource_group_name   = "mtln-agent-rg"
 location              = "eastus"
 
 # Resource Naming
-name = "matillion-runner"
+name = "mtln-agent"
 
 # Matillion Configuration
 matillion_cloud_region = "eu1"
@@ -163,7 +199,7 @@ client_secret          = "your-oauth-client-secret"
 container_image_url = "matillion.azurecr.io/cloud-agent:current"
 tags = {
   Environment = "production"
-  Project     = "matillion-runner"
+  Project     = "mtln-agent"
 }
 ```
 
@@ -181,12 +217,12 @@ terraform apply
 # Check Container App status
 az containerapp show \
   --name <container_app_name from output> \
-  --resource-group matillion-runner-rg
+  --resource-group mtln-agent-rg
 
 # View logs
 az containerapp logs show \
   --name <container_app_name from output> \
-  --resource-group matillion-runner-rg
+  --resource-group mtln-agent-rg
 ```
 
 ## Runner Metrics
@@ -277,6 +313,59 @@ Terraform edit.** Use Azure's customer-initiated conversion or a manual
 migration, then update the Terraform value so state matches reality. Do not let
 a `terraform apply` be the first thing that attempts it.
 
+### Key Vault Name
+
+The default Key Vault name is `name`, `-kv-` and the 6-character salt, cut at 24
+characters, the Azure limit for a vault name. A `name` longer than 14 characters
+loses salt characters. With `enable_script_runner = true`, `name` is limited to
+11 characters, so the vault keeps the full salt and the rows from 15 characters
+on apply only with the script runner off:
+
+| `name` length | Salt characters kept |
+|---|---|
+| 14 or fewer | 6 |
+| 15 to 19 | 5 to 1 |
+| 20 | none; the vault name ends in `-` and the plan fails |
+| 21 to 23 | none; a 23-character `name` gives a vault name ending in `-` and the plan fails |
+| 24 or more | none; the vault name is the first 24 characters of `name` |
+
+Vault names are global across Azure, and a deleted vault keeps its name for the
+soft-delete retention period (7 days in this deployment). Fewer salt characters
+make a collision with another deployment, or with a vault destroyed in the last
+7 days, more likely.
+
+A `name` of 15 characters or more gives a warning at plan (`Check block
+assertion failed`). A derived vault name that ends in `-` fails the plan: a
+`name` of 20 or 23 characters, or a longer one whose 24th character is `-`.
+Both checks read only `name` and assume the 6-character alphanumeric salt that
+this root generates, so they run at plan on a new deployment, before the salt
+exists.
+
+Setting `resource_names["key_vault"]` on `modules/azure/container-apps` replaces
+the default name and skips both checks. This root does not expose that on its
+own: `naming_overrides` is ignored unless `naming_tokens` is set, and setting
+`naming_tokens` names every resource from the naming convention, which renames
+every resource of an existing deployment.
+
+With the default resource names, a `name` of 22 characters or more already fails
+the plan on the Container App name, which is `name`, `-app-` and the salt and is
+limited to 32 characters.
+
+Effect on existing deployments:
+
+- `name` of 14 characters or fewer: no change.
+- `name` of 15 to 19 characters: a warning at every plan. The vault name and the
+  planned changes are unchanged, and the plan exits 0. Do not shorten `name` to
+  clear the warning: changing `name` changes every default resource name,
+  including the vault's, and replaces those resources. Accept the warning.
+- `name` of 20 characters: the plan fails. Azure rejects a vault name ending in
+  `-`, so no existing deployment can use this name with the default vault name.
+- `name` of 21 characters: a warning, and the vault name has no salt.
+- `name` of 22 characters or more (only with `resource_names["container_app"]` set): a
+  warning, or a failed plan for 23 characters and for a 24th character of `-`.
+- Terraform 1.0 to 1.4: `terraform init` fails on the version constraint. This
+  deployment now needs Terraform 1.5 or later for the `check` block.
+
 ### Networking
 
 | Variable | Default | Description |
@@ -324,7 +413,7 @@ enable_nat_gateway      = true
 ### Resources Created Automatically
 
 - **User Assigned Managed Identity** with roles:
-  - `AcrPull` (subscription scope) - pull container images
+  - `AcrPull` on the registry named by `container_acr_id`, only when it is set - pull the runner image from a private registry
   - `Storage Account Contributor` - manage storage
   - `Storage Blob Data Contributor` - read/write blobs
   - `Key Vault Secrets Officer` - manage secrets
