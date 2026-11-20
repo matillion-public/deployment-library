@@ -58,3 +58,9 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "disable_script_execution" {
+  description = "Stop the Python Script and Bash Script components running on the agent. Sets SCRIPT_OOM_PROTECTION_ENABLED=false and points MTLN_PYTHON_3_COMMAND / MTLN_BASH_COMMAND at paths that do not exist, so both components fail at Run. Script Pushdown is unaffected. Internal runner settings, not a supported product toggle: re-test after runner upgrades."
+  type        = bool
+  default     = false
+}

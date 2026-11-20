@@ -16,6 +16,16 @@ manual configuration or troubleshooting.
 Shared Script Runner is DISABLED (scriptRunner.enabled=false) — no runner resources
 were created. Set scriptRunner.enabled=true to deploy it.
 {{- end }}
+{{- if .Values.disableScriptExecution }}
+
+Python Script and Bash Script are DISABLED on this runner (disableScriptExecution=true).
+Pipelines that use them still pass Validate but fail at Run with:
+
+  Cannot run program "/python-script-disabled-on-this-runner" ... (No such file or directory)
+
+That error is this setting, not a fault. Script Pushdown is unaffected. The
+setting relies on internal runner variables, so re-check it after runner upgrades.
+{{- end }}
 {{- $grace := int .Values.dpcAgent.dpcAgent.gracePeriodSeconds }}
 {{- if lt $grace 43200 }}
 

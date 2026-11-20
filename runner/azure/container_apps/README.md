@@ -72,7 +72,7 @@ modules/azure/container-apps/   # Container Apps module
 
 ## Prerequisites
 
-- [Terraform 1.0+](https://www.terraform.io/downloads.html)
+- [Terraform 1.5+](https://www.terraform.io/downloads.html)
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Azure subscription with Container Apps enabled
 - A pre-existing resource group
@@ -146,11 +146,11 @@ Create `terraform.tfvars` from the example:
 # Azure Configuration
 azure_subscription_id = "12345678-1234-1234-1234-123456789abc"
 azure_tenant_id       = "12345678-1234-1234-1234-123456789abc"
-resource_group_name   = "matillion-runner-rg"
+resource_group_name   = "mtln-agent-rg"
 location              = "eastus"
 
 # Resource Naming
-name = "matillion-runner"
+name = "mtln-agent"
 
 # Matillion Configuration
 matillion_cloud_region = "eu1"
@@ -163,7 +163,7 @@ client_secret          = "your-oauth-client-secret"
 container_image_url = "matillion.azurecr.io/cloud-agent:current"
 tags = {
   Environment = "production"
-  Project     = "matillion-runner"
+  Project     = "mtln-agent"
 }
 ```
 
@@ -181,13 +181,42 @@ terraform apply
 # Check Container App status
 az containerapp show \
   --name <container_app_name from output> \
-  --resource-group matillion-runner-rg
+  --resource-group mtln-agent-rg
 
 # View logs
 az containerapp logs show \
   --name <container_app_name from output> \
-  --resource-group matillion-runner-rg
+  --resource-group mtln-agent-rg
 ```
+
+## Runner Metrics
+
+The runner serves Prometheus metrics on `:9464/metrics` (OpenTelemetry, images
+12.150.3 or later) and `:8080/actuator/prometheus` (deprecated), but
+**this deployment doesn't expose either**. The runner container app has no
+`ingress` block; the only ingress in the environment is the script runner's
+internal TCP port 2222. Nothing outside the container app can scrape it.
+
+Container Apps routes ingress to a single target port per app, so exposing
+metrics is a design decision rather than a one-line change. The options:
+
+- **Add internal ingress on 9464.** This makes the endpoint reachable from
+  inside the Container Apps environment only. It needs a scraper running in
+  the same environment, and gives one port, so pick the OpenTelemetry
+  endpoint.
+- **Send metrics with OTLP instead of scraping.** Have the runner push to a
+  collector you run, with no ingress at all. The runner already pushes OTLP to
+  Matillion, but its entrypoint fixes the exporters to that push plus the
+  Prometheus endpoint. A customer-owned OTLP target would need a change in the
+  runner image, not just configuration here.
+- **Use Container Apps' built-in metrics** (CPU, memory, replicas, restarts)
+  from Azure Monitor. They need no change, but don't include the runner's own
+  `matillion_agent_*` metrics.
+
+Which of these to support is tracked in DPC-58192. Runner scaling here is
+fixed (`min_replicas = max_replicas`), so nothing in this deployment depends on
+the metrics today. See
+[Runner Metrics: Moving to the OpenTelemetry Endpoint](../../../blogs/runner-metrics-migration.md).
 
 ## Configuration Options
 
@@ -248,12 +277,83 @@ Terraform edit.** Use Azure's customer-initiated conversion or a manual
 migration, then update the Terraform value so state matches reality. Do not let
 a `terraform apply` be the first thing that attempts it.
 
+### Key Vault Name
+
+The default Key Vault name is `name`, `-kv-` and the 6-character salt, cut at 24
+characters, the Azure limit for a vault name. A `name` longer than 14 characters
+loses salt characters. With `enable_script_runner = true`, `name` is limited to
+11 characters, so the vault keeps the full salt and the rows from 15 characters
+on apply only with the script runner off:
+
+| `name` length | Salt characters kept |
+|---|---|
+| 14 or fewer | 6 |
+| 15 to 19 | 5 to 1 |
+| 20 | none; the vault name ends in `-` and the plan fails |
+| 21 to 23 | none; a 23-character `name` gives a vault name ending in `-` and the plan fails |
+| 24 or more | none; the vault name is the first 24 characters of `name` |
+
+Vault names are global across Azure, and a deleted vault keeps its name for the
+soft-delete retention period (7 days in this deployment). Fewer salt characters
+make a collision with another deployment, or with a vault destroyed in the last
+7 days, more likely.
+
+A `name` of 15 characters or more gives a warning at plan (`Check block
+assertion failed`). A derived vault name that ends in `-` fails the plan: a
+`name` of 20 or 23 characters, or a longer one whose 24th character is `-`.
+Both checks read only `name` and assume the 6-character alphanumeric salt that
+this root generates, so they run at plan on a new deployment, before the salt
+exists.
+
+Setting `resource_names["key_vault"]` on `modules/azure/container-apps` replaces
+the default name and skips both checks. This root does not expose that on its
+own: `naming_overrides` is ignored unless `naming_tokens` is set, and setting
+`naming_tokens` names every resource from the naming convention, which renames
+every resource of an existing deployment.
+
+With the default resource names, a `name` of 22 characters or more already fails
+the plan on the Container App name, which is `name`, `-app-` and the salt and is
+limited to 32 characters.
+
+Effect on existing deployments:
+
+- `name` of 14 characters or fewer: no change.
+- `name` of 15 to 19 characters: a warning at every plan. The vault name and the
+  planned changes are unchanged, and the plan exits 0. Do not shorten `name` to
+  clear the warning: changing `name` changes every default resource name,
+  including the vault's, and replaces those resources. Accept the warning.
+- `name` of 20 characters: the plan fails. Azure rejects a vault name ending in
+  `-`, so no existing deployment can use this name with the default vault name.
+- `name` of 21 characters: a warning, and the vault name has no salt.
+- `name` of 22 characters or more (only with `resource_names["container_app"]` set): a
+  warning, or a failed plan for 23 characters and for a 24th character of `-`.
+- Terraform 1.0 to 1.4: `terraform init` fails on the version constraint. This
+  deployment now needs Terraform 1.5 or later for the `check` block.
+
 ### Networking
 
 | Variable | Default | Description |
 |---|---|---|
 | `enable_nat_gateway` | `false` | Enable NAT Gateway for controlled outbound egress |
 | `nat_gateway_idle_timeout` | `10` | NAT Gateway idle timeout in minutes (4-120) |
+
+### Disabling Python Script and Bash Script
+
+Set `disable_script_execution = true` to stop the Python Script and Bash Script
+components running on the runner. The Container App then sets
+`SCRIPT_OOM_PROTECTION_ENABLED=false` and points `MTLN_PYTHON_3_COMMAND` and
+`MTLN_BASH_COMMAND` at paths that do not exist, so both components fail at Run
+with `Cannot run program "/python-script-disabled-on-this-runner"...`. Script
+Pushdown (`enable_script_runner`) still works. To stop scripts running anywhere, also
+set `enable_script_runner = false`.
+
+```hcl
+disable_script_execution = true
+```
+
+Pipelines still pass Validate, the setting is per runner, and it relies on
+internal runner settings, so re-check it after runner upgrades. See
+[Disabling Python Script and Bash Script](../../../README.md#disabling-python-script-and-bash-script).
 
 ### Environment-Specific Examples
 

@@ -1,11 +1,11 @@
 # Azure Configuration
 azure_subscription_id = "12345678-1234-1234-1234-123456789abc"
 azure_tenant_id       = "12345678-1234-1234-1234-123456789abc"
-resource_group_name   = "matillion-agent-rg"
+resource_group_name   = "mtln-agent-rg"
 location              = "eastus"
 
 # Resource Naming
-name = "matillion-agent"
+name = "mtln-agent"
 
 # Matillion Configuration
 matillion_cloud_region = "eu1"
@@ -16,6 +16,10 @@ client_secret          = "your-oauth-client-secret"
 export_logs            = "true"
 # proxy_protocol_http  = "http"
 # proxy_protocol_https = "https"
+
+# Python Script and Bash Script on the runner. Set to true to stop both: they then fail at Run
+# with "Cannot run program /python-script-disabled-on-this-runner". Script Pushdown still works.
+disable_script_execution = false
 
 # Agent sizing — small (default) | medium | large | xlarge
 # small  = 1 vCPU / 4 GiB   on D4
@@ -50,5 +54,5 @@ container_image_url = "matillion.azurecr.io/cloud-agent:current"
 
 tags = {
   Environment = "production"
-  Project     = "matillion-agent"
+  Project     = "mtln-agent"
 }
