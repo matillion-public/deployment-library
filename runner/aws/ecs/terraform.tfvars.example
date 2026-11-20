@@ -7,7 +7,7 @@ agent_id         = "your-agent-id"
 matillion_region = "eu1"
 client_id        = "your-client-id"
 client_secret    = "your-client-secret"
-# secret_name    = "matillion-oauth-credentials"  # Override for multiple runners per account
+# secret_name    = "my-oauth-credentials"  # Optional. Defaults to <name>-<random suffix>-oauth-credentials
 
 # Agent resources
 desired_count = 2
@@ -54,7 +54,7 @@ ephemeral_storage_size = 40
 # SSH public key placed in the script runner's authorized_keys (required when enable_script_runner = true)
 # runner_authorized_keys = "ssh-ed25519 AAAA... user@host"
 #
-# Secrets Manager secret name for the SSH keypair (defaults to <name>-runner-keypair)
+# Secrets Manager secret name for the SSH keypair (defaults to <name>-<random suffix>-runner-keypair)
 # runner_keypair_secret_name = "my-agent-runner-keypair"
 #
 # Optional: ARN of an S3 bucket for extension library hydration
@@ -65,6 +65,10 @@ ephemeral_storage_size = 40
 # (or policies attached out of band to the script_runner_task_role_name output) an aws/boto3 call
 # in a pushed-down script fails with "Unable to locate credentials".
 # script_runner_task_role_policy_arns = ["arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"]
+
+# Python Script and Bash Script on the runner. Set to true to stop both: they then fail at Run
+# with "Cannot run program /python-script-disabled-on-this-runner". Script Pushdown still works.
+disable_script_execution = false
 
 # Optional: Resource tags
 tags = {

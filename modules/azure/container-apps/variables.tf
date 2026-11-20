@@ -197,6 +197,22 @@ variable "export_logs" {
   default     = "true"
 }
 
+variable "disable_script_execution" {
+  type        = bool
+  description = <<-EOT
+    Stop the Python Script and Bash Script components running on this runner.
+    When true the runner container gets SCRIPT_OOM_PROTECTION_ENABLED=false and
+    points MTLN_PYTHON_3_COMMAND and MTLN_BASH_COMMAND at paths that do not
+    exist, so both components fail at Run with "Cannot run program
+    \"/python-script-disabled-on-this-runner\" ... (No such file or directory)".
+    Pipelines still pass Validate. Script Pushdown is unaffected because it runs
+    on the remote script runner, and certificates, drivers and Python libraries
+    still load. These are internal runner settings, not a supported product
+    toggle: re-test after runner upgrades.
+  EOT
+  default     = false
+}
+
 variable "proxy_protocol_http" {
   type        = string
   description = "Optional proxy protocol for HTTP traffic (e.g. 'http'). Leave empty to omit."

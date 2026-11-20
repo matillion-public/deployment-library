@@ -53,7 +53,6 @@ locals {
     ecs_task_role                     = { type = "role", max_length = 64, charset = "iam", purpose = "ecstask" }
     ecs_task_execution_role           = { type = "role", max_length = 64, charset = "iam", purpose = "ecsexec" }
     script_runner_task_role           = { type = "role", max_length = 64, charset = "iam", purpose = "scriptrunner" }
-    ecs_task_instance_profile         = { type = "instprof", max_length = 128, charset = "iam", purpose = "ecstask" }
     ecs_task_role_policy              = { type = "policy", max_length = 128, charset = "iam", purpose = "ecstask" }
     ecs_task_execution_secret_policy  = { type = "policy", max_length = 128, charset = "iam", purpose = "ecsexecsecret" }
     ecs_task_execution_keypair_policy = { type = "policy", max_length = 128, charset = "iam", purpose = "ecsexeckeypair" }
@@ -103,6 +102,17 @@ locals {
     adapter_alarm_dlq       = { type = "alarm", max_length = 255, purpose = "dlqmessages" }
     adapter_alarm_errors    = { type = "alarm", max_length = 255, purpose = "sqsadaptererrors" }
     adapter_alarm_throttles = { type = "alarm", max_length = 255, purpose = "sqsadapterthrottles" }
+
+    # --- modules/aws/lambda/msk-maia-foundation-adapter -------------------------------------
+    msk_adapter_function        = { type = "fn", max_length = 64, purpose = "mskadapter" }
+    msk_adapter_role            = { type = "role", max_length = 64, charset = "iam", purpose = "mskadapter" }
+    msk_adapter_policy          = { type = "policy", max_length = 128, charset = "iam", purpose = "mskadapter" }
+    msk_adapter_mapping_table   = { type = "ddb", max_length = 255, charset = "ddb", purpose = "mskprojectmapping" }
+    msk_adapter_alerts_topic    = { type = "sns", max_length = 256, purpose = "mskadapteralerts" }
+    msk_adapter_alarm_errors    = { type = "alarm", max_length = 255, purpose = "mskadaptererrors" }
+    msk_adapter_alarm_throttles = { type = "alarm", max_length = 255, purpose = "mskadapterthrottles" }
+    # A prefix: the adapter appends "-<topic>" for each topic's alarm.
+    msk_adapter_alarm_failure_topic = { type = "alarm", max_length = 200, purpose = "mskfailures" }
 
     # --- modules/addon/queue-sqs ------------------------------------------------
     # The composer add-on is an alternative to the module above, not a companion,

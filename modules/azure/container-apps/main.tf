@@ -18,6 +18,16 @@ locals {
     xlarge = { cpu = "8.0", memory = "32Gi", profile = "D8" }
   }
 
+  # Set on the runner container when disable_script_execution is true. The
+  # runner launches Python Script and Bash Script through these commands, so
+  # pointing them at paths that do not exist makes both components fail at Run.
+  # All three together are the tested set; do not drop one.
+  script_execution_disabled_env = {
+    SCRIPT_OOM_PROTECTION_ENABLED = "false"
+    MTLN_PYTHON_3_COMMAND         = "/python-script-disabled-on-this-runner"
+    MTLN_BASH_COMMAND             = "/bash-script-disabled-on-this-runner"
+  }
+
   container_cpu    = coalesce(var.container_cpu, local.runner_size_map[var.runner_size].cpu)
   container_memory = coalesce(var.container_memory, local.runner_size_map[var.runner_size].memory)
   workload_profile_type = coalesce(
@@ -30,6 +40,17 @@ locals {
 
   script_runner_cpu    = local.script_runner_size_map[var.script_runner_size].cpu
   script_runner_memory = local.script_runner_size_map[var.script_runner_size].memory
+
+  # Key Vault names are limited to 24 characters. The default is the base name,
+  # "-kv-" and the salt, cut at 24, so a long base name loses salt characters.
+  key_vault_name = lookup(var.resource_names, "key_vault", substr(join("-", [var.name, "kv", var.random_string_salt]), 0, 24))
+
+  # The salt is unknown at plan on a new deployment, so the Key Vault name checks
+  # read only var.name and assume the root's 6-character alphanumeric salt.
+  key_vault_salt_length         = 6
+  key_vault_name_without_salt   = substr("${var.name}-kv-", 0, 24)
+  key_vault_name_keeps_salt     = length(var.name) + length("-kv-") + local.key_vault_salt_length <= 24
+  key_vault_name_ends_in_hyphen = length(var.name) >= 24 - length("-kv-") && endswith(local.key_vault_name_without_salt, "-")
 }
 
 # Log Analytics Workspace
@@ -60,7 +81,7 @@ resource "azurerm_storage_account" "storage" {
 
 # Key Vault
 resource "azurerm_key_vault" "keyvault" {
-  name                       = lookup(var.resource_names, "key_vault", substr(join("-", [var.name, "kv", var.random_string_salt]), 0, 24))
+  name                       = local.key_vault_name
   location                   = var.location
   resource_group_name        = var.resource_group_name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
@@ -75,6 +96,20 @@ resource "azurerm_key_vault" "keyvault" {
   }
 
   tags = var.tags
+
+  lifecycle {
+    precondition {
+      condition     = contains(keys(var.resource_names), "key_vault") || !local.key_vault_name_ends_in_hyphen
+      error_message = "The derived Key Vault name \"${local.key_vault_name_without_salt}\" ends in a hyphen, which Azure rejects. Shorten name to ${24 - length("-kv-") - local.key_vault_salt_length} characters or fewer so the name keeps the full salt, or set resource_names[\"key_vault\"]."
+    }
+  }
+}
+
+check "key_vault_name_keeps_full_salt" {
+  assert {
+    condition     = contains(keys(var.resource_names), "key_vault") || local.key_vault_name_keeps_salt
+    error_message = "name is ${length(var.name)} characters, so the default Key Vault name keeps ${max(0, 24 - length(var.name) - length("-kv-"))} of the ${local.key_vault_salt_length} salt characters. Vault names are global and soft-deleted vaults keep their names for 7 days, so fewer salt characters make a collision more likely. On a new deployment, keep name at ${24 - length("-kv-") - local.key_vault_salt_length} characters or fewer, or set resource_names[\"key_vault\"]. On an existing deployment, do not change name: that replaces every default-named resource. See \"Key Vault Name\" in runner/azure/container_apps/README.md."
+  }
 }
 
 # User Assigned Managed Identity
@@ -283,6 +318,14 @@ resource "azurerm_container_app" "app" {
         content {
           name  = "PROXY_PROTOCOL_HTTPS"
           value = var.proxy_protocol_https
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.disable_script_execution ? local.script_execution_disabled_env : {}
+        content {
+          name  = env.key
+          value = env.value
         }
       }
     }

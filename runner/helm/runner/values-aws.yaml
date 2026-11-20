@@ -42,6 +42,11 @@ serviceAccount:
   # Leaving the placeholder in place will cause AWS authentication to fail.
   roleArn: "<ServiceAccountRoleArn>"
 
+# Python Script and Bash Script on the runner. Set to true to stop both: they then
+# fail at Run with "Cannot run program /python-script-disabled-on-this-runner".
+# Script Pushdown still works. See values.yaml.
+disableScriptExecution: false
+
 dpcAgent:
   dpcAgent:
     env:

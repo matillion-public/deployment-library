@@ -1,0 +1,88 @@
+{{- if and .Values.queueAdapter.enabled (eq (include "matillion-runner.cloudProvider" .) "aws") }}
+{{- $q := .Values.queueAdapter.aws }}
+{{- if not (has $q.mode (list "deployment" "scaledJob")) }}
+{{- fail (printf "queueAdapter.aws.mode is %q; must be deployment or scaledJob" $q.mode) }}
+{{- end }}
+{{- $_ := required "queueAdapter.aws.queueUrl is required — the adapter has no default queue" $q.queueUrl }}
+{{- $_ := required "queueAdapter.aws.region is required" $q.region }}
+{{- if eq $q.mode "deployment" }}
+# SQS → Maia Foundations pipeline-trigger adapter on EKS, as a persistent poller.
+# The default: it keeps the OAuth token and the project-mapping cache warm
+# between messages, where a ScaledJob re-authenticates on every run.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "matillion-runner.fullname" . }}-queue-adapter
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "matillion-runner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: queue-adapter
+spec:
+  {{- if not $q.autoscale }}
+  # Omitted when autoscaling: the ScaledObject owns the replica count, and
+  # leaving it here makes Helm and KEDA fight over it on every upgrade.
+  replicas: {{ $q.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+{{- include "matillion-runner.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: queue-adapter
+  template:
+    metadata:
+      labels:
+{{- include "matillion-runner.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: queue-adapter
+    spec:
+{{- include "matillion-runner.queueAdapter.aws.podSpec" (dict "root" . "runMode" "loop") | nindent 6 }}
+{{- if $q.autoscale }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "matillion-runner.fullname" . }}-queue-adapter
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "matillion-runner.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "matillion-runner.fullname" . }}-queue-adapter
+  minReplicaCount: {{ .Values.queueAdapter.scaling.minReplicaCount }}
+  maxReplicaCount: {{ .Values.queueAdapter.scaling.maxReplicaCount }}
+  pollingInterval: {{ .Values.queueAdapter.scaling.pollingInterval }}
+  cooldownPeriod: {{ $q.cooldownPeriod }}
+  triggers:
+{{- include "matillion-runner.queueAdapter.aws.trigger" . | nindent 4 }}
+{{- end }}
+{{- else }}
+# SQS → Maia Foundations adapter on EKS as a KEDA ScaledJob: a pod per scale
+# event empties the queue and exits. Matches how the Azure path runs; cheaper on
+# a queue that is idle for long stretches, at the cost of re-authenticating and
+# re-reading the project mappings on every run.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: {{ include "matillion-runner.fullname" . }}-queue-adapter
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "matillion-runner.labels" . | nindent 4 }}
+spec:
+  pollingInterval: {{ .Values.queueAdapter.scaling.pollingInterval }}
+  minReplicaCount: {{ .Values.queueAdapter.scaling.minReplicaCount }}
+  maxReplicaCount: {{ .Values.queueAdapter.scaling.maxReplicaCount }}
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 2
+    template:
+      metadata:
+        labels:
+{{- include "matillion-runner.selectorLabels" . | nindent 10 }}
+          app.kubernetes.io/component: queue-adapter
+      spec:
+{{- include "matillion-runner.queueAdapter.aws.podSpec" (dict "root" . "runMode" "drain") | nindent 8 }}
+  triggers:
+{{- include "matillion-runner.queueAdapter.aws.trigger" . | nindent 4 }}
+{{- end }}
+{{- end }}
