@@ -7,10 +7,16 @@ output "RunnerSecret" {
 }
 
 output "ECSService" {
-  value = aws_security_group.ecs_security_group.name
+  description = "Name of the runner ECS service."
+  value       = aws_ecs_service.matillion_dpc_service.name
 }
 
 output "script_runner_endpoint" {
   description = "Cloud Map (Route 53) DNS endpoint for the script runner, resolvable from anywhere in the VPC and stable across task replacement (only set when enable_script_runner = true)."
   value       = var.enable_script_runner ? "script-runner.${aws_service_discovery_private_dns_namespace.cluster_namespace[0].name}:2222" : ""
+}
+
+output "auth_failure_alarm_name" {
+  description = "Name of the runner authentication failure alarm, or null when auth_failure_alarm_actions is empty."
+  value       = one(aws_cloudwatch_metric_alarm.runner_auth_failures[*].alarm_name)
 }

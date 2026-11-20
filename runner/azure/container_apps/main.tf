@@ -103,6 +103,7 @@ module "container_apps" {
   extension_library_location = var.extension_library_location
   external_driver_location   = var.external_driver_location
   export_logs                = var.export_logs
+  disable_script_execution   = var.disable_script_execution
   proxy_protocol_http        = var.proxy_protocol_http
   proxy_protocol_https       = var.proxy_protocol_https
 

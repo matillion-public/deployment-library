@@ -18,6 +18,15 @@ locals {
   memory         = local.runner_size_map[var.runner_size].memory
   service_name   = "${var.deployment_name}-agent"
   execution_role = var.execution_role_arn != "" ? var.execution_role_arn : var.agent_role_arn
+
+  # Set on the agent when disable_script_execution is true. Pointing the
+  # interpreter commands at paths that do not exist makes Python Script and Bash
+  # Script fail at Run. All three together are the tested set; do not drop one.
+  script_execution_disabled_env = {
+    SCRIPT_OOM_PROTECTION_ENABLED = "false"
+    MTLN_PYTHON_3_COMMAND         = "/python-script-disabled-on-this-runner"
+    MTLN_BASH_COMMAND             = "/bash-script-disabled-on-this-runner"
+  }
 }
 
 resource "aws_ecs_cluster" "agent" {
@@ -52,11 +61,17 @@ resource "aws_ecs_task_definition" "agent" {
       image                  = var.image_url
       essential              = true
       readonlyRootFilesystem = true
-      environment = [
-        { name = "MATILLION_ACCOUNT_ID", value = var.account_id },
-        { name = "MATILLION_AGENT_ID", value = var.agent_id },
-        { name = "MATILLION_REGION", value = var.matillion_region },
-      ]
+      environment = concat(
+        [
+          { name = "MATILLION_ACCOUNT_ID", value = var.account_id },
+          { name = "MATILLION_AGENT_ID", value = var.agent_id },
+          { name = "MATILLION_REGION", value = var.matillion_region },
+        ],
+        [
+          for name, value in local.script_execution_disabled_env : { name = name, value = value }
+          if var.disable_script_execution
+        ],
+      )
       logConfiguration = {
         logDriver = "awslogs"
         options = {

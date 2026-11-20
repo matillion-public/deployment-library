@@ -1,7 +1,8 @@
 # Name for the AKS cluster (also used as prefix for KV, storage, identities)
-# Keep <= 17 chars so derived names (e.g. Key Vault: name + "-" + 6-char salt)
-# stay within Azure's 24-char Key Vault name limit.
-name = "matillion-aks-cluster"
+# Keep <= 17 chars. The Key Vault name is name, "-" and the 6-char salt, cut at
+# 24 chars, so a name over 17 chars loses salt characters and a name of 23 chars
+# gives an invalid vault name ending in "-".
+name = "matillion-aks"
 
 # Azure subscription ID
 azure_subscription_id = "your-azure-subscription-id"
@@ -22,8 +23,15 @@ tags = {
   Owner       = "data-team"
 }
 
-# Desired number of nodes in the cluster
-desired_node_count = 2
+# Kubernetes namespace the runner is installed into. Must equal the namespace
+# passed to `helm install`; the workload identity federated credentials are bound
+# to it. Leave as matillion unless you install the chart elsewhere.
+namespace = "matillion"
+
+# Initial node count. Must be at least the autoscaler floor: the number of
+# entries in node_pool_zones (3 for the recommended zones below), or 2 without
+# zones.
+desired_node_count = 3
 
 # VM size for AKS node pool
 vm_size = "Standard_D4s_v4"
@@ -79,6 +87,43 @@ vnet_address_space = "10.0.0.0/16"
 enable_nat_gateway       = false
 nat_gateway_idle_timeout = 10
 
+# Network policy engine. The runner chart creates NetworkPolicies, but without
+# network_policy set the cluster has no engine, so they are stored and not
+# enforced. Cilium runs on overlay and needs all three settings together.
+# Adding an engine to an existing cluster reimages every node. See the
+# "Network policy" section of modules/azure/aks/readme.md.
+# Before enabling an engine, check two rules in the runner chart's NetworkPolicies:
+# - Egress is allowed only on ports 53, 443, 80 (networkPolicy.allowHttp) and 2222
+#   (script runner). Set networkPolicy.additionalEgressRules for data sources on
+#   other ports, such as 5432, 1433, 3306 or 5439.
+# - Metrics ingress selects the Prometheus namespace by the label name=monitoring
+#   (networkPolicy.prometheusNamespace), which Kubernetes does not set. Label that
+#   namespace, or scrapes of ports 8080 and 9464 are dropped without an error.
+# network_plugin_mode = "overlay"
+# network_policy      = "cilium"
+# network_data_plane  = "cilium"
+
+# ========================================
+# Cluster access
+# ========================================
+
+# By default the cluster has local accounts enabled and no Entra ID
+# integration. Anyone with Contributor on the cluster can download an admin
+# kubeconfig (az aks get-credentials --admin) whose certificate is in
+# system:masters, is not tied to their identity and stays valid after their
+# role is removed.
+#
+# azure_rbac_enabled turns on Entra ID integration with Azure RBAC for
+# Kubernetes. Access then follows Azure role assignments (for example
+# "Azure Kubernetes Service RBAC Cluster Admin") or membership of a group in
+# admin_group_object_ids. kubectl and helm need kubelogin.
+# local_account_disabled removes the admin kubeconfig and needs
+# azure_rbac_enabled = true. See "Cluster access" in modules/azure/aks/readme.md
+# before enabling either on an existing cluster.
+# azure_rbac_enabled     = true
+# admin_group_object_ids = ["00000000-0000-0000-0000-000000000000"]
+# local_account_disabled = true
+
 # ========================================
 # Authentication Configuration
 # ========================================
@@ -103,6 +148,11 @@ service_principal_enabled = false
 # max_node_count = 12
 # sku_tier       = "Standard"
 
+# Container Insights. Creates a Log Analytics workspace and connects the cluster
+# to it, so pod logs and node and container metrics reach Azure Monitor. Off by
+# default: without it no workspace is created. Billed for ingested data.
+# enable_container_insights = true
+
 # Bring your own subnets instead of letting this configuration create a VNet.
 # The networking module is skipped entirely when this is set.
 # existing_subnet_ids = ["/subscriptions/.../resourceGroups/rg-network/providers/Microsoft.Network/virtualNetworks/vnet-shared/subnets/snet-aks"]
@@ -110,3 +160,9 @@ service_principal_enabled = false
 # Service endpoints on the created subnets. Add Service Bus if using that queue
 # backend, and Container Registry if images come from a network-restricted ACR.
 # service_endpoints = ["Microsoft.Storage", "Microsoft.KeyVault", "Microsoft.ServiceBus"]
+
+# Key Vault Administrator. Unset, the identity that runs terraform apply is the
+# administrator, so the grant moves to whoever applies next. Set object IDs of the
+# people, groups or CI service principal that should administer the vault. Include
+# the identity that applies, or it loses vault administration on the next apply.
+# key_vault_administrator_principal_ids = ["00000000-0000-0000-0000-000000000000"]

@@ -10,19 +10,34 @@ locals {
   runner_cpu    = coalesce(var.runner_cpu, local.runner_size_map[var.runner_size].cpu)
   runner_memory = coalesce(var.runner_memory, local.runner_size_map[var.runner_size].memory)
 
+  # Valid Linux Fargate memory (MiB) for each task CPU value, from the page linked above.
+  fargate_linux_memory_by_cpu = {
+    "256"   = [512, 1024, 2048]
+    "512"   = [1024, 2048, 3072, 4096]
+    "1024"  = range(2048, 8193, 1024)
+    "2048"  = range(4096, 16385, 1024)
+    "4096"  = range(8192, 30721, 1024)
+    "8192"  = range(16384, 61441, 4096)
+    "16384" = range(32768, 122881, 8192)
+    "32768" = [61440, 122880, 249856]
+  }
+
   script_runner_cpu    = local.runner_size_map[var.script_runner_size].cpu
   script_runner_memory = local.runner_size_map[var.script_runner_size].memory
+
+  cluster_name = lookup(var.resource_names, "ecs_cluster", join("-", [var.name, "cluster"]))
 }
 
 resource "aws_s3_bucket" "staging_bucket" {
-  count = var.create_bucket == true ? 1 : 0
+  # count keeps the resource at its existing state address.
+  count = 1
 
   bucket = lookup(var.resource_names, "staging_bucket", lower(join("-", [var.name, "stagging-bucket"])))
   tags   = var.tags
 }
 
 resource "aws_s3_bucket_policy" "staging_bucket_policy" {
-  count = var.create_bucket == true ? 1 : 0
+  count = 1
 
   bucket = aws_s3_bucket.staging_bucket[count.index].bucket
   policy = templatefile("${path.module}/templates/s3_policy.json.tmpl", {
@@ -38,17 +53,76 @@ resource "aws_security_group" "ecs_security_group" {
   description = "Allow http to client host"
   vpc_id      = var.vpc_id
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  # Attribute syntax rather than a block: an empty list removes existing rules,
+  # whereas zero egress blocks would leave them unmanaged.
+  egress = var.allow_all_egress ? [{
+    description      = ""
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = []
+    prefix_list_ids  = []
+    security_groups  = []
+    self             = false
+  }] : []
   tags = var.tags
 }
 
+# Opt-in ingress for scraping the runner's Prometheus metrics (DPC-58192).
+# Nothing is created unless a source is named, so the security group is
+# unchanged for existing deployments. One rule per source and port, so adding
+# a source never replaces the rules already there.
+locals {
+  metrics_ingress_cidr_rules = {
+    for pair in setproduct(var.metrics_ingress_cidr_blocks, var.metrics_ingress_ports) :
+    "${pair[0]}:${pair[1]}" => { cidr = pair[0], port = pair[1] }
+  }
+  metrics_ingress_sg_rules = {
+    for pair in setproduct(var.metrics_ingress_security_group_ids, var.metrics_ingress_ports) :
+    "${pair[0]}:${pair[1]}" => { sg = pair[0], port = pair[1] }
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "metrics_from_cidr" {
+  for_each = local.metrics_ingress_cidr_rules
+
+  security_group_id = aws_security_group.ecs_security_group.id
+  description       = "Prometheus scrape of runner metrics on ${each.value.port}"
+  ip_protocol       = "tcp"
+  from_port         = each.value.port
+  to_port           = each.value.port
+  cidr_ipv4         = each.value.cidr
+  tags              = var.tags
+}
+
+resource "aws_vpc_security_group_ingress_rule" "metrics_from_security_group" {
+  for_each = local.metrics_ingress_sg_rules
+
+  security_group_id            = aws_security_group.ecs_security_group.id
+  description                  = "Prometheus scrape of runner metrics on ${each.value.port}"
+  ip_protocol                  = "tcp"
+  from_port                    = each.value.port
+  to_port                      = each.value.port
+  referenced_security_group_id = each.value.sg
+  tags                         = var.tags
+}
+
+# Container Insights writes to this group, and AWS creates it outside Terraform if it is absent.
+# Declaring it here gives it retention and tags and removes it on destroy.
+resource "aws_cloudwatch_log_group" "container_insights_performance" {
+  name              = "/aws/ecs/containerinsights/${local.cluster_name}/performance"
+  retention_in_days = 30
+  tags = merge(
+    var.tags,
+    {
+      Name = "/aws/ecs/containerinsights/${local.cluster_name}/performance"
+    }
+  )
+}
+
 resource "aws_ecs_cluster" "matillion_dpc_cluster" {
-  name = lookup(var.resource_names, "ecs_cluster", join("-", [var.name, "cluster"]))
+  name = local.cluster_name
 
   setting {
     name  = "containerInsights"
@@ -63,9 +137,11 @@ resource "aws_ecs_cluster" "matillion_dpc_cluster" {
   tags = merge(
     var.tags,
     {
-      Name = lookup(var.resource_names, "ecs_cluster", join("-", [var.name, "cluster"]))
+      Name = local.cluster_name
     }
   )
+
+  depends_on = [aws_cloudwatch_log_group.container_insights_performance]
 }
 
 resource "aws_cloudwatch_log_group" "matillion_dpc_runner_task_logs" {
@@ -78,6 +154,42 @@ resource "aws_cloudwatch_log_group" "matillion_dpc_runner_task_logs" {
       Name = lookup(var.resource_names, "ecs_task_log_group", "/ecs/${var.name}-task")
     }
   )
+}
+
+# A runner that cannot get a token keeps running and retrying, so ECS reports it as healthy.
+# The runner logs a failed token request as "Recoverable error caught [[<oauth2 error code>] ...",
+# for example [[invalid_token_response] for a rejected client secret. Matching that prefix, and
+# not the error codes alone, excludes OAuth errors logged by pipeline connectors in the same log.
+resource "aws_cloudwatch_log_metric_filter" "runner_auth_failures" {
+  name           = lookup(var.resource_names, "auth_failure_metric_filter", "${var.name}-runner-auth-failures")
+  log_group_name = aws_cloudwatch_log_group.matillion_dpc_runner_task_logs.name
+  pattern        = "\"Recoverable error caught [[invalid_\""
+
+  metric_transformation {
+    name          = lookup(var.resource_names, "auth_failure_metric_filter", "${var.name}-runner-auth-failures")
+    namespace     = "Matillion/Runner"
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "runner_auth_failures" {
+  count = length(var.auth_failure_alarm_actions) > 0 ? 1 : 0
+
+  alarm_name          = lookup(var.resource_names, "auth_failure_alarm", "${var.name}-runner-auth-failures")
+  alarm_description   = "The runner failed to get an OAuth token from Keycloak in 2 of the last 3 five-minute periods."
+  namespace           = aws_cloudwatch_log_metric_filter.runner_auth_failures.metric_transformation[0].namespace
+  metric_name         = aws_cloudwatch_log_metric_filter.runner_auth_failures.metric_transformation[0].name
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 3
+  datapoints_to_alarm = 2
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = var.auth_failure_alarm_actions
+  ok_actions          = var.auth_failure_alarm_actions
+  tags                = var.tags
 }
 
 resource "aws_ecs_task_definition" "matillion_dpc_runner" {
@@ -99,6 +211,7 @@ resource "aws_ecs_task_definition" "matillion_dpc_runner" {
     custom_cert_location       = var.custom_cert_location
     external_driver_location   = var.external_driver_location
     export_logs                = var.export_logs
+    disable_script_execution   = var.disable_script_execution
     runner_secret_arn          = var.runner_secret_arn
     region                     = var.region
     version_consistency        = "disabled"
@@ -140,6 +253,13 @@ resource "aws_ecs_task_definition" "matillion_dpc_runner" {
       Name = lookup(var.resource_names, "ecs_task_family", join("-", [var.name, "task-definition"]))
     }
   )
+
+  lifecycle {
+    precondition {
+      condition     = contains(lookup(local.fargate_linux_memory_by_cpu, tostring(local.runner_cpu), []), local.runner_memory)
+      error_message = "runner_cpu = ${local.runner_cpu} with runner_memory = ${local.runner_memory} is not a valid Fargate Linux combination. A single override is combined with the other value from runner_size. See https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html."
+    }
+  }
 }
 
 resource "aws_ecs_service" "matillion_dpc_service" {
@@ -167,6 +287,9 @@ resource "aws_ecs_service" "matillion_dpc_service" {
   }
 
   platform_version = "LATEST"
+
+  propagate_tags          = "SERVICE"
+  enable_ecs_managed_tags = true
 
   network_configuration {
     security_groups = concat(
@@ -221,6 +344,7 @@ resource "aws_service_discovery_service" "script_runner" {
   }
 
   health_check_custom_config {
+    # Deprecated in aws provider 6.x (AWS always uses 1). Kept while the roots constrain aws to ~> 5.0.
     failure_threshold = 1
   }
 
@@ -326,6 +450,9 @@ resource "aws_ecs_service" "script_runner" {
   }
 
   platform_version = "LATEST"
+
+  propagate_tags          = "SERVICE"
+  enable_ecs_managed_tags = true
 
   network_configuration {
     security_groups  = [aws_security_group.script_runner_security_group[0].id]
