@@ -7,6 +7,9 @@ packaged form of the `matillion/poc-dpc-sqs-api` reference implementation.
 The Lambda handler ships as an **arm64 container image** (`var.image_uri`); this
 module only provisions the surrounding AWS resources.
 
+For Amazon MSK topics instead of an SQS queue, use
+[`msk-maia-foundation-adapter`](../msk-maia-foundation-adapter), which runs the same image.
+
 ## What it creates
 
 - Lambda function (container image, arm64) + execution role scoped to exactly
@@ -27,11 +30,16 @@ module only provisions the surrounding AWS resources.
 
 ## Usage
 
+The image is published to `public.ecr.aws/matillion/maia-queue-adapter`, but
+Lambda only runs an image from a **private** ECR repository in the function's own
+region. Copy a single-arch tag (`<version>-arm64`, or `current`) into your own ECR
+and pass that URI — the copy step is in the maia-queueing-adapter README.
+
 ```hcl
 module "sqs_dpc_adapter" {
   source      = "../../modules/aws/lambda/sqs-dpc-adapter"
   aws_region  = "eu-west-1"
-  image_uri   = "123456789012.dkr.ecr.eu-west-1.amazonaws.com/maia-sqs-adapter:current"
+  image_uri   = "123456789012.dkr.ecr.eu-west-1.amazonaws.com/maia-queue-adapter:current"
   secret_name = "matillion-dpc"
 
   # Bring-your-own existing queue (the common migration case):

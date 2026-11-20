@@ -17,6 +17,10 @@ export_logs            = "true"
 # proxy_protocol_http  = "http"
 # proxy_protocol_https = "https"
 
+# Python Script and Bash Script on the runner. Set to true to stop both: they then fail at Run
+# with "Cannot run program /python-script-disabled-on-this-runner". Script Pushdown still works.
+disable_script_execution = false
+
 # Agent sizing — small (default) | medium | large | xlarge
 # small  = 1 vCPU / 4 GiB   on D4
 # medium = 2 vCPU / 8 GiB   on D4
