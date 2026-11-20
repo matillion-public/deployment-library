@@ -28,6 +28,50 @@ variable "subnet_ids" {
   }
 }
 
+variable "key_vault_allowed_ip_ranges" {
+  type        = list(string)
+  description = <<-EOT
+    Public IPv4 addresses or CIDR ranges (/8 to /30) allowed through the Key Vault firewall,
+    in addition to the subnets in subnet_ids. Use it to let an operator add the
+    secrets the runner reads. Empty by default, which keeps the vault closed to
+    everything outside those subnets. The module manages the vault's network
+    rules in full, so a rule added outside Terraform is removed on the next apply.
+  EOT
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for r in var.key_vault_allowed_ip_ranges :
+      can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?$", r)) &&
+      try(cidrsubnet(length(split("/", r)) == 2 ? r : "${r}/32", 0, 0) == (length(split("/", r)) == 2 ? r : "${r}/32"), false)
+    ])
+    error_message = "Each entry in key_vault_allowed_ip_ranges must be an IPv4 address (203.0.113.10) or an IPv4 CIDR with no host bits set (203.0.113.0/24)."
+  }
+
+  validation {
+    condition = alltrue([
+      for r in var.key_vault_allowed_ip_ranges :
+      try(length(split("/", r)) == 1 || (tonumber(split("/", r)[1]) >= 8 && tonumber(split("/", r)[1]) <= 30), true)
+    ])
+    error_message = "key_vault_allowed_ip_ranges CIDRs must have a prefix between /8 and /30. Give a single host as a plain address (203.0.113.10), not /32: Key Vault does not accept /31 or /32."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for r in var.key_vault_allowed_ip_ranges : [
+        for a in [{
+          n = sum([for i, o in split(".", split("/", r)[0]) : tonumber(o) * pow(256, 3 - i)])
+          p = length(split("/", r)) == 2 ? tonumber(split("/", r)[1]) : 32
+          }] : [
+          for b in [{ n = 167772160, p = 8 }, { n = 2886729728, p = 12 }, { n = 3232235520, p = 16 }] :
+          floor(a.n / pow(2, 32 - min(a.p, b.p))) != floor(b.n / pow(2, 32 - min(a.p, b.p)))
+        ]
+      ] if can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?$", r))
+    ]))
+    error_message = "key_vault_allowed_ip_ranges must not overlap private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). Key Vault IP rules accept public addresses only; traffic from the deployment's subnets is allowed by the subnet rule."
+  }
+}
+
 variable "tags" {
   type        = map(string)
   description = "Tags to apply to all resources"
@@ -79,7 +123,7 @@ variable "container_image_url" {
 
 variable "container_acr_id" {
   type        = string
-  description = "Resource ID of the Azure Container Registry hosting container_image_url. Set for a private registry to scope AcrPull to that registry and wire identity-based pulls; leave null to retain the legacy subscription-scope AcrPull grant (public or pre-existing private registry deployments)."
+  description = "Resource ID of the Azure Container Registry hosting container_image_url. Set for a private registry: grants the runner identity AcrPull on that registry and makes image pulls use the identity. Leave null for a public registry (the default image): the image pulls anonymously and no AcrPull role is assigned."
   default     = null
 }
 

@@ -55,6 +55,7 @@ module "aks" {
 
   location            = var.location
   resource_group_name = var.resource_group_name
+  namespace           = var.namespace
 
   subnet_ids = local.subnet_ids
 

@@ -73,7 +73,8 @@ module "container_apps" {
   resource_group_name = var.resource_group_name
   resource_names      = local.resource_names
 
-  subnet_ids = module.networking.subnet_ids
+  subnet_ids                  = module.networking.subnet_ids
+  key_vault_allowed_ip_ranges = var.key_vault_allowed_ip_ranges
 
   account_id             = var.account_id
   agent_id               = var.agent_id
