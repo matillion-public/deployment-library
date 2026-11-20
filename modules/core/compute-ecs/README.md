@@ -17,7 +17,7 @@ Least-privilege deployer policy mirrors the composer contract:
 ## Key inputs
 `deployment_name`, `region`, `image_url`, `agent_role_arn` *(required)*,
 `subnet_ids` *(required)*, `security_group_ids`, `desired_count`, `runner_size`,
-account/agent/matillion metadata, `create_deployer_policy`, `tags`.
+account/agent/matillion metadata, `disable_script_execution`, `create_deployer_policy`, `tags`.
 
 ## Outputs
 `agent_service_id`, `agent_service_name`, `cluster_arn`, `log_group_name`,

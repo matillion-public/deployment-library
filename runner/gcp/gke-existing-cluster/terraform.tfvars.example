@@ -1,0 +1,8 @@
+# One runner in an existing GKE cluster. Copy to terraform.tfvars and fill in.
+name         = "finance"
+project_id   = "platform-shared"
+location     = "europe-west2"
+cluster_name = "platform-shared"
+
+# The business unit's own buckets, for staging and for files the runner loads.
+# storage_bucket_names = ["finance-staging"]

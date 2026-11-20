@@ -3,6 +3,7 @@
         "name": "${name}-task-definition",
         "image": "${image}",
         "essential": true,
+        "stopTimeout": 120,
         "readonlyRootFilesystem": true,
         "mountPoints": [
             {
@@ -70,6 +71,7 @@
             %{ if custom_cert_location != "" },{ "name": "CUSTOM_CERT_LOCATION", "value": "${custom_cert_location}" }%{ endif }
             %{ if extension_library_location != "" },{ "name": "EXTENSION_LIBRARY_LOCATION", "value": "${extension_library_location}" }%{ endif }
             %{ if external_driver_location != "" },{ "name": "EXTERNAL_DRIVER_LOCATION", "value": "${external_driver_location}" }%{ endif }
+            %{ if disable_script_execution },{ "name": "SCRIPT_OOM_PROTECTION_ENABLED", "value": "false" },{ "name": "MTLN_PYTHON_3_COMMAND", "value": "/python-script-disabled-on-this-runner" },{ "name": "MTLN_BASH_COMMAND", "value": "/bash-script-disabled-on-this-runner" }%{ endif }
         ],
         "secrets":[
             {

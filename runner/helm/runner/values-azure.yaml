@@ -14,11 +14,21 @@ config:
   oauthClientId: "your-oauth-client-id"
   oauthClientSecret: "your-oauth-client-secret"
 
+# Service account names are pinned to the ones this repo's Terraform creates
+# its federated credentials for: matillion-runner-sa for the runner (the chart
+# default) and matillion-runner-script-runner-sa for the script runner (pinned
+# at the end of this file). An empty name falls back to a release-derived one,
+# which only matches when the release is called matillion-runner; any other
+# release then can't obtain cloud credentials and never becomes ready. Changing
+# either name means changing the matching Terraform variable too.
 serviceAccount:
-  # Optional: Override the default service account name
-  name: ""
   # Not used for Azure
   roleArn: ""
+
+# Python Script and Bash Script on the runner. Set to true to stop both: they then
+# fail at Run with "Cannot run program /python-script-disabled-on-this-runner".
+# Script Pushdown still works. See values.yaml.
+disableScriptExecution: false
 
 dpcAgent:
   dpcAgent:
@@ -35,8 +45,8 @@ dpcAgent:
       extensionLibraryLocation: ""
       externalDriverLocation: ""
       exportLogs: "true"
-      # Azure Key Vault name for storing secrets
-      defaultKeyvault: "matillion-runner-kv"
+      # Name of the Key Vault created by Terraform: terraform output -raw key_vault_name
+      defaultKeyvault: "your-key-vault-name"
     image:
       repository: "matillion.azurecr.io/cloud-agent"
       tag: "current"
@@ -126,3 +136,7 @@ nodeSelector: {}
 #   kubernetes.io/os: linux
 #   agentpool: userpool
 #   kubernetes.azure.com/agentpool: userpool
+
+scriptRunner:
+  serviceAccount:
+    name: matillion-runner-script-runner-sa

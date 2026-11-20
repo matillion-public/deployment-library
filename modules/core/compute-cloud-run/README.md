@@ -12,7 +12,7 @@ Least-privilege deployer custom role mirrors the composer contract:
 ## Key inputs
 `deployment_name`, `project_id` *(required)*, `region` *(required)*, `image_url`,
 `agent_service_account_email` *(required)*, `runner_size`, `min_instances`,
-`max_instances`, `create_deployer_role`, `labels`.
+`max_instances`, `disable_script_execution`, `create_deployer_role`, `labels`.
 
 ## Outputs
 `agent_service_id`, `agent_service_name`, `agent_service_uri`, `deployer_role_id`.

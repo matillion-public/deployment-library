@@ -8,7 +8,7 @@ This repository provides multiple deployment methods for the Matillion Maia Runn
 
 ### 1. **Kubernetes with Helm Charts** (Recommended)
 - Ready-to-use Helm charts for Kubernetes deployment
-- Native Prometheus metrics via the runner's `/actuator/prometheus` endpoint
+- Native Prometheus metrics from the runner's OpenTelemetry endpoint (`:9464/metrics`) and the deprecated `/actuator/prometheus` endpoint, scraped side by side until cutover
 - Support for AWS EKS (IAM roles) and local/minikube (direct credentials)
 - Configurable resource limits and autoscaling
 - Security-first approach with non-root containers
@@ -61,9 +61,9 @@ time:
 
 | Cloud | Module | Identity | Per-secret grant |
 |-------|--------|----------|------------------|
-| Azure | [`modules/azure/runner-identity`](modules/azure/runner-identity/readme.md) | UAMI + federated credential | Role assignment scoped to `<vault>/secrets/<name>` |
-| AWS | [`modules/aws/runner-identity`](modules/aws/runner-identity/readme.md) | IAM role + IRSA trust policy | Policy statement scoped to individual secret ARNs |
-| GCP | [`modules/gcp/runner-identity`](modules/gcp/runner-identity/readme.md) | GSA + Workload Identity binding | IAM member on the individual secret |
+| Azure | [`modules/azure/runner-identity`](modules/azure/runner-identity/readme.md) | UAMI + federated credential | Role assignment scoped to `<vault>/secrets/<name>`, or a vault per runner with read and write (as [`runner/azure/aks-existing-cluster`](runner/azure/aks-existing-cluster/) does) |
+| AWS | [`modules/aws/runner-identity`](modules/aws/runner-identity/readme.md) | IAM role + IRSA trust policy | Policy statement scoped to individual secret ARNs, or read and write under one name prefix |
+| GCP | [`modules/gcp/runner-identity`](modules/gcp/runner-identity/readme.md) | GSA + Workload Identity binding | IAM member on the individual secret, or a name prefix (IAM condition) for reading and adding versions; creating and listing secrets are then project-wide |
 
 Each readme documents how to verify the isolation by checking what a runner
 *cannot* read, which is the property that actually matters.
@@ -135,7 +135,7 @@ The solution uses the following Docker images across different deployment method
 
 ### Monitoring Stack Images
 - **`prom/prometheus:v2.22.0`** - Prometheus server for metrics collection
-- **`gcr.io/k8s-staging-prometheus-adapter/prometheus-adapter-amd64:v0.12.0`** - Kubernetes metrics adapter
+- **`registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0`** - Kubernetes metrics adapter (multi-arch)
 
 > **Note**: All images are configured with security best practices including non-root users, dropped capabilities, and resource limits.
 
@@ -282,9 +282,10 @@ terraform apply
 │   Runner Pod    │    │   Prometheus    │
 │  ┌────────────┐ │    │    Scraping     │
 │  │   Runner   │◄├────┤                 │
-│  │    :8080   │ │    │                 │
+│  │ :8080 :9464│ │    │                 │
 │  └────────────┘ │    └─────────────────┘
-│                 │  :8080/actuator/prometheus
+│                 │  :9464/metrics (OpenTelemetry)
+│                 │  :8080/actuator/prometheus (deprecated)
 └─────────────────┘
 ```
 
@@ -300,7 +301,12 @@ The HPA scales on **in-flight tasks per runner pod** (`hpa.metrics.target.averag
 ## Metrics and Monitoring
 
 ### Native Prometheus Metrics
-The runner natively exposes Prometheus-compatible metrics at `/actuator/prometheus`:
+The runner exposes Prometheus metrics from two endpoints while customers migrate:
+
+- **`:9464/metrics`**: the OpenTelemetry exporter, with `matillion_agent_*` names plus JVM metrics. This is the new standard.
+- **`:8080/actuator/prometheus`**: Micrometer, with `app_*` names. Deprecated, and removed once Matillion sets a cutover date.
+
+See [Runner Metrics: Moving to the OpenTelemetry Endpoint](blogs/runner-metrics-migration.md) for the name mapping and migration steps. Both endpoints report:
 
 - **Runner Status**: Running/Stopped state
 - **Runner Connected**: Connection state to Maia
@@ -310,8 +316,8 @@ The runner natively exposes Prometheus-compatible metrics at `/actuator/promethe
 - **Build Information**: Version, commit hash, build timestamp
 
 ### Prometheus Integration
+The bundled Prometheus chart scrapes both endpoints as separate jobs (`matillion-runner` and `matillion-runner-otel`). The pod annotations can only name one endpoint; they advertise the legacy one until cutover (`metrics.annotationTarget`):
 ```yaml
-# Automatic service discovery with annotations
 prometheus.io/scrape: "true"
 prometheus.io/port: "8080"
 prometheus.io/path: "/actuator/prometheus"
@@ -368,6 +374,53 @@ runner_replicas = 2
 ```
 
 > **Note**: `agent_id` is preserved as the input variable name because it maps directly to the Matillion `AGENT_ID` env var that the runner image consumes.
+
+### Disabling Python Script and Bash Script
+
+Every template has one switch that stops the Python Script and Bash Script
+components running on the runner. It is off by default. It is a best-effort
+setting built on internal runner variables, not a supported product toggle, and
+it is not a security boundary.
+
+| Deployment | Setting |
+|---|---|
+| Helm chart: EKS, AKS, GKE or any other Kubernetes cluster | `disableScriptExecution: true` |
+| AWS ECS (`runner/aws/ecs`, `modules/aws/ecs`) | `disable_script_execution = true` |
+| Azure Container Apps (`runner/azure/container_apps`, `modules/azure/container-apps`) | `disable_script_execution = true` |
+| `modules/core/compute-ecs`, `compute-container-apps`, `compute-cloud-run` | `disable_script_execution = true` |
+
+The Terraform under `runner/aws/eks`, `runner/azure/aks`, `runner/gcp/gke` and the
+`*-existing-cluster` variants builds the cluster only. The runner is installed by
+the Helm chart, so set the chart value for those deployments.
+
+When it is on, the runner container gets these three variables:
+
+```
+SCRIPT_OOM_PROTECTION_ENABLED=false
+MTLN_PYTHON_3_COMMAND=/python-script-disabled-on-this-runner
+MTLN_BASH_COMMAND=/bash-script-disabled-on-this-runner
+```
+
+- Python Script and Bash Script fail when the pipeline runs, with
+  `Cannot run program "/python-script-disabled-on-this-runner"... (No such file or directory)`.
+- Script Pushdown still works. It runs on the remote script runner, which does
+  not get these variables. To stop scripts running anywhere, also turn Script
+  Pushdown off: `scriptRunner.enabled: false` (Helm) or
+  `enable_script_runner = false` (ECS and Container Apps).
+- Certificates, drivers and Python libraries still load as normal.
+
+Tell the customer:
+
+- **It is set per runner.** Turn it on for every runner the account uses, or
+  scripts still run on the ones without it.
+- **Pipelines still pass Validate and fail only at Run**, and the error reads
+  like a fault. Let pipeline authors know what it means.
+- **It uses internal runner settings, not a supported product toggle.** It was
+  tested on runner 12.224.7. A runner version that ignores these variables runs
+  scripts again with no error or warning. After every runner upgrade, run a
+  pipeline with one Python Script and one Bash Script component and check that
+  both fail with `Cannot run program "/python-script-disabled-on-this-runner"`
+  or `"/bash-script-disabled-on-this-runner"`.
 
 ## Development
 
