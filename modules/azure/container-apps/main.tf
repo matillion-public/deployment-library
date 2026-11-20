@@ -18,6 +18,16 @@ locals {
     xlarge = { cpu = "8.0", memory = "32Gi", profile = "D8" }
   }
 
+  # Set on the runner container when disable_script_execution is true. The
+  # runner launches Python Script and Bash Script through these commands, so
+  # pointing them at paths that do not exist makes both components fail at Run.
+  # All three together are the tested set; do not drop one.
+  script_execution_disabled_env = {
+    SCRIPT_OOM_PROTECTION_ENABLED = "false"
+    MTLN_PYTHON_3_COMMAND         = "/python-script-disabled-on-this-runner"
+    MTLN_BASH_COMMAND             = "/bash-script-disabled-on-this-runner"
+  }
+
   container_cpu    = coalesce(var.container_cpu, local.runner_size_map[var.runner_size].cpu)
   container_memory = coalesce(var.container_memory, local.runner_size_map[var.runner_size].memory)
   workload_profile_type = coalesce(
@@ -283,6 +293,14 @@ resource "azurerm_container_app" "app" {
         content {
           name  = "PROXY_PROTOCOL_HTTPS"
           value = var.proxy_protocol_https
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.disable_script_execution ? local.script_execution_disabled_env : {}
+        content {
+          name  = env.key
+          value = env.value
         }
       }
     }

@@ -16,6 +16,15 @@ locals {
   cpu      = local.size_map[var.runner_size].cpu
   memory   = local.size_map[var.runner_size].memory
   app_name = "${var.deployment_name}-agent"
+
+  # Set on the agent when disable_script_execution is true. Pointing the
+  # interpreter commands at paths that do not exist makes Python Script and Bash
+  # Script fail at Run. All three together are the tested set; do not drop one.
+  script_execution_disabled_env = {
+    SCRIPT_OOM_PROTECTION_ENABLED = "false"
+    MTLN_PYTHON_3_COMMAND         = "/python-script-disabled-on-this-runner"
+    MTLN_BASH_COMMAND             = "/bash-script-disabled-on-this-runner"
+  }
 }
 
 resource "azurerm_container_app" "agent_service" {
@@ -38,6 +47,14 @@ resource "azurerm_container_app" "agent_service" {
       image  = var.image_url
       cpu    = local.cpu
       memory = local.memory
+
+      dynamic "env" {
+        for_each = var.disable_script_execution ? local.script_execution_disabled_env : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
     }
   }
 }

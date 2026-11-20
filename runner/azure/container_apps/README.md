@@ -189,6 +189,35 @@ az containerapp logs show \
   --resource-group matillion-runner-rg
 ```
 
+## Runner Metrics
+
+The runner serves Prometheus metrics on `:9464/metrics` (OpenTelemetry, images
+12.150.3 or later) and `:8080/actuator/prometheus` (deprecated), but
+**this deployment doesn't expose either**. The runner container app has no
+`ingress` block; the only ingress in the environment is the script runner's
+internal TCP port 2222. Nothing outside the container app can scrape it.
+
+Container Apps routes ingress to a single target port per app, so exposing
+metrics is a design decision rather than a one-line change. The options:
+
+- **Add internal ingress on 9464.** This makes the endpoint reachable from
+  inside the Container Apps environment only. It needs a scraper running in
+  the same environment, and gives one port, so pick the OpenTelemetry
+  endpoint.
+- **Send metrics with OTLP instead of scraping.** Have the runner push to a
+  collector you run, with no ingress at all. The runner already pushes OTLP to
+  Matillion, but its entrypoint fixes the exporters to that push plus the
+  Prometheus endpoint. A customer-owned OTLP target would need a change in the
+  runner image, not just configuration here.
+- **Use Container Apps' built-in metrics** (CPU, memory, replicas, restarts)
+  from Azure Monitor. They need no change, but don't include the runner's own
+  `matillion_agent_*` metrics.
+
+Which of these to support is tracked in DPC-58192. Runner scaling here is
+fixed (`min_replicas = max_replicas`), so nothing in this deployment depends on
+the metrics today. See
+[Runner Metrics: Moving to the OpenTelemetry Endpoint](../../../blogs/runner-metrics-migration.md).
+
 ## Configuration Options
 
 ### Container Sizing
@@ -254,6 +283,24 @@ a `terraform apply` be the first thing that attempts it.
 |---|---|---|
 | `enable_nat_gateway` | `false` | Enable NAT Gateway for controlled outbound egress |
 | `nat_gateway_idle_timeout` | `10` | NAT Gateway idle timeout in minutes (4-120) |
+
+### Disabling Python Script and Bash Script
+
+Set `disable_script_execution = true` to stop the Python Script and Bash Script
+components running on the runner. The Container App then sets
+`SCRIPT_OOM_PROTECTION_ENABLED=false` and points `MTLN_PYTHON_3_COMMAND` and
+`MTLN_BASH_COMMAND` at paths that do not exist, so both components fail at Run
+with `Cannot run program "/python-script-disabled-on-this-runner"...`. Script
+Pushdown (`enable_script_runner`) still works. To stop scripts running anywhere, also
+set `enable_script_runner = false`.
+
+```hcl
+disable_script_execution = true
+```
+
+Pipelines still pass Validate, the setting is per runner, and it relies on
+internal runner settings, so re-check it after runner upgrades. See
+[Disabling Python Script and Bash Script](../../../README.md#disabling-python-script-and-bash-script).
 
 ### Environment-Specific Examples
 
