@@ -1,11 +1,11 @@
 # Azure Configuration
 azure_subscription_id = "12345678-1234-1234-1234-123456789abc"
 azure_tenant_id       = "12345678-1234-1234-1234-123456789abc"
-resource_group_name   = "matillion-agent-rg"
+resource_group_name   = "mtln-agent-rg"
 location              = "eastus"
 
 # Resource Naming
-name = "matillion-agent"
+name = "mtln-agent"
 
 # Matillion Configuration
 matillion_cloud_region = "eu1"
@@ -49,10 +49,14 @@ storage_account_replication_type = "ZRS"
 # enable_nat_gateway       = false
 # nat_gateway_idle_timeout = 10
 
+# Optional: public IPs allowed through the Key Vault firewall, so an operator can
+# add the secrets the runner reads. Empty keeps the vault closed outside the VNet.
+# key_vault_allowed_ip_ranges = ["203.0.113.10"]
+
 # Optional
 container_image_url = "matillion.azurecr.io/cloud-agent:current"
 
 tags = {
   Environment = "production"
-  Project     = "matillion-agent"
+  Project     = "mtln-agent"
 }
