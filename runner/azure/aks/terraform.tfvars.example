@@ -23,6 +23,11 @@ tags = {
   Owner       = "data-team"
 }
 
+# Kubernetes namespace the runner is installed into. Must equal the namespace
+# passed to `helm install`; the workload identity federated credentials are bound
+# to it. Leave as matillion unless you install the chart elsewhere.
+namespace = "matillion"
+
 # Initial node count. Must be at least the autoscaler floor: the number of
 # entries in node_pool_zones (3 for the recommended zones below), or 2 without
 # zones.

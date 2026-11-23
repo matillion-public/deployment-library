@@ -72,7 +72,7 @@ modules/azure/container-apps/   # Container Apps module
 
 ## Prerequisites
 
-- [Terraform 1.0+](https://www.terraform.io/downloads.html)
+- [Terraform 1.5+](https://www.terraform.io/downloads.html)
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Azure subscription with Container Apps enabled
 - A pre-existing resource group
@@ -96,6 +96,42 @@ az account set --subscription "your-subscription-id"
 az provider register --namespace Microsoft.App
 az provider register --namespace Microsoft.OperationalInsights
 ```
+
+The principal that runs Terraform needs:
+
+- On the resource group: permission to create the resources in this deployment
+  (for example Contributor), and `Microsoft.Authorization/roleAssignments/write`
+  and `/delete` (for example Role Based Access Control Administrator or User
+  Access Administrator). The deployment assigns roles on the Key Vault and the
+  storage account it creates, to the runner identity and to the Key Vault
+  administrators.
+- On the container registry, when `container_acr_id` or `script_runner_acr_id`
+  is set: `Microsoft.Authorization/roleAssignments/write` and `/delete`, to
+  assign AcrPull to the runner or script runner identity.
+- On the subscription: permission to register the resource providers above, if
+  they are not registered yet.
+
+No role assignment is created at subscription scope.
+
+### Upgrading: AcrPull scope
+
+Earlier versions assigned AcrPull to the runner identity at subscription scope
+when `container_acr_id` was not set. That assignment is no longer created.
+
+- `container_acr_id` not set (the default): the next plan destroys one resource,
+  `module.container_apps.azurerm_role_assignment.acr_pull[0]` (moved from
+  `azurerm_role_assignment.acr_pull`), the subscription-scope AcrPull
+  assignment. Nothing else changes. The apply needs
+  `Microsoft.Authorization/roleAssignments/delete` at subscription scope. A
+  principal without it can have an administrator delete the assignment
+  (`az role assignment delete`) and then run
+  `terraform state rm 'module.container_apps.azurerm_role_assignment.acr_pull'`
+  before the next plan.
+- `container_acr_id` set: no change. The assignment keeps its registry scope and
+  moves to the address `acr_pull[0]` in state.
+- A deployment that pulls the runner image from a private registry must set
+  `container_acr_id`. Without it the image pull is anonymous, which a private
+  registry rejects whether or not the subscription assignment exists.
 
 ## Networking Requirements
 
@@ -146,11 +182,11 @@ Create `terraform.tfvars` from the example:
 # Azure Configuration
 azure_subscription_id = "12345678-1234-1234-1234-123456789abc"
 azure_tenant_id       = "12345678-1234-1234-1234-123456789abc"
-resource_group_name   = "matillion-runner-rg"
+resource_group_name   = "mtln-agent-rg"
 location              = "eastus"
 
 # Resource Naming
-name = "matillion-runner"
+name = "mtln-agent"
 
 # Matillion Configuration
 matillion_cloud_region = "eu1"
@@ -163,7 +199,7 @@ client_secret          = "your-oauth-client-secret"
 container_image_url = "matillion.azurecr.io/cloud-agent:current"
 tags = {
   Environment = "production"
-  Project     = "matillion-runner"
+  Project     = "mtln-agent"
 }
 ```
 
@@ -181,12 +217,12 @@ terraform apply
 # Check Container App status
 az containerapp show \
   --name <container_app_name from output> \
-  --resource-group matillion-runner-rg
+  --resource-group mtln-agent-rg
 
 # View logs
 az containerapp logs show \
   --name <container_app_name from output> \
-  --resource-group matillion-runner-rg
+  --resource-group mtln-agent-rg
 ```
 
 ## Runner Metrics
@@ -277,12 +313,66 @@ Terraform edit.** Use Azure's customer-initiated conversion or a manual
 migration, then update the Terraform value so state matches reality. Do not let
 a `terraform apply` be the first thing that attempts it.
 
+### Key Vault Name
+
+The default Key Vault name is `name`, `-kv-` and the 6-character salt, cut at 24
+characters, the Azure limit for a vault name. A `name` longer than 14 characters
+loses salt characters. With `enable_script_runner = true`, `name` is limited to
+11 characters, so the vault keeps the full salt and the rows from 15 characters
+on apply only with the script runner off:
+
+| `name` length | Salt characters kept |
+|---|---|
+| 14 or fewer | 6 |
+| 15 to 19 | 5 to 1 |
+| 20 | none; the vault name ends in `-` and the plan fails |
+| 21 to 23 | none; a 23-character `name` gives a vault name ending in `-` and the plan fails |
+| 24 or more | none; the vault name is the first 24 characters of `name` |
+
+Vault names are global across Azure, and a deleted vault keeps its name for the
+soft-delete retention period (7 days in this deployment). Fewer salt characters
+make a collision with another deployment, or with a vault destroyed in the last
+7 days, more likely.
+
+A `name` of 15 characters or more gives a warning at plan (`Check block
+assertion failed`). A derived vault name that ends in `-` fails the plan: a
+`name` of 20 or 23 characters, or a longer one whose 24th character is `-`.
+Both checks read only `name` and assume the 6-character alphanumeric salt that
+this root generates, so they run at plan on a new deployment, before the salt
+exists.
+
+Setting `resource_names["key_vault"]` on `modules/azure/container-apps` replaces
+the default name and skips both checks. This root does not expose that on its
+own: `naming_overrides` is ignored unless `naming_tokens` is set, and setting
+`naming_tokens` names every resource from the naming convention, which renames
+every resource of an existing deployment.
+
+With the default resource names, a `name` of 22 characters or more already fails
+the plan on the Container App name, which is `name`, `-app-` and the salt and is
+limited to 32 characters.
+
+Effect on existing deployments:
+
+- `name` of 14 characters or fewer: no change.
+- `name` of 15 to 19 characters: a warning at every plan. The vault name and the
+  planned changes are unchanged, and the plan exits 0. Do not shorten `name` to
+  clear the warning: changing `name` changes every default resource name,
+  including the vault's, and replaces those resources. Accept the warning.
+- `name` of 20 characters: the plan fails. Azure rejects a vault name ending in
+  `-`, so no existing deployment can use this name with the default vault name.
+- `name` of 21 characters: a warning, and the vault name has no salt.
+- `name` of 22 characters or more (only with `resource_names["container_app"]` set): a
+  warning, or a failed plan for 23 characters and for a 24th character of `-`.
+- Terraform 1.0 to 1.4: `terraform init` fails on the version constraint. This
+  deployment now needs Terraform 1.5 or later for the `check` block.
+
 ### Networking
 
 | Variable | Default | Description |
 |---|---|---|
 | `enable_nat_gateway` | `false` | Enable NAT Gateway for controlled outbound egress |
 | `nat_gateway_idle_timeout` | `10` | NAT Gateway idle timeout in minutes (4-120) |
+| `key_vault_allowed_ip_ranges` | `[]` | Public IPv4 addresses or CIDRs allowed through the Key Vault firewall. See [Adding secrets to the Key Vault](#adding-secrets-to-the-key-vault) |
 
 ### Disabling Python Script and Bash Script
 
@@ -324,7 +414,7 @@ enable_nat_gateway      = true
 ### Resources Created Automatically
 
 - **User Assigned Managed Identity** with roles:
-  - `AcrPull` (subscription scope) - pull container images
+  - `AcrPull` on the registry named by `container_acr_id`, only when it is set - pull the runner image from a private registry
   - `Storage Account Contributor` - manage storage
   - `Storage Blob Data Contributor` - read/write blobs
   - `Key Vault Secrets Officer` - manage secrets
@@ -332,12 +422,124 @@ enable_nat_gateway      = true
   - `Reader` on Key Vault - metadata access
 - **Key Vault** - RBAC-enabled, network-restricted to VNet subnets, 7-day soft delete
 - **Storage Account** - Standard LRS, no public access
-- **Key Vault Administrator** role assigned to the deployer for management
+- **Key Vault Administrator** role assigned to the identity running Terraform, or to the principals in `key_vault_administrator_principal_ids` (see below)
+
+### Key Vault administrators
+
+| Variable | Default | Description |
+|---|---|---|
+| `key_vault_administrator_principal_ids` | `null` | Entra object IDs (GUIDs) of the users, groups or service principals granted Key Vault Administrator. Null grants the identity running Terraform |
+
+Teams and CI should set `key_vault_administrator_principal_ids` to the object
+IDs of the users, groups or service principals that administer the vault.
+
+- Unset (default): Key Vault Administrator goes to the identity that last ran
+  `terraform apply`. A second operator's apply replaces the first operator's
+  grant.
+- Set: the grant to the identity running Terraform is removed and one grant is
+  created per listed ID. The applying identity must be in the list or hold
+  another way to manage the vault (Owner or User Access Administrator alone
+  does not read or write secrets), or later applies that need data-plane
+  access to the vault fail.
+- Empty set: the vault has no Key Vault Administrator from this module.
+
+Each entry must be an object ID (GUID); the plan fails on anything else, such
+as a user principal name. Values must be known at plan time; IDs of principals
+created in the same apply fail with Terraform's `for_each` error.
+
+Upgrading an existing deployment:
+
+- Variable unset: a `moved` block moves the state address from
+  `azurerm_role_assignment.current_client_key_vault_admin` to
+  `azurerm_role_assignment.current_client_key_vault_admin[0]`. The plan shows no
+  change to the assignment.
+- Variable set: the plan destroys
+  `azurerm_role_assignment.current_client_key_vault_admin[0]` and creates one
+  `azurerm_role_assignment.key_vault_administrators["<id>"]` per ID. The
+  current operator loses Key Vault Administrator unless listed.
+- Setting the variable and later unsetting it destroys the listed grants and
+  recreates the grant to the identity running Terraform.
+
+When the applying identity is listed, the old and new grants have the same
+principal, role and scope, which Azure allows only once. `key_vault_administrators`
+depends on `current_client_key_vault_admin`, so Terraform finishes the destroy
+before the create in both directions. If Azure still returns
+`RoleAssignmentExists` (409) because the delete has not propagated, run
+`terraform apply` again; the destroy is already recorded in state and the second
+apply only creates the missing grant.
 
 ### Network Security
 
-- Key Vault network ACLs restrict access to VNet subnets only (default deny, Azure Services bypass)
+- Key Vault network ACLs default deny, with the VNet subnets, Azure trusted services and any `key_vault_allowed_ip_ranges` allowed
 - NSG on all subnets allows only HTTPS (443) inbound
+
+### Adding secrets to the Key Vault
+
+The runner reads secrets from the vault named in its `DEFAULT_KEYVAULT`
+environment variable, which is the vault this deployment creates. Get its name with:
+
+```bash
+terraform output -raw key_vault_name
+```
+
+The vault's Key Vault Administrators (by default, the identity that ran
+`terraform apply`) can manage secrets, but the vault firewall denies requests
+from outside the deployment's subnets. From a laptop,
+`az keyvault secret set` and `az keyvault secret list` fail with:
+
+```
+(Forbidden) Client address is not authorized and caller is not a trusted service.
+```
+
+Use one of the following.
+
+**Allow your egress IP.** Find your public IPv4 address:
+
+```bash
+curl -4 -s https://ifconfig.me
+```
+
+Set it in `terraform.tfvars` and run `terraform apply`. This is an in-place
+update of the vault; the vault is not replaced.
+
+```hcl
+key_vault_allowed_ip_ranges = ["203.0.113.10"]
+```
+
+Give a single address without a prefix. Key Vault does not accept `/31` or `/32`
+rules, and the variable rejects them, along with prefixes shorter than `/8` and
+private (RFC 1918) ranges.
+
+The rule can take up to a minute to take effect. Then add and check the secrets:
+
+```bash
+az keyvault secret set --vault-name <vault> --name <name> --value <value>
+az keyvault secret list --vault-name <vault> -o table
+```
+
+Remove the entry and apply again when you no longer need access. Only public
+addresses work: requests from inside Azure on a subnet with the
+`Microsoft.KeyVault` service endpoint are matched by the subnet rule, not by an
+IP rule.
+
+**Run `az` inside the VNet.** Run the commands from a host on a subnet in
+`subnet_ids`. Use the services subnet (index 1, `10.0.2.0/24` with the default
+address space). The Container Apps subnet (index 0) is delegated to
+`Microsoft.App/environments` and cannot hold a VM. The NSG on these subnets
+allows only inbound 443, so you cannot SSH or RDP to the VM from outside the
+VNet without changing it. Run the commands with
+`az vm run-command invoke --command-id RunShellScript --scripts "..."`, connect
+through Azure Bastion (which needs its own `AzureBastionSubnet`), or add a
+temporary NSG rule for your address and remove it afterwards.
+
+**Use a private endpoint.** Create a private endpoint for the vault, with a
+private DNS zone `privatelink.vaultcore.azure.net` linked to the network you
+connect from. This module does not create one.
+
+Do not add rules with `az keyvault network-rule add` or the Azure portal. The
+module manages the vault's network rules in full, so the next `terraform apply`
+removes any rule it does not know about. Use `key_vault_allowed_ip_ranges`
+instead.
 
 ## Monitoring
 
