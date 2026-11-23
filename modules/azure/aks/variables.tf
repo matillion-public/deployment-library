@@ -11,6 +11,11 @@ variable "namespace" {
   type        = string
   description = "Kubernetes namespace the runner is deployed into. Must match the namespace used in Helm chart installation (default: matillion). The federated credential subject references this namespace for AAD token exchange."
   default     = "matillion"
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$", var.namespace))
+    error_message = "namespace must be a valid Kubernetes namespace: lowercase letters, digits and hyphens, starting and ending with a letter or digit, up to 63 characters."
+  }
 }
 
 # ServiceAccount names presented by the runner pods. These are fixed by the Helm

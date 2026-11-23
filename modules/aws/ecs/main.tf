@@ -156,6 +156,42 @@ resource "aws_cloudwatch_log_group" "matillion_dpc_runner_task_logs" {
   )
 }
 
+# A runner that cannot get a token keeps running and retrying, so ECS reports it as healthy.
+# The runner logs a failed token request as "Recoverable error caught [[<oauth2 error code>] ...",
+# for example [[invalid_token_response] for a rejected client secret. Matching that prefix, and
+# not the error codes alone, excludes OAuth errors logged by pipeline connectors in the same log.
+resource "aws_cloudwatch_log_metric_filter" "runner_auth_failures" {
+  name           = lookup(var.resource_names, "auth_failure_metric_filter", "${var.name}-runner-auth-failures")
+  log_group_name = aws_cloudwatch_log_group.matillion_dpc_runner_task_logs.name
+  pattern        = "\"Recoverable error caught [[invalid_\""
+
+  metric_transformation {
+    name          = lookup(var.resource_names, "auth_failure_metric_filter", "${var.name}-runner-auth-failures")
+    namespace     = "Matillion/Runner"
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "runner_auth_failures" {
+  count = length(var.auth_failure_alarm_actions) > 0 ? 1 : 0
+
+  alarm_name          = lookup(var.resource_names, "auth_failure_alarm", "${var.name}-runner-auth-failures")
+  alarm_description   = "The runner failed to get an OAuth token from Keycloak in 2 of the last 3 five-minute periods."
+  namespace           = aws_cloudwatch_log_metric_filter.runner_auth_failures.metric_transformation[0].namespace
+  metric_name         = aws_cloudwatch_log_metric_filter.runner_auth_failures.metric_transformation[0].name
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 3
+  datapoints_to_alarm = 2
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = var.auth_failure_alarm_actions
+  ok_actions          = var.auth_failure_alarm_actions
+  tags                = var.tags
+}
+
 resource "aws_ecs_task_definition" "matillion_dpc_runner" {
 
   family = lookup(var.resource_names, "ecs_task_family", join("-", [var.name, "task"]))

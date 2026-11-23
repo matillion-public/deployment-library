@@ -246,6 +246,7 @@ module "runner" {
   metrics_ingress_cidr_blocks        = var.metrics_ingress_cidr_blocks
   metrics_ingress_security_group_ids = var.metrics_ingress_security_group_ids
   metrics_ingress_ports              = var.metrics_ingress_ports
+  auth_failure_alarm_actions         = var.auth_failure_alarm_actions
   image_url                          = var.image_url
 
   extension_library_location = var.extension_library_location
