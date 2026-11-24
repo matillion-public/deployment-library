@@ -410,6 +410,92 @@ assert_output_contains "$OUTPUT" \
     "CLOUD_PROVIDER.*not found\|CLOUD_PROVIDER.*not set" \
     "CLOUD_PROVIDER not found → WARN"
 
+echo ""
+echo "  --- Cluster-Level: kubectl -o json formatting ---"
+
+# --- Test: AWS IRSA valid ARN, indented kubectl JSON → PASS ---
+setup_mock_dir
+write_mock_kubectl_base
+append_mock_pod_and_sa \
+    "AWS" \
+    '{
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+        "annotations": {
+            "eks.amazonaws.com/role-arn": "arn:aws:iam::123456789012:role/matillion-runner-role"
+        },
+        "name": "test-sa",
+        "namespace": "test-ns"
+    }
+}' \
+    ""
+OUTPUT=$(bash "$RUN_CHECK" --namespace test-ns 2>&1) || true
+teardown_mock_dir
+
+assert_output_contains "$OUTPUT" \
+    "IRSA configured with valid ARN" \
+    "AWS IRSA valid ARN, indented JSON → PASS"
+
+assert_output_not_contains "$OUTPUT" \
+    "no IRSA annotation" \
+    "AWS IRSA valid ARN, indented JSON → no false WARN"
+
+# --- Test: Azure WI client-id and use label, indented kubectl JSON → PASS ---
+setup_mock_dir
+write_mock_kubectl_base
+append_mock_pod_and_sa \
+    "AZURE" \
+    '{
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+        "annotations": {
+            "azure.workload.identity/client-id": "abcd1234-5678-90ab-cdef-1234567890ab"
+        },
+        "labels": {
+            "azure.workload.identity/use": "true"
+        },
+        "name": "test-sa",
+        "namespace": "test-ns"
+    }
+}' \
+    ""
+OUTPUT=$(bash "$RUN_CHECK" --namespace test-ns 2>&1) || true
+teardown_mock_dir
+
+assert_output_contains "$OUTPUT" \
+    "Azure Workload Identity configured" \
+    "Azure WI configured, indented JSON → PASS"
+
+assert_output_contains "$OUTPUT" \
+    "Workload Identity label present" \
+    "Azure WI label present, indented JSON → PASS"
+
+# --- Test: GCP WI annotation, indented kubectl JSON → INFO ---
+setup_mock_dir
+write_mock_kubectl_base
+append_mock_pod_and_sa \
+    "GCP" \
+    '{
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+        "annotations": {
+            "iam.gke.io/gcp-service-account": "matillion-runner@test-project.iam.gserviceaccount.com"
+        },
+        "name": "test-sa",
+        "namespace": "test-ns"
+    }
+}' \
+    ""
+OUTPUT=$(bash "$RUN_CHECK" --namespace test-ns 2>&1) || true
+teardown_mock_dir
+
+assert_output_contains "$OUTPUT" \
+    "GCP Workload Identity configured" \
+    "GCP WI annotation, indented JSON → INFO"
+
 
 # ===========================================================================
 # IN-POD TESTS (P20b — mock env)
