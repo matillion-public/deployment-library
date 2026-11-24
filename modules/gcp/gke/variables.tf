@@ -118,3 +118,14 @@ variable "resource_names" {
   type        = map(string)
   default     = {}
 }
+
+variable "existing_node_service_account_email" {
+  type        = string
+  description = "Email of a service account created outside this module for the GKE nodes. When set, the module creates no node service account and both the cluster's initial node pool and the runner node pool run as this account. The deployer then needs iam.serviceAccounts.actAs only on this account. Leave null (default) to have the module create one."
+  default     = null
+
+  validation {
+    condition     = var.existing_node_service_account_email == null || can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9.-]*[a-z0-9]\\.iam\\.gserviceaccount\\.com$", var.existing_node_service_account_email))
+    error_message = "existing_node_service_account_email must be a user-managed service account email, <account-id>@<project-id>.iam.gserviceaccount.com. The default compute service account (<project-number>-compute@developer.gserviceaccount.com) is not accepted."
+  }
+}

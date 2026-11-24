@@ -96,3 +96,26 @@ run "rejects_an_authorized_ip_range_without_a_prefix_length" {
 
   expect_failures = [var.authorized_ip_ranges]
 }
+
+run "accepts_a_pre_created_node_service_account_email" {
+  command = plan
+
+  variables {
+    existing_node_service_account_email = "runner-nodes@runner-project.iam.gserviceaccount.com"
+  }
+
+  assert {
+    condition     = var.existing_node_service_account_email == "runner-nodes@runner-project.iam.gserviceaccount.com"
+    error_message = "A user-managed service account email must plan."
+  }
+}
+
+run "rejects_the_default_compute_service_account_as_node_service_account" {
+  command = plan
+
+  variables {
+    existing_node_service_account_email = "123456789012-compute@developer.gserviceaccount.com"
+  }
+
+  expect_failures = [var.existing_node_service_account_email]
+}

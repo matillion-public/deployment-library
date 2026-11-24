@@ -84,7 +84,7 @@ Required IAM roles for the Terraform runner:
 - `roles/secretmanager.admin` — Secret Manager management
 - `roles/resourcemanager.projectIamAdmin` — IAM bindings
 - `roles/iam.roleAdmin` — Custom role creation (`runner_secret_creator`)
-- `roles/iam.serviceAccountUser` — Lets the cluster use the default compute service account (`<project-number>-compute@developer.gserviceaccount.com`) and the node pool use the node service account this module creates; grant it on both service accounts or at project level
+- `roles/iam.serviceAccountUser` (`iam.serviceAccounts.actAs`): lets the cluster and its node pools run as the node service account. The default compute service account is not used. When the module creates the node service account, that account does not exist before the first apply, so grant this role at project level. To grant it on a single account instead, pre-create the node service account (see [Pre-creating the node service account](#pre-creating-the-node-service-account)).
 
 ## Quick Start
 
@@ -411,6 +411,71 @@ could not reach Matillion. To fix an affected configuration, set
 and a Cloud NAT, see `modules/gcp/networking/main.tf`), or move to
 `existing_network` with a VPC that provides its own egress. This root now
 requires Terraform 1.2 or later.
+
+### Pre-creating the node service account
+
+GKE checks `iam.serviceAccounts.actAs` on the node service account when it
+creates the cluster and the node pool. A service account created by this module
+has no id before apply, so actAs cannot be limited to it in advance. Creating
+the account once beforehand lets an IAM admin limit actAs to that one account.
+
+One-time commands for an IAM admin:
+
+```bash
+gcloud iam service-accounts create runner-nodes \
+  --project=<project-id> \
+  --display-name="Matillion runner GKE nodes"
+
+gcloud iam service-accounts add-iam-policy-binding \
+  runner-nodes@<project-id>.iam.gserviceaccount.com \
+  --project=<project-id> \
+  --member="serviceAccount:<deployer-email>" \
+  --role="roles/iam.serviceAccountUser"
+```
+
+Use `--member="user:<email>"` for a user deployer. To grant the role at project
+level instead, add a condition on the account's unique id. Get the id with
+`gcloud iam service-accounts describe runner-nodes@<project-id>.iam.gserviceaccount.com --format='value(uniqueId)'`
+and use the condition expression
+`resource.name == "projects/-/serviceAccounts/<unique-id>"`.
+
+Then set in `terraform.tfvars`:
+
+```hcl
+existing_node_service_account_email = "runner-nodes@<project-id>.iam.gserviceaccount.com"
+```
+
+The module then creates no node service account, and both the cluster's
+initial node pool and the runner node pool run as this account. The deployer
+needs no `roles/iam.serviceAccountUser` at project level.
+
+Terraform still grants this account `roles/logging.logWriter`,
+`roles/monitoring.metricWriter` and `roles/monitoring.viewer` on the project.
+Do not grant these three to it by hand: `terraform destroy` removes them,
+including any identical grant made outside Terraform. Grant any other role the
+nodes need (for example Artifact Registry read access for private images)
+yourself.
+
+#### Upgrading
+
+With `existing_node_service_account_email` unset, an existing deployment plans
+no change: the state entry moves from `google_service_account.gke_node_sa` to
+`google_service_account.gke_node_sa[0]`, and the cluster's new `node_config`
+is ignored.
+
+Setting `existing_node_service_account_email` on an existing deployment plans:
+
+- replacement of `google_container_node_pool.runner_nodes` (its
+  `node_config.service_account` forces a new pool);
+- replacement of the three `google_project_iam_member.gke_node_*` grants;
+- destruction of the service account the module created.
+
+The cluster itself is not replaced. The node pool is deleted before the new one
+is created, so every runner pod stops and restarts on the new nodes. Plan for a
+runner outage of several minutes (in europe-west1 a node pool create took 1m16s
+and a destroy 3m34s). Deleting the old service account leaves a
+`deleted:serviceAccount:...?uid=` member in the project IAM policy, which can
+be removed with `gcloud projects remove-iam-policy-binding`.
 
 ## Outputs
 

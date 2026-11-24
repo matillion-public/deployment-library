@@ -53,5 +53,7 @@ module "gke" {
   runner_gcs_buckets                     = var.runner_gcs_buckets
   additional_gcp_projects                = var.additional_gcp_projects
 
+  existing_node_service_account_email = var.existing_node_service_account_email
+
   labels = var.labels
 }
