@@ -40,10 +40,12 @@ To put a runner into an AKS cluster you already run, beside any other runners, u
 
 ## Prerequisites
 
-- [Terraform 1.0+](https://www.terraform.io/downloads.html)
+- [Terraform 1.5+](https://www.terraform.io/downloads.html)
+- [Helm 3](https://helm.sh/docs/intro/install/)
+- [kubectl](https://kubernetes.io/docs/tasks/tools/)
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Azure subscription with appropriate permissions
-- Contributor access to resource group
+- Rights to create resources and role assignments in the resource group (for example Owner), and subscription-level role assignment rights unless grant_runner_subscription_reader = false (see "Subscription-level permissions" below)
 
 ### Image Delivery & Network Requirements
 
@@ -64,52 +66,68 @@ az account set --subscription "your-subscription-id"
 az role assignment list --assignee $(az account show --query user.name -o tsv)
 ```
 
+#### Subscription-level permissions
+
+By default the deployment grants the runner's managed identity Reader on the whole subscription (`runner_subscription_reader_role` in `modules/azure/aks`). Because of that grant, whoever runs Terraform needs `Microsoft.Authorization/roleAssignments/read` at subscription scope to plan an existing deployment and `Microsoft.Authorization/roleAssignments/write` at subscription scope to apply. Without them, plan fails with `403 AuthorizationFailed`, or apply fails on this resource after the cluster and the other resources have been created.
+
+An operator whose rights end at the resource group sets `grant_runner_subscription_reader = false`. The deployment then creates no subscription-scope assignment. The other role assignments are on the Key Vault and storage account in the resource group, so the operator still needs to write role assignments there (for example Owner on the resource group).
+
+The runner logs in with `az login --identity --allow-no-subscriptions`. Without the grant it was tested for login, Key Vault read, blob read and write and the Agent Gateway connection. Running pipelines without the grant has not been tested.
+
+Upgrading: with the default (`true`) an existing deployment sees no plan change. Setting `false` on an existing deployment destroys that one role assignment, which needs `Microsoft.Authorization/roleAssignments/delete` at subscription scope for that apply. Run `terraform plan` and check that `module.aks.azurerm_role_assignment.runner_subscription_reader_role[0]` is the only resource destroyed.
+
+```hcl
+grant_runner_subscription_reader = false
+```
+
 ## Quick Start
 
 ### 1. Clone and Navigate
 
 ```bash
 git clone <repository-url>
-cd poc-agent-deployment/runner/azure/aks
+cd agent-deployment/runner/azure/aks
 ```
 
 ### 2. Configure Variables
+
+The resource group must already exist: Terraform references it and does not create it. Create it with:
+
+```bash
+az group create --name matillion-runner-rg --location eastus --tags Environment=production Owner=data-team
+```
 
 Create `terraform.tfvars`:
 
 ```hcl
 # Azure Configuration
 azure_subscription_id = "12345678-1234-1234-1234-123456789012"
+azure_tenant_id       = "your-azure-tenant-id"
 resource_group_name   = "matillion-runner-rg"
-location             = "East US"
-name                 = "matillion-runner"
-
-# Matillion Configuration  
-agent_id            = "your-unique-agent-id"
-account_id          = "your-matillion-account-id"
-matillion_region    = "us-east-1"
-client_id          = "your-oauth-client-id"
-client_secret      = "your-oauth-client-secret"
+location              = "eastus"
+name                  = "matillion-runner"
 
 # AKS Cluster Configuration
-vm_size            = "Standard_D4s_v4"    # 4 vCPU, 16GB RAM
-node_disk_size     = 250                   # GB
-desired_node_count = 3                     # Initial node count
-is_private_cluster = false                 # Public for testing
+vm_size              = "Standard_D4s_v4" # 4 vCPU, 16GB RAM
+node_disk_size       = 250               # GB
+desired_node_count   = 3                 # Initial node count
+is_private_cluster   = false             # Public for testing
 authorized_ip_ranges = ["0.0.0.0/0"]     # Restrict in production
 
-# Runner Configuration
-runner_replicas = 2                         # Number of runner pods
-metrics_exporter_image_repository = "brbajematillion/metrics-sidecar"
-metrics_exporter_image_tag = "latest"
+# Kubernetes namespace the runner is installed into. Must equal the namespace
+# passed to `helm install`; the workload identity federated credentials are bound
+# to it. Leave as matillion unless you install the chart elsewhere.
+namespace = "matillion"
 
-# Optional: Customize tags
+# Required: tags has no default
 tags = {
   Environment = "production"
   Project     = "matillion-runner"
   Owner       = "data-team"
 }
 ```
+
+`namespace` must equal the namespace used in `helm install` below; the workload identity federated credentials are bound to it.
 
 ### 3. Deploy Infrastructure
 
@@ -124,17 +142,52 @@ terraform plan
 terraform apply
 ```
 
-### 4. Verify Deployment
+### 4. Install the runner with Helm
+
+Terraform creates the cluster, identities and Key Vault but does not install the runner chart. Install it with Helm.
+
+Get cluster credentials, still in `runner/azure/aks`. The `k8s_access` output prints the full `az aks get-credentials` command:
+
+```bash
+eval "$(terraform output -raw k8s_access)"
+```
+
+From the repository root (`cd ../../..`), copy the Azure values file, fill in the values below, then install:
+
+```bash
+cp runner/helm/runner/values-azure.yaml my-values.yaml
+# edit my-values.yaml
+helm install matillion-runner ./runner/helm/runner --namespace matillion --create-namespace -f my-values.yaml
+```
+
+| Value | Where it comes from |
+|---|---|
+| `config.oauthClientId` | Matillion Hub |
+| `config.oauthClientSecret` | Matillion Hub |
+| `dpcAgent.dpcAgent.env.accountId` | Matillion Hub |
+| `dpcAgent.dpcAgent.env.agentId` | Matillion Hub |
+| `dpcAgent.dpcAgent.env.matillionRegion` | Matillion Hub |
+| `dpcAgent.dpcAgent.env.defaultKeyvault` | `terraform output -raw key_vault_name`, run in `runner/azure/aks` |
+| `azure.subscriptionId` | `az account show --query id -o tsv` |
+| `azure.workloadIdentity.clientId` | `terraform output -raw k8s_workload_identity_client_id`, run in `runner/azure/aks`. The chart writes it to the `azure.workload.identity/client-id` annotation on the runner service account. |
+
+`my-values.yaml` holds the OAuth client secret. Do not commit it: keep it outside the repository or add its name to `.gitignore` before creating it.
+
+The namespace is `matillion`, the default of the `namespace` variable. To install into another namespace, set `namespace` in `terraform.tfvars` and run `terraform apply` first, because the federated credentials are bound to it. If the chart is installed into a namespace that does not match, the pod fails its token exchange with an MSAL managed identity error and does not become ready.
+
+### 5. Verify Deployment
+
+Run from `runner/azure/aks`:
 
 ```bash
 # Get AKS credentials
-az aks get-credentials --resource-group matillion-runner-rg --name <cluster-name>
+az aks get-credentials --resource-group matillion-runner-rg --name $(terraform output -raw cluster_name)
 
 # Check runner pods
-kubectl get pods -n matillion-runner
+kubectl get pods -n matillion
 
 # Check metrics endpoint
-kubectl port-forward -n matillion-runner deployment/matillion-runner-app 8080:8080
+kubectl port-forward -n matillion deployment/matillion-runner-app 8080:8080
 curl http://localhost:8080/actuator/prometheus
 ```
 
@@ -277,14 +330,7 @@ The deployment creates a User Assigned Managed Identity with minimal permissions
 
 ### Key Vault Configuration
 
-```hcl
-# Automatic secret creation
-resource "azurerm_key_vault_secret" "oauth_client_id" {
-  name         = "oauth-client-id"
-  value        = var.client_id
-  key_vault_id = azurerm_key_vault.keyvault.id
-}
-```
+Terraform creates the Key Vault but does not write the runner's OAuth credentials to it. The chart reads them from `config.oauthClientId` and `config.oauthClientSecret` in `my-values.yaml` (step 4). The vault name is the `key_vault_name` output.
 
 ### Network Security
 
@@ -310,10 +356,13 @@ az aks nodepool scale --resource-group matillion-runner-rg \
 ```
 
 #### Vertical Scaling (Runner Replicas)
+
+The deployment and container names below assume the Helm release is named `matillion-runner`, as in step 4.
+
+`values-azure.yaml` enables the HPA (`hpa.minReplicas: 2`, `hpa.maxReplicas: 10`), which overrides a `kubectl scale`. Change the floor or ceiling in `my-values.yaml` instead, for example `hpa.minReplicas: 4`, then from the repository root:
+
 ```bash
-# Update replica count
-kubectl scale deployment/matillion-runner-dpc-agent \
-  --namespace matillion-runner --replicas=4
+helm upgrade matillion-runner ./runner/helm/runner --namespace matillion -f my-values.yaml
 ```
 
 ### Updates and Maintenance
@@ -341,24 +390,24 @@ az aks upgrade --resource-group matillion-runner-rg \
 ### Troubleshooting
 
 #### Pod Issues
+
+The deployment and container names below assume the Helm release is named `matillion-runner`, as in step 4.
+
 ```bash
 # Check pod status
-kubectl get pods -n matillion-runner
+kubectl get pods -n matillion
 
 # View pod logs
-kubectl logs -n matillion-runner deployment/matillion-runner-dpc-agent -c agent
-
-# Check metrics sidecar
-kubectl logs -n matillion-runner deployment/matillion-runner-dpc-agent -c metrics-exporter
+kubectl logs -n matillion deployment/matillion-runner-app -c matillion-runner-pods
 
 # Describe pod for events
-kubectl describe pod -n matillion-runner <pod-name>
+kubectl describe pod -n matillion <pod-name>
 ```
 
 #### Network Issues
 ```bash
 # Check service endpoints
-kubectl get endpoints -n matillion-runner
+kubectl get endpoints -n matillion
 
 # Test internal DNS
 kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup kubernetes.default
@@ -366,8 +415,9 @@ kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup kubernete
 
 #### Authentication Issues
 ```bash
-# Check managed identity
-az identity show --ids $(terraform output managed_identity_id)
+# Check managed identity (run from runner/azure/aks)
+az identity list --resource-group "$(terraform output -raw resource_group_name)" \
+  --query "[?clientId=='$(terraform output -raw k8s_workload_identity_client_id)']" -o table
 
 # Verify Key Vault access
 az keyvault secret list --vault-name <vault-name>
@@ -406,7 +456,7 @@ Monitor resource usage:
 ```bash
 # CPU and memory usage
 kubectl top nodes
-kubectl top pods -n matillion-runner
+kubectl top pods -n matillion
 ```
 
 ### Spot Instances
@@ -429,22 +479,19 @@ Consider Azure Reserved VM Instances for predictable workloads.
 ### Destroy Infrastructure
 
 ```bash
-# Destroy all resources
 terraform destroy
-
-# Verify cleanup
-az group show --name matillion-runner-rg
 ```
 
-### Manual Cleanup (if needed)
+`terraform destroy` does not delete the resource group, because you created it in step 2 and Terraform only references it. Check what is left in it:
 
 ```bash
-# Force delete resource group
-az group delete --name matillion-runner-rg --yes --no-wait
+az resource list --resource-group matillion-runner-rg -o table
+```
 
-# Clean up Terraform state
-rm -rf .terraform*
-rm terraform.tfstate*
+Delete the group only if nothing else uses it:
+
+```bash
+az group delete --name matillion-runner-rg
 ```
 
 ## Performance Tuning
@@ -470,8 +517,11 @@ max_pods = 110  # Per node
 | `xlarge` | 8 vCPU / 32 GiB | 16 vCPU / 32 GiB | `Standard_D16s_v5` |
 
 ```bash
-helm install matillion-runner ./runner --set runnerSize=medium -f values-azure.yaml
+# From the repository root, after step 4
+helm upgrade matillion-runner ./runner/helm/runner --namespace matillion -f my-values.yaml --set runnerSize=medium
 ```
+
+A later `helm upgrade` without `--set runnerSize` resets the size to the value in `my-values.yaml`, so to keep it, set `runnerSize` in `my-values.yaml` instead.
 
 **Container Apps** — Container Apps sets `runner_size` on the Terraform template (see [`container_apps/README.md`](container_apps/README.md)). The size also drives `workload_profile_type` because the Consumption profile won't accept the 1:4 cpu:memory ratio.
 

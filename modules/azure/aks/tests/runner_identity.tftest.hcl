@@ -113,3 +113,28 @@ run "workload_identity_off_creates_no_shared_identity" {
     error_message = "Identity outputs should be empty with workload identity off."
   }
 }
+
+run "subscription_reader_can_be_turned_off" {
+  command = plan
+
+  variables {
+    grant_runner_subscription_reader = false
+  }
+
+  assert {
+    condition     = length(azurerm_role_assignment.runner_subscription_reader_role) == 0
+    error_message = "grant_runner_subscription_reader = false must create no subscription Reader assignment."
+  }
+
+  assert {
+    condition = alltrue([
+      length(azurerm_user_assigned_identity.runner_workload_identity) == 1,
+      length(azurerm_role_assignment.runner_blob_storage_role) == 1,
+      length(azurerm_role_assignment.runner_key_vault_role) == 1,
+      length(azurerm_role_assignment.runner_key_vault_reader_role) == 1,
+      length(azurerm_federated_identity_credential.runner_federated_credential) == 1,
+      length(azurerm_federated_identity_credential.script_runner_federated_credential) == 1,
+    ])
+    error_message = "Turning off the subscription Reader grant must keep the shared identity, its other grants and its federated credentials."
+  }
+}

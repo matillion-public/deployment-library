@@ -55,6 +55,7 @@ module "aks" {
 
   location            = var.location
   resource_group_name = var.resource_group_name
+  namespace           = var.namespace
 
   subnet_ids = local.subnet_ids
 
@@ -92,6 +93,8 @@ module "aks" {
   service_principal_enabled   = var.service_principal_enabled
   service_principal_client_id = var.service_principal_client_id
   service_principal_secret    = var.service_principal_secret
+
+  grant_runner_subscription_reader = var.grant_runner_subscription_reader
 
   key_vault_administrator_principal_ids = var.key_vault_administrator_principal_ids
 

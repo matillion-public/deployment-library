@@ -23,6 +23,11 @@ tags = {
   Owner       = "data-team"
 }
 
+# Kubernetes namespace the runner is installed into. Must equal the namespace
+# passed to `helm install`; the workload identity federated credentials are bound
+# to it. Leave as matillion unless you install the chart elsewhere.
+namespace = "matillion"
+
 # Initial node count. Must be at least the autoscaler floor: the number of
 # entries in node_pool_zones (3 for the recommended zones below), or 2 without
 # zones.
@@ -135,6 +140,15 @@ service_principal_enabled = false
 # service_principal_enabled   = true
 # service_principal_client_id = "your-service-principal-client-id"
 # service_principal_secret    = "your-service-principal-secret"
+
+# Subscription Reader for the runner identity. By default the runner identity gets
+# Reader on the whole subscription, so whoever runs Terraform needs
+# Microsoft.Authorization/roleAssignments/read (plan) and roleAssignments/write
+# (apply) at subscription scope. Set false if you only have rights on the
+# resource group. Running pipelines without this grant has not been tested.
+# Setting false on an existing deployment destroys the assignment, which needs
+# roleAssignments/delete at subscription scope.
+# grant_runner_subscription_reader = false
 
 # Autoscaler bounds and tier. Commented out because the module's defaults are the
 # right starting point: floor of one node per zone, ceiling of double

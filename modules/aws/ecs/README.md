@@ -63,6 +63,7 @@ module "ecs" {
 | metrics_ingress_cidr_blocks | CIDR blocks allowed to scrape the runner's Prometheus metrics. `0.0.0.0/0` is rejected | list(string) | [] | no |
 | metrics_ingress_security_group_ids | Security groups allowed to scrape the runner's Prometheus metrics | list(string) | [] | no |
 | metrics_ingress_ports | Metrics ports opened to those sources: 9464 (OpenTelemetry) and 8080 (deprecated `/actuator/prometheus`) | list(number) | [9464, 8080] | no |
+| auth_failure_alarm_actions | ARNs notified (for example an SNS topic) when the runner log shows an authentication failure. The alarm is created only when this list is not empty | list(string) | [] | no |
 
 > **Note**: `agent_id` is preserved as the input name because it maps directly to the `AGENT_ID` env var consumed by the Matillion runner image — it is part of the Matillion API contract.
 
@@ -134,7 +135,7 @@ The module's bucket policy then replaces any policy already on the bucket.
 
 ## Container Insights log group
 
-The module declares `/aws/ecs/containerinsights/<cluster-name>/performance` with 30-day retention and the module tags. `<cluster-name>` is `resource_names["ecs_cluster"]` if set, otherwise `<name>-cluster`. The log group is removed on `terraform destroy`.
+The module declares `/aws/ecs/containerinsights/<cluster-name>/performance` with 30-day retention and the module tags. `<cluster-name>` is `resource_names["ecs_cluster"]` if set, otherwise `<name>-cluster`. The log group is removed on `terraform destroy`. AWS can create the group again shortly after the destroy finishes, so check for it immediately and again after about 5 minutes. A recreated group is not in Terraform state. If the cluster name is fixed (a fixed `name`, or `resource_names["ecs_cluster"]` set), the next apply with that name fails with `ResourceAlreadyExistsException`; import or delete the group as described in [Upgrading from a version that did not manage the log group](#upgrading-from-a-version-that-did-not-manage-the-log-group).
 
 The identity running Terraform needs `logs:CreateLogGroup`, `logs:PutRetentionPolicy`, `logs:TagResource`, `logs:DeleteLogGroup` and `logs:DescribeLogGroups` on `arn:aws:logs:<region>:<account-id>:log-group:/aws/ecs/containerinsights/*`. A policy scoped only to `/ecs/<name>-*` does not cover it.
 
@@ -146,7 +147,35 @@ AWS creates this log group when Container Insights is enabled. If it already exi
 terraform import 'module.<path>.aws_cloudwatch_log_group.container_insights_performance' /aws/ecs/containerinsights/<cluster-name>/performance
 ```
 
-A group created by AWS has no retention. The first apply after import sets `retention_in_days = 30`, and CloudWatch then expires log events older than 30 days. If the group is an orphan from a destroyed deployment and its contents are not needed, delete it instead: `aws logs delete-log-group --log-group-name /aws/ecs/containerinsights/<cluster-name>/performance`.
+A group that AWS recreated after a destroy had a retention of 1 day when checked. The first apply after import sets `retention_in_days = 30`, and CloudWatch then expires log events older than 30 days. If the group is an orphan from a destroyed deployment and its contents are not needed, delete it instead. Deletion is permanent, so export anything you need first:
+
+```bash
+aws logs describe-log-groups \
+  --log-group-name-prefix /aws/ecs/containerinsights/<cluster-name>/performance \
+  --query 'logGroups[].[logGroupName,retentionInDays]' --output text
+
+aws logs delete-log-group --log-group-name /aws/ecs/containerinsights/<cluster-name>/performance
+```
+
+## Authentication failure metric
+
+A runner that cannot authenticate, for example because its client secret is wrong, keeps running and retries indefinitely. The tasks stay `RUNNING`, the ECS deployment completes, and `terraform apply` reports no error, so neither detects a wrong client secret. `SSE Connection Subscription Started` is logged before the token request and does not mean the runner is connected. `Successfully sent in-progress requests to Agent Gateway` appears only on a working runner.
+
+The module creates a CloudWatch Logs metric filter on the runner task log group (`/ecs/<name>-task`, or `resource_names["ecs_task_log_group"]`) with the pattern `"Recoverable error caught [[invalid_"`. The runner writes this line each time a token request to Keycloak fails, for example `Recoverable error caught [[invalid_token_response] An error occurred while attempting to retrieve the OAuth 2.0 Access Token Response: 401 Unauthorized ...`. OAuth errors from pipeline connectors, such as an expired connector secret returning `invalid_client`, are written to the same log group but do not match. Each matching log event adds 1 to the metric `<name>-runner-auth-failures` in the namespace `Matillion/Runner`. `resource_names["auth_failure_metric_filter"]` overrides the filter and metric name.
+
+`invalid_token_response` covers any failed call to the token endpoint, including Keycloak errors, timeouts and network failures, so the metric also counts while Keycloak is unreachable. The metric does not detect a runner that is not running: no log events means no failures counted.
+
+To find the failures themselves, run this CloudWatch Logs Insights query over the runner task log group:
+
+```
+fields @timestamp, @message
+| filter @message like "Recoverable error caught [[invalid_"
+| sort @timestamp desc
+```
+
+When `auth_failure_alarm_actions` is not empty, the module also creates a CloudWatch alarm, named `<name>-runner-auth-failures` unless `resource_names["auth_failure_alarm"]` sets another name. It goes into `ALARM` when the metric's sum is 1 or more in 2 of the last 3 five-minute periods, and notifies the listed ARNs on entering `ALARM` and on returning to `OK`. Missing data does not trigger the alarm.
+
+The identity running Terraform needs `logs:PutMetricFilter`, `logs:DeleteMetricFilter` and `logs:DescribeMetricFilters` on the runner task log group. When the alarm is used it also needs `cloudwatch:PutMetricAlarm`, `cloudwatch:DeleteAlarms`, `cloudwatch:DescribeAlarms`, `cloudwatch:ListTagsForResource`, `cloudwatch:TagResource` and `cloudwatch:UntagResource`.
 
 ## Outputs
 
@@ -155,3 +184,4 @@ A group created by AWS has no retention. The first apply after import sets `rete
 | cluster_arn | ARN of the created ECS cluster |
 | service_arn | ARN of the created ECS service |
 | task_definition_arn | ARN of the created ECS task definition |
+| auth_failure_alarm_name | Name of the runner authentication failure alarm, or null when `auth_failure_alarm_actions` is empty |
