@@ -574,11 +574,11 @@ if [[ -n "$SA_NAME" ]]; then
 
     if [[ $KC_RC -eq 0 && -n "$SA_JSON" ]]; then
         # AWS — EKS IRSA role ARN
-        ROLE_ARN=$(echo "$SA_JSON" | grep -o '"eks.amazonaws.com/role-arn":"[^"]*"' | cut -d'"' -f4 || true)
+        ROLE_ARN=$(echo "$SA_JSON" | grep -o '"eks.amazonaws.com/role-arn":[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
         # Azure — Workload Identity client ID
-        WI_CLIENT=$(echo "$SA_JSON" | grep -o '"azure.workload.identity/client-id":"[^"]*"' | cut -d'"' -f4 || true)
+        WI_CLIENT=$(echo "$SA_JSON" | grep -o '"azure.workload.identity/client-id":[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
         # Azure — Workload Identity use label
-        WI_LABEL=$(echo "$SA_JSON" | grep -o '"azure.workload.identity/use":"[^"]*"' | cut -d'"' -f4 || true)
+        WI_LABEL=$(echo "$SA_JSON" | grep -o '"azure.workload.identity/use":[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
 
         case "${POD_CLOUD_PROVIDER}" in
             AWS)
@@ -647,7 +647,7 @@ if [[ -n "$SA_NAME" ]]; then
             *)
                 c_info "CLOUD_PROVIDER=${POD_CLOUD_PROVIDER} — GCP or other provider"
                 # GCP — check for iam.gke.io/gcp-service-account annotation
-                GCP_SA=$(echo "$SA_JSON" | grep -o '"iam.gke.io/gcp-service-account":"[^"]*"' | cut -d'"' -f4 || true)
+                GCP_SA=$(echo "$SA_JSON" | grep -o '"iam.gke.io/gcp-service-account":[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
                 if [[ -n "$GCP_SA" ]]; then
                     c_info "GCP Workload Identity configured: ${GCP_SA}"
                 fi

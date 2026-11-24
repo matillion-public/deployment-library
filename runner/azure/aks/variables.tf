@@ -19,6 +19,17 @@ variable "resource_group_name" {
   type = string
 }
 
+variable "namespace" {
+  type        = string
+  description = "Kubernetes namespace the runner is installed into. The workload identity federated credentials are bound to this namespace, so it must equal the namespace used for `helm install`. Changing it on an existing deployment updates the subject of both federated credentials in place."
+  default     = "matillion"
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$", var.namespace))
+    error_message = "namespace must be a valid Kubernetes namespace: lowercase letters, digits and hyphens, starting and ending with a letter or digit, up to 63 characters."
+  }
+}
+
 variable "tags" {
   type = map(string)
 }
@@ -105,6 +116,13 @@ variable "workload_identity_enabled" {
   type        = bool
   description = "Enable Azure Workload Identity for the runner workload (requires OIDC issuer)"
   default     = true
+}
+
+variable "grant_runner_subscription_reader" {
+  type        = bool
+  description = "Grant the shared runner identity Reader on the whole subscription. Only takes effect when the shared identity is created (workload_identity_enabled and create_runner_identity). Planning and applying this grant needs Microsoft.Authorization/roleAssignments/read and roleAssignments/write at subscription scope from whoever runs Terraform. Set false when that principal is scoped to the resource group. Running pipelines without this grant has not been tested. Setting false on an existing deployment destroys the assignment, which needs roleAssignments/delete at subscription scope."
+  default     = true
+  nullable    = false
 }
 
 variable "service_principal_enabled" {
@@ -203,6 +221,13 @@ variable "service_endpoints" {
   description = "Service endpoints on the created subnets. Storage and Key Vault are always needed; add Microsoft.ServiceBus for that queue backend, and Microsoft.ContainerRegistry for a network-restricted ACR. Ignored when existing_subnet_ids is set, since the subnet is then not managed here."
   type        = list(string)
   default     = ["Microsoft.Storage", "Microsoft.KeyVault"]
+}
+
+variable "https_inbound_source_prefixes" {
+  type        = list(string)
+  description = "Sources allowed inbound on TCP 443 by the NSG on the created subnets. [\"*\"] (default) allows any source. Set IP addresses or CIDR ranges to restrict it, or [] to remove the rule when nothing in the cluster takes inbound 443 from outside the VNet. Ignored when existing_subnet_ids is set, since the subnets and their NSG are then not managed here."
+  default     = ["*"]
+  nullable    = false
 }
 
 variable "key_vault_administrator_principal_ids" {
