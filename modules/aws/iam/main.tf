@@ -37,9 +37,22 @@ resource "aws_iam_role_policy_attachment" "ecs_task_role_cloudwatch" {
 }
 
 resource "aws_iam_role_policy" "ecs_task_role_policy" {
+  count = var.ecs_task_role_policy_arn == null ? 1 : 0
+
   name   = lookup(var.resource_names, "ecs_task_role_policy", "matillion_etl_runner_role")
   role   = aws_iam_role.ecs_task_role.id
   policy = file("${path.module}/templates/ecs_task_role_policy.json")
+}
+
+moved {
+  from = aws_iam_role_policy.ecs_task_role_policy
+  to   = aws_iam_role_policy.ecs_task_role_policy[0]
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_role_policy_supplied" {
+  count      = var.ecs_task_role_policy_arn != null ? 1 : 0
+  role       = aws_iam_role.ecs_task_role.name
+  policy_arn = var.ecs_task_role_policy_arn
 }
 
 resource "aws_iam_role" "ecs_task_execution_role" {
@@ -62,6 +75,8 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
 }
 
 resource "aws_iam_role_policy" "ecs_task_execution_role_policy" {
+  count = var.ecs_task_execution_role_policy_arn == null ? 1 : 0
+
   name = lookup(var.resource_names, "ecs_task_execution_secret_policy", "GetETLRunnerSecretValue")
   role = aws_iam_role.ecs_task_execution_role.id
   policy = jsonencode({
@@ -76,8 +91,19 @@ resource "aws_iam_role_policy" "ecs_task_execution_role_policy" {
   })
 }
 
+moved {
+  from = aws_iam_role_policy.ecs_task_execution_role_policy
+  to   = aws_iam_role_policy.ecs_task_execution_role_policy[0]
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_secret_policy_supplied" {
+  count      = var.ecs_task_execution_role_policy_arn != null ? 1 : 0
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = var.ecs_task_execution_role_policy_arn
+}
+
 resource "aws_iam_role_policy" "ecs_task_execution_role_keypair_policy" {
-  count = var.enable_script_runner ? 1 : 0
+  count = var.enable_script_runner && var.ecs_task_execution_role_keypair_policy_arn == null ? 1 : 0
 
   name = lookup(var.resource_names, "ecs_task_execution_keypair_policy", "GetScriptRunnerKeypairSecretValue")
   role = aws_iam_role.ecs_task_execution_role.id
@@ -98,6 +124,12 @@ resource "aws_iam_role_policy" "ecs_task_execution_role_keypair_policy" {
       error_message = "runner_keypair_secret_arn must be set when enable_script_runner is true."
     }
   }
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_keypair_policy_supplied" {
+  count      = var.enable_script_runner && var.ecs_task_execution_role_keypair_policy_arn != null ? 1 : 0
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = var.ecs_task_execution_role_keypair_policy_arn
 }
 
 # ── Script runner task role (narrow policy) ────────────────────────────────────
@@ -122,7 +154,7 @@ resource "aws_iam_role" "script_runner_task_role" {
 # accesses its container image and secret via the execution role; the task role needs no AWS permissions
 # unless extension library S3 access is required.
 resource "aws_iam_role_policy" "script_runner_task_role_policy" {
-  count = var.enable_script_runner && var.script_runner_extension_library_bucket_arn != "" ? 1 : 0
+  count = var.enable_script_runner && var.script_runner_extension_library_bucket_arn != "" && var.script_runner_extension_library_policy_arn == null ? 1 : 0
 
   name = lookup(var.resource_names, "script_runner_s3_policy", "ScriptRunnerExtensionLibraryS3Access")
   role = aws_iam_role.script_runner_task_role[0].id
@@ -130,6 +162,12 @@ resource "aws_iam_role_policy" "script_runner_task_role_policy" {
     Version   = "2012-10-17"
     Statement = local.script_runner_policy_statements
   })
+}
+
+resource "aws_iam_role_policy_attachment" "script_runner_extension_library_policy_supplied" {
+  count      = var.enable_script_runner && var.script_runner_extension_library_policy_arn != null ? 1 : 0
+  role       = aws_iam_role.script_runner_task_role[0].name
+  policy_arn = var.script_runner_extension_library_policy_arn
 }
 
 # Scripts pushed down to the runner assume this task role, so anything they need

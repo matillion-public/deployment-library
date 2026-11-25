@@ -29,7 +29,7 @@ write.
 ## Requirements
 
 **The vault must use the Azure RBAC permission model**
-(`enable_rbac_authorization = true`). This is not a preference. Legacy vault
+(`rbac_authorization_enabled = true`). This is not a preference. Legacy vault
 access policies cannot express a scope below the vault, so on such a vault the
 per-secret role assignments apply cleanly and grant nothing, while the runner
 keeps whatever the access policies already gave it — a silent authorisation hole

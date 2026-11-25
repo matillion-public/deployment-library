@@ -9,13 +9,14 @@ runner/helm/runner/local.yaml:generic-api-key:13
 runner/helm/runner/values-local.yaml:aws-access-token:72
 
 # Test file mock values — fake UUIDs and AWS example key from AWS docs
-runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:341
-runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:359
-runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:534
-runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:558
-runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:585
-runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:607
-runner/helm/checks/tests/test_cloud_credentials.sh:aws-access-token:483
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:391
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:409
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:504
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:706
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:730
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:757
+runner/helm/checks/tests/test_cloud_credentials.sh:generic-api-key:779
+runner/helm/checks/tests/test_cloud_credentials.sh:aws-access-token:655
 runner/helm/runner/values-local.yaml:aws-access-token:75
 
 # Azure AKS readme — example/placeholder Azure AD application secrets
