@@ -56,3 +56,27 @@ Creates a Subnet for Application Gateway with the following configurations:
 - **Resource Group**: Determined by `use_existing_resource_group` and either `existing_resource_group_name` or `resource_group_name`
 - **Virtual Network Name**: Determined by `use_existing_subnet` and either `existing_gw_vnet_name` or the name of the created virtual network
 - **Address Prefixes**: ["10.0.2.0/24"]
+
+## Network security group
+
+The module creates one NSG and associates it with every subnet it creates. Its
+only custom rule is `AllowHTTPS` (priority 100, inbound, TCP 443, any
+destination), present when `https_inbound_source_prefixes` is non-empty:
+
+- `["*"]` (the module default) sets `source_address_prefix = "*"`.
+- A list of IP addresses or CIDR ranges sets `source_address_prefixes`.
+- `[]` removes the rule.
+
+The Azure default rules remain in force:
+
+| Direction | Rule | Priority |
+|---|---|---|
+| Inbound | `AllowVnetInBound` | 65000 |
+| Inbound | `AllowAzureLoadBalancerInBound` | 65001 |
+| Inbound | `DenyAllInBound` | 65500 |
+| Outbound | `AllowVnetOutBound` | 65000 |
+| Outbound | `AllowInternetOutBound` | 65001 |
+| Outbound | `DenyAllOutBound` | 65500 |
+
+Root defaults: `runner/azure/container_apps` passes `[]`, `runner/azure/aks`
+passes `["*"]`.

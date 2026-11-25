@@ -1,6 +1,10 @@
 # Description: This file is the main entry point for the EKS module. It creates the EKS cluster and the associated resources.
 locals {
   public_access_cidrs = var.authorized_ip_ranges == null ? ["0.0.0.0/0"] : var.authorized_ip_ranges
+
+  tags = merge(var.tags, {
+    "matillion:deployment-id" = var.name
+  })
 }
 
 module "deployment" {
@@ -13,7 +17,7 @@ module "deployment" {
   name               = var.name
   cidr_block         = var.cidr_block
   random_string_salt = random_string.salt.result
-  tags               = var.tags
+  tags               = local.tags
 }
 
 module "eks" {
@@ -25,7 +29,7 @@ module "eks" {
   subnet_ids             = var.use_existing_subnet ? var.existing_subnet_ids : module.deployment.all_subnet_ids
   fargate_subnet_ids     = var.use_existing_subnet ? var.existing_subnet_ids : module.deployment.private_subnet_ids
   security_group_ids     = [module.deployment.k8s_security_group_id]
-  tags                   = var.tags
+  tags                   = local.tags
   endpoint_public_access = !var.is_private_cluster
   public_access_cidrs    = local.public_access_cidrs
 
@@ -63,5 +67,5 @@ module "sqs_dpc_adapter" {
   matillion_api_url   = var.sqs_adapter_matillion_api_url
   matillion_token_url = var.sqs_adapter_matillion_token_url
 
-  tags = var.tags
+  tags = local.tags
 }

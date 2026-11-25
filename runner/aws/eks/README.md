@@ -93,6 +93,8 @@ Required IAM permissions:
 - S3 bucket operations
 - CloudWatch logs and monitoring
 
+Every resource the deployment creates carries the tag `matillion:deployment-id` with the value of `name`. It is set through the resource tags and the provider default tags. The narrowed deployment policies scope their statements with `aws:RequestTag/matillion:deployment-id` and `aws:ResourceTag/matillion:deployment-id`, using `name` as the value. A `matillion:deployment-id` key in `tags` is overridden by `name`.
+
 ## Quick Start
 
 ### 1. Clone and Navigate
@@ -379,6 +381,14 @@ Deployments with `is_private_cluster = true` (the default), and deployments that
 Earlier versions of the module patched the cluster's self-managed CoreDNS deployment with `kubectl` from a `local-exec` provisioner. CoreDNS is now managed as the `coredns` EKS addon, with the Fargate toleration supplied through the addon configuration. `kubectl` and the AWS CLI are no longer needed on the machine running Terraform for this step.
 
 On an existing cluster, `terraform plan` shows `terraform_data.coredns_fargate_patch` being destroyed (no change to the cluster) and `aws_eks_addon.coredns` being created. The addon is created with `resolve_conflicts_on_create = "OVERWRITE"`, so EKS takes over the existing CoreDNS deployment and replaces its configuration with the addon's. Any manual changes to that deployment, such as replica count, resource requests or a customised Corefile, are overwritten. Record them before applying and re-apply them through the addon `configuration_values` if they are still needed.
+
+#### Upgrading to a version with the `matillion:deployment-id` tag
+
+The next `terraform plan` shows an in-place update to `tags` and `tags_all` on every tagged resource. No resource is replaced.
+
+The identity running the apply needs the tagging actions for those resource types, for example `ec2:CreateTags`, `iam:TagRole`, `iam:TagPolicy`, `kms:TagResource`, `eks:TagResource`, `ecs:TagResource`, `logs:TagResource` and `secretsmanager:TagResource`.
+
+A deployment that set `matillion:deployment-id` in `tags` to a value other than `name` has that value replaced.
 
 ### Runner Configuration with Helm
 

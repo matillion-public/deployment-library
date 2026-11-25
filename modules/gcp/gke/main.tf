@@ -3,6 +3,7 @@ locals {
   name_prefix          = substr(lower(replace(var.name, "_", "-")), 0, 16)
   node_sa_account_id   = lookup(var.resource_names, "node_service_account", "${local.name_prefix}-n-${var.random_string_salt}")
   runner_sa_account_id = lookup(var.resource_names, "runner_workload_service_account", "${local.name_prefix}-a-${var.random_string_salt}")
+  node_sa_email        = var.existing_node_service_account_email != null ? var.existing_node_service_account_email : google_service_account.gke_node_sa[0].email
 
   # Fixed to match the Helm chart's default release name, not var.name — see README Workload Identity section.
   k8s_namespace                          = var.k8s_namespace != "" ? var.k8s_namespace : "matillion"
@@ -37,6 +38,17 @@ resource "google_container_cluster" "gke_cluster" {
   # node pool and immediately delete it.
   remove_default_node_pool = true
   initial_node_count       = 1
+
+  # The initial pool is deleted straight after creation (remove_default_node_pool), but it is
+  # created first, so it must run as the node service account rather than the default compute one.
+  node_config {
+    service_account = local.node_sa_email
+    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+  }
+
+  lifecycle {
+    ignore_changes = [node_config]
+  }
 
   network    = var.network_id
   subnetwork = var.subnet_id
@@ -100,7 +112,7 @@ resource "google_container_node_pool" "runner_nodes" {
       mode = "GKE_METADATA"
     }
 
-    service_account = google_service_account.gke_node_sa.email
+    service_account = local.node_sa_email
 
     oauth_scopes = [
       "https://www.googleapis.com/auth/cloud-platform"
@@ -124,27 +136,34 @@ resource "google_container_node_pool" "runner_nodes" {
 
 # Service Account for GKE nodes
 resource "google_service_account" "gke_node_sa" {
+  count = var.existing_node_service_account_email == null ? 1 : 0
+
   account_id   = local.node_sa_account_id
   display_name = "GKE Node Service Account for ${var.name}"
   project      = var.project_id
 }
 
+moved {
+  from = google_service_account.gke_node_sa
+  to   = google_service_account.gke_node_sa[0]
+}
+
 resource "google_project_iam_member" "gke_node_log_writer" {
   project = var.project_id
   role    = "roles/logging.logWriter"
-  member  = "serviceAccount:${google_service_account.gke_node_sa.email}"
+  member  = "serviceAccount:${local.node_sa_email}"
 }
 
 resource "google_project_iam_member" "gke_node_metric_writer" {
   project = var.project_id
   role    = "roles/monitoring.metricWriter"
-  member  = "serviceAccount:${google_service_account.gke_node_sa.email}"
+  member  = "serviceAccount:${local.node_sa_email}"
 }
 
 resource "google_project_iam_member" "gke_node_monitoring_viewer" {
   project = var.project_id
   role    = "roles/monitoring.viewer"
-  member  = "serviceAccount:${google_service_account.gke_node_sa.email}"
+  member  = "serviceAccount:${local.node_sa_email}"
 }
 
 # GCP Service Account for Runner Workload Identity
@@ -212,8 +231,11 @@ resource "google_secret_manager_secret_iam_member" "runner_secret_version_manage
 # Custom IAM role granting only the permissions needed to create secrets, populate their first
 # version, and set secret-level IAM policies when users define OAuth or Cloud Credentials in the
 # Matillion UI. No built-in GCP role grants these without also granting delete/destroy, so a
-# custom role is used.
+# custom role is used. The role is not created when existing_runner_secret_creator_role_id
+# names one created beforehand.
 resource "google_project_iam_custom_role" "runner_secret_creator" {
+  count = var.existing_runner_secret_creator_role_id == null ? 1 : 0
+
   # A role id rejects hyphens. The replace() is only the fallback for a deployment
   # that sets no convention — modules/gcp/naming generates this key in its
   # underscore form, so a convention-supplied name is never rewritten after the
@@ -230,10 +252,22 @@ resource "google_project_iam_custom_role" "runner_secret_creator" {
   ]
 }
 
+moved {
+  from = google_project_iam_custom_role.runner_secret_creator
+  to   = google_project_iam_custom_role.runner_secret_creator[0]
+}
+
 resource "google_project_iam_member" "runner_secret_creator" {
   project = var.project_id
-  role    = google_project_iam_custom_role.runner_secret_creator.name
+  role    = var.existing_runner_secret_creator_role_id != null ? var.existing_runner_secret_creator_role_id : google_project_iam_custom_role.runner_secret_creator[0].name
   member  = "serviceAccount:${google_service_account.runner_workload_sa.email}"
+
+  lifecycle {
+    precondition {
+      condition     = var.existing_runner_secret_creator_role_id == null || startswith(var.existing_runner_secret_creator_role_id, "projects/${var.project_id}/roles/")
+      error_message = "existing_runner_secret_creator_role_id must be a custom role in project ${var.project_id}."
+    }
+  }
 }
 
 # Project-wide Secret Manager access — required for the Matillion UI to list and read secrets

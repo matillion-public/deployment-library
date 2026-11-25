@@ -11,7 +11,7 @@ resource "aws_vpc" "main_vpc" {
   cidr_block           = var.cidr_block
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags = merge(var.tags, {
+  tags = merge(local.tags, {
     Name = join("-", [var.name, random_string.salt.result, "vpc"])
   })
 }
@@ -20,6 +20,10 @@ locals {
   vpc_id = var.use_existing_vpc ? var.vpc_id : aws_vpc.main_vpc[0].id
 
   sqs_adapter_matillion_api_url = var.sqs_adapter_matillion_api_url != "" ? var.sqs_adapter_matillion_api_url : "https://${var.matillion_region}.api.matillion.com/dpc/v1"
+
+  tags = merge(var.tags, {
+    "matillion:deployment-id" = var.name
+  })
 }
 
 data "aws_vpc" "vpc" {
@@ -128,7 +132,7 @@ resource "aws_internet_gateway" "igw" {
   count = var.use_existing_vpc ? 0 : 1
 
   vpc_id = data.aws_vpc.vpc.id
-  tags = merge(var.tags, {
+  tags = merge(local.tags, {
     Name = join("-", [var.name, random_string.salt.result, "igw"])
   })
 }
@@ -141,7 +145,7 @@ resource "aws_route_table" "public" {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.igw[count.index].id
   }
-  tags = merge(var.tags, {
+  tags = merge(local.tags, {
     Name = join("-", [var.name, random_string.salt.result, "public", "route", "table"])
   })
 }
@@ -153,7 +157,7 @@ resource "aws_subnet" "ecs_subnet" {
   cidr_block              = local.subnet_cidrs[count.index]
   availability_zone       = element(random_shuffle.aws_availability_zone_names.result, count.index)
   map_public_ip_on_launch = true
-  tags = merge(var.tags, {
+  tags = merge(local.tags, {
     Name = join("-", [var.name, random_string.salt.result, "ecs", "subnet", count.index])
   })
 
@@ -195,7 +199,7 @@ resource "aws_security_group" "ecs_security_group" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(var.tags, {
+  tags = merge(local.tags, {
     Name = join("-", [var.name, random_string.salt.result, "ecs", "sg"])
   })
 }
@@ -205,7 +209,7 @@ module "secert_manager" {
 
   name        = join("-", [var.name, random_string.salt.result])
   secret_name = var.secret_name
-  tags        = var.tags
+  tags        = local.tags
 
   client_id     = var.client_id
   client_secret = var.client_secret
@@ -246,6 +250,7 @@ module "runner" {
   metrics_ingress_cidr_blocks        = var.metrics_ingress_cidr_blocks
   metrics_ingress_security_group_ids = var.metrics_ingress_security_group_ids
   metrics_ingress_ports              = var.metrics_ingress_ports
+  auth_failure_alarm_actions         = var.auth_failure_alarm_actions
   image_url                          = var.image_url
 
   extension_library_location = var.extension_library_location
@@ -269,7 +274,7 @@ module "runner" {
 
   assign_public_ip       = var.assign_public_ip
   ephemeral_storage_size = var.ephemeral_storage_size
-  tags                   = var.tags
+  tags                   = local.tags
 
   enable_script_runner             = var.enable_script_runner
   script_runner_image_url          = var.script_runner_image_url
@@ -320,5 +325,5 @@ module "sqs_dpc_adapter" {
   matillion_api_url   = local.sqs_adapter_matillion_api_url
   matillion_token_url = var.sqs_adapter_matillion_token_url
 
-  tags = var.tags
+  tags = local.tags
 }
