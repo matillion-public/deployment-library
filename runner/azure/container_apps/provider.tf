@@ -3,6 +3,7 @@ provider "azurerm" {
     key_vault {
       purge_soft_deleted_secrets_on_destroy = false
       recover_soft_deleted_secrets          = false
+      purge_soft_delete_on_destroy          = var.purge_key_vault_on_destroy
     }
   }
 

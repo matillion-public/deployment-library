@@ -370,3 +370,9 @@ variable "metrics_ingress_ports" {
   type        = list(number)
   default     = [9464, 8080]
 }
+
+variable "auth_failure_alarm_actions" {
+  description = "ARNs notified (for example an SNS topic) when the runner log shows an authentication failure. The alarm is created only when this list is not empty."
+  type        = list(string)
+  default     = []
+}

@@ -99,12 +99,51 @@ aws configure
 aws sts get-caller-identity
 ```
 
-Required IAM permissions:
-- ECS service management
-- IAM role creation and management
-- Secrets Manager access
-- S3 bucket operations
-- CloudWatch logs access
+The IAM policy for the identity that runs `terraform apply` and `terraform destroy` is in [deploy-policy.json](./deploy-policy.json).
+
+Replace the placeholders before you create the policy:
+
+- `<ACCOUNT_ID>`: the 12-digit ID of the AWS account you deploy into.
+- `<REGION>`: the region you deploy into, the same value as `region`.
+- `<NAME>`: the value of `name`. Every resource this configuration creates is named with the prefix `<NAME>-<salt>`, where `<salt>` is a random 6-character suffix, and the policy scopes its statements to names that start with `<NAME>-`. If you set `secret_name` or `runner_keypair_secret_name`, the value must also start with `<NAME>-`. Use lower case for `name`: the staging bucket name is lower-cased, and the policy's S3 statements match `<NAME>-*` exactly.
+
+A customer managed policy is limited to 6,144 characters, not counting whitespace. The policy is 5,960 characters with the placeholders in place, and replacing them makes it longer. Any `name` of 13 or more characters, including the default `data-insights`, puts it over the limit in every region. Shorter names can also go over in regions with longer codes, such as `ap-southeast-2`. Check the size after replacing the placeholders:
+
+```bash
+jq -c . deploy-policy.json | tr -d '\n' | wc -c
+```
+
+If the result is over 6,144, split the policy into two customer managed policies and attach both to the same identity. Each half is under the limit for any `name` that the `name` validation allows:
+
+```bash
+jq '.Statement |= .[:12]' deploy-policy.json > deploy-policy-1.json
+jq '.Statement |= .[12:]' deploy-policy.json > deploy-policy-2.json
+```
+
+The policy's EC2 statements require the tag `matillion:deployment-id` with the value `<NAME>` on every resource. This configuration does not set that tag yet (DPC-61601), so set it through `tags`:
+
+```hcl
+tags = {
+  "matillion:deployment-id" = "<NAME>"
+}
+```
+
+The policy covers a deployment with the default inputs, except the authentication failure metric filter on the runner task log group. That filter is always created and needs `logs:PutMetricFilter`, `logs:DeleteMetricFilter` and `logs:DescribeMetricFilters`, which the policy does not include. Grant them in a separate policy.
+
+The policy does not cover these optional features. Grant the extra permissions separately if you use them:
+
+- `enable_script_runner = true`: the Cloud Map private DNS namespace and service (`servicediscovery:*` actions and the Route 53 hosted zone actions the namespace needs), and the ingress rule on the script runner security group (`ec2:AuthorizeSecurityGroupIngress`, `ec2:RevokeSecurityGroupIngress`).
+- `auth_failure_alarm_actions` set: the CloudWatch alarm (`cloudwatch:PutMetricAlarm`, `cloudwatch:DeleteAlarms`, `cloudwatch:DescribeAlarms`, `cloudwatch:ListTagsForResource`, `cloudwatch:TagResource`, `cloudwatch:UntagResource`).
+- `metrics_ingress_cidr_blocks` or `metrics_ingress_security_group_ids` set: the security group ingress rules (`ec2:AuthorizeSecurityGroupIngress`, `ec2:RevokeSecurityGroupIngress`, `ec2:DescribeSecurityGroupRules`).
+- `enable_sqs_pipeline_trigger = true`: the SQS queues, DynamoDB table, Lambda function and event source mapping, SNS topic, CloudWatch alarms, the Lambda log group, and the managed policies `AWSLambdaBasicExecutionRole` and `AWSXRayDaemonWriteAccess` attached to the adapter role.
+- `script_runner_task_role_policy_arns` set: the policy allows attaching only `SecretsManagerReadWrite`, `CloudWatchFullAccess` and `AmazonECSTaskExecutionRolePolicy`.
+- `use_existing_vpc = true`: the policy allows creating subnets and security groups in a VPC, and associating route tables, only when the VPC and its main route table carry the `matillion:deployment-id` tag with the value `<NAME>`.
+- An S3 remote state backend (`backend.tf`): the state bucket and lock table need their own permissions.
+- Changing or removing tags on an existing deployment: the policy has no `ec2:DeleteTags` or `*:UntagResource` actions.
+
+The policy was audited against this configuration at commit 305ec97. Its resource scopes were updated for later changes (secret names, the Container Insights log group), but it has not been re-verified by a deployment since.
+
+Every resource the deployment creates carries the tag `matillion:deployment-id` with the value of `name`. It is set through the resource tags and the provider default tags. The narrowed deployment policies scope their statements with `aws:RequestTag/matillion:deployment-id` and `aws:ResourceTag/matillion:deployment-id`, using `name` as the value. A `matillion:deployment-id` key in `tags` is overridden by `name`.
 
 ## Quick Start
 
@@ -283,6 +322,34 @@ aws logs describe-log-groups --log-group-name-prefix "/ecs/"
 aws logs tail "/ecs/<name>-<suffix>-task" --follow
 ```
 
+### Checking that the runner is connected
+
+`terraform apply` and the ECS deployment status do not detect a wrong client secret. A runner that cannot authenticate keeps its tasks `RUNNING`, the deployment completes, and the runner retries indefinitely. Check the runner log instead:
+
+- `SSE Connection Subscription Started` is logged before the token request and does not mean the runner is connected.
+- `Successfully sent in-progress requests to Agent Gateway` appears only on a working runner.
+- `Recoverable error caught [[invalid_token_response] An error occurred while attempting to retrieve the OAuth 2.0 Access Token Response: 401 Unauthorized ...` means Keycloak rejected the runner's credentials, for example a wrong client secret. The same line with another status, a timeout or a connection error means the runner could not reach Keycloak.
+- `invalid_client` on a line without `Recoverable error caught` is usually a pipeline connector's OAuth failure, not the runner's own sign-in.
+
+To list authentication failures, run this CloudWatch Logs Insights query over `/ecs/<name>-<suffix>-task`:
+
+```bash
+aws logs start-query \
+  --log-group-name "/ecs/<name>-<suffix>-task" \
+  --start-time $(($(date +%s) - 3600)) \
+  --end-time $(date +%s) \
+  --query-string 'fields @timestamp, @message | filter @message like "Recoverable error caught [[invalid_" | sort @timestamp desc'
+
+# Then fetch the results with the queryId returned above
+aws logs get-query-results --query-id <query-id>
+```
+
+The deployment also counts these log events in the CloudWatch metric `<name>-<suffix>-runner-auth-failures` in the namespace `Matillion/Runner`. To be notified, set `auth_failure_alarm_actions` to a list of ARNs, for example an SNS topic. An alarm is then created that notifies them when the metric's sum is 1 or more in 2 of the last 3 five-minute periods, and again when it returns to `OK`. The alarm also fires while Keycloak is unreachable, and it does not detect a runner that is not running:
+
+```hcl
+auth_failure_alarm_actions = ["arn:aws:sns:<region>:<account-id>:<topic>"]
+```
+
 ### CloudWatch Alarms
 
 ```bash
@@ -319,12 +386,25 @@ The deployment creates two IAM roles:
 ```hcl
 # OAuth credentials stored in AWS Secrets Manager
 module "secrets_manager" {
-  source = "../../../modules/aws/secerts-manager"
+  source = "../../../modules/aws/secrets-manager"
   
   client_id     = var.client_id
   client_secret = var.client_secret
 }
 ```
+
+#### Upgrading: secrets-manager module path and label
+
+The module directory `modules/aws/secerts-manager` is now
+`modules/aws/secrets-manager`, and this root's module label `secert_manager` is
+now `secrets_manager`.
+
+- Deployments of this root: a `moved` block in `main.tf` moves
+  `module.secert_manager` to `module.secrets_manager` in state. Run
+  `terraform init` before the next plan; the plan shows the move and no
+  resource changes.
+- Configurations that source `modules/aws/secerts-manager` directly must change
+  the path to `modules/aws/secrets-manager`.
 
 ### Network Security
 
@@ -425,6 +505,18 @@ The SQS adapter resources are now named `<name>-<salt>-maia-sqs-adapter` so that
 `sqs_adapter_matillion_api_url` now defaults to `https://<matillion_region>.api.matillion.com/dpc/v1` instead of the eu1 URL. A deployment with `matillion_region` other than `eu1` that left the variable unset changes its adapter's `MATILLION_API_URL` on the next apply.
 
 The source queue (`matillion-dpc-requests`) and mapping table (`matillion-project-mappings`) still default to fixed names. A second deployment in the same account and region must set `sqs_adapter_queue_name` and `sqs_adapter_mapping_table_name`, otherwise the table creation fails and the queue creation reuses the first deployment's queue.
+
+#### Upgrading to a version with the authentication failure metric
+
+The next `terraform apply` adds one CloudWatch Logs metric filter on the runner task log group, plus one CloudWatch alarm when `auth_failure_alarm_actions` is set. No existing resource changes. The identity running Terraform needs the permissions listed under [Required AWS Permissions](#required-aws-permissions). See [Checking that the runner is connected](#checking-that-the-runner-is-connected).
+
+#### Upgrading to a version with the `matillion:deployment-id` tag
+
+The next `terraform plan` shows an in-place update to `tags` and `tags_all` on every tagged resource. No resource is replaced.
+
+The identity running the apply needs the tagging actions for those resource types, for example `ec2:CreateTags`, `iam:TagRole`, `iam:TagPolicy`, `kms:TagResource`, `eks:TagResource`, `ecs:TagResource`, `logs:TagResource` and `secretsmanager:TagResource`.
+
+A deployment that set `matillion:deployment-id` in `tags` to a value other than `name` has that value replaced.
 
 ### Troubleshooting
 
@@ -558,6 +650,7 @@ terraform destroy
 aws ecs list-clusters
 aws secretsmanager list-secrets
 aws s3 ls
+aws logs describe-log-groups --log-group-name-prefix /aws/ecs/containerinsights/
 ```
 
 #### Empty the staging bucket first
@@ -593,6 +686,22 @@ aws ecs delete-task-definitions --task-definitions <arn> [<arn> ...]
 ```
 
 The caller needs `ecs:DeleteTaskDefinitions`. Deleted revisions show `DELETE_IN_PROGRESS` until AWS finishes removing them.
+
+#### Delete the Container Insights log group
+
+After `terraform destroy`, the log group `/aws/ecs/containerinsights/<name>-<salt>-cluster/performance` can exist again. The module removes it on destroy, but AWS can create it once more shortly afterwards, so check immediately and again after about 5 minutes. `<name>-<salt>-cluster` is the ECS cluster name. If you use the `modules/aws/ecs` module directly with a fixed cluster name, follow the [module README](../../../modules/aws/ecs/README.md#container-insights-log-group) instead.
+
+```bash
+aws logs describe-log-groups \
+  --log-group-name-prefix /aws/ecs/containerinsights/<cluster-name>/performance \
+  --query 'logGroups[].[logGroupName,retentionInDays]' --output text
+
+aws logs delete-log-group --log-group-name /aws/ecs/containerinsights/<cluster-name>/performance
+```
+
+A recreated group is not in Terraform state and nothing uses it. The salt is regenerated after a full destroy, so a new deployment gets a new cluster name and does not conflict with the leftover group. Importing the group into a new deployment would plan a replacement because the name differs. Delete it instead. Deletion is permanent, so export any log events you need first.
+
+The caller needs `logs:DescribeLogGroups` and `logs:DeleteLogGroup`.
 
 ### Manual Cleanup (if needed)
 

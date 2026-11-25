@@ -118,3 +118,25 @@ variable "resource_names" {
   type        = map(string)
   default     = {}
 }
+
+variable "existing_runner_secret_creator_role_id" {
+  type        = string
+  description = "Full name (projects/<project>/roles/<role_id>) of a custom role created beforehand with the permissions in runner/gcp/gke/runner-secret-creator-role.yaml. When set, this module creates no custom role and grants this one to the runner service account. When null, the module creates and grants its own role."
+  default     = null
+
+  validation {
+    condition     = var.existing_runner_secret_creator_role_id == null || can(regex("^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/roles/[a-zA-Z0-9_.]{3,64}$", var.existing_runner_secret_creator_role_id))
+    error_message = "existing_runner_secret_creator_role_id must be a full project custom role name, projects/<project-id>/roles/<role-id>, where the role id uses only letters, digits, \"_\" and \".\" (3 to 64 characters)."
+  }
+}
+
+variable "existing_node_service_account_email" {
+  type        = string
+  description = "Email of a service account created outside this module for the GKE nodes. When set, the module creates no node service account and both the cluster's initial node pool and the runner node pool run as this account. The deployer then needs iam.serviceAccounts.actAs only on this account. Leave null (default) to have the module create one."
+  default     = null
+
+  validation {
+    condition     = var.existing_node_service_account_email == null || can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9.-]*[a-z0-9]\\.iam\\.gserviceaccount\\.com$", var.existing_node_service_account_email))
+    error_message = "existing_node_service_account_email must be a user-managed service account email, <account-id>@<project-id>.iam.gserviceaccount.com. The default compute service account (<project-number>-compute@developer.gserviceaccount.com) is not accepted."
+  }
+}

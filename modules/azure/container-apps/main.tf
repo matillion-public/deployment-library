@@ -40,6 +40,22 @@ locals {
 
   script_runner_cpu    = local.script_runner_size_map[var.script_runner_size].cpu
   script_runner_memory = local.script_runner_size_map[var.script_runner_size].memory
+
+  # vCPU per instance of a D- or E-series workload profile, taken from the type
+  # name (D4 = 4 vCPU). null for any other type, which skips the capacity check.
+  workload_profile_vcpu = can(regex("^[DE][0-9]+$", local.workload_profile_type)) ? tonumber(regex("^[DE]([0-9]+)$", local.workload_profile_type)[0]) : null
+  requested_vcpu        = var.replica_count * tonumber(local.container_cpu) + (var.enable_script_runner ? tonumber(local.script_runner_cpu) : 0)
+
+  # Key Vault names are limited to 24 characters. The default is the base name,
+  # "-kv-" and the salt, cut at 24, so a long base name loses salt characters.
+  key_vault_name = lookup(var.resource_names, "key_vault", substr(join("-", [var.name, "kv", var.random_string_salt]), 0, 24))
+
+  # The salt is unknown at plan on a new deployment, so the Key Vault name checks
+  # read only var.name and assume the root's 6-character alphanumeric salt.
+  key_vault_salt_length         = 6
+  key_vault_name_without_salt   = substr("${var.name}-kv-", 0, 24)
+  key_vault_name_keeps_salt     = length(var.name) + length("-kv-") + local.key_vault_salt_length <= 24
+  key_vault_name_ends_in_hyphen = length(var.name) >= 24 - length("-kv-") && endswith(local.key_vault_name_without_salt, "-")
 }
 
 # Log Analytics Workspace
@@ -70,7 +86,7 @@ resource "azurerm_storage_account" "storage" {
 
 # Key Vault
 resource "azurerm_key_vault" "keyvault" {
-  name                       = lookup(var.resource_names, "key_vault", substr(join("-", [var.name, "kv", var.random_string_salt]), 0, 24))
+  name                       = local.key_vault_name
   location                   = var.location
   resource_group_name        = var.resource_group_name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
@@ -81,10 +97,25 @@ resource "azurerm_key_vault" "keyvault" {
   network_acls {
     default_action             = "Deny"
     bypass                     = "AzureServices"
+    ip_rules                   = var.key_vault_allowed_ip_ranges
     virtual_network_subnet_ids = var.subnet_ids
   }
 
   tags = var.tags
+
+  lifecycle {
+    precondition {
+      condition     = contains(keys(var.resource_names), "key_vault") || !local.key_vault_name_ends_in_hyphen
+      error_message = "The derived Key Vault name \"${local.key_vault_name_without_salt}\" ends in a hyphen, which Azure rejects. Shorten name to ${24 - length("-kv-") - local.key_vault_salt_length} characters or fewer so the name keeps the full salt, or set resource_names[\"key_vault\"]."
+    }
+  }
+}
+
+check "key_vault_name_keeps_full_salt" {
+  assert {
+    condition     = contains(keys(var.resource_names), "key_vault") || local.key_vault_name_keeps_salt
+    error_message = "name is ${length(var.name)} characters, so the default Key Vault name keeps ${max(0, 24 - length(var.name) - length("-kv-"))} of the ${local.key_vault_salt_length} salt characters. Vault names are global and soft-deleted vaults keep their names for 7 days, so fewer salt characters make a collision more likely. On a new deployment, keep name at ${24 - length("-kv-") - local.key_vault_salt_length} characters or fewer, or set resource_names[\"key_vault\"]. On an existing deployment, do not change name: that replaces every default-named resource. See \"Key Vault Name\" in runner/azure/container_apps/README.md."
+  }
 }
 
 # User Assigned Managed Identity
@@ -95,20 +126,48 @@ resource "azurerm_user_assigned_identity" "managed_identity" {
   tags                = var.tags
 }
 
-# Role: Key Vault Administrator for current deployer
+# Key Vault Administrator. With key_vault_administrator_principal_ids unset the
+# identity running Terraform is the administrator, as before. When set, exactly
+# the listed principals are administrators and the running identity is not granted.
 resource "azurerm_role_assignment" "current_client_key_vault_admin" {
+  count                = var.key_vault_administrator_principal_ids == null ? 1 : 0
   scope                = azurerm_key_vault.keyvault.id
   role_definition_name = "Key Vault Administrator"
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
-# Role: AcrPull for managed identity. Scoped to the registry resource when
-# container_acr_id is set (least privilege); falls back to subscription scope
-# to preserve behaviour for deployments that pre-date this variable.
+moved {
+  from = azurerm_role_assignment.current_client_key_vault_admin
+  to   = azurerm_role_assignment.current_client_key_vault_admin[0]
+}
+
+resource "azurerm_role_assignment" "key_vault_administrators" {
+  for_each             = var.key_vault_administrator_principal_ids == null ? toset([]) : var.key_vault_administrator_principal_ids
+  scope                = azurerm_key_vault.keyvault.id
+  role_definition_name = "Key Vault Administrator"
+  principal_id         = each.value
+
+  # Azure rejects a second assignment with the same principal, role and scope.
+  # This ordering destroys the current-client grant before a listed grant to the
+  # same principal is created, and the reverse when the variable is unset.
+  depends_on = [azurerm_role_assignment.current_client_key_vault_admin]
+}
+
+# AcrPull only when the runner image comes from a private registry
+# (container_acr_id set), scoped to that registry. Public images pull
+# anonymously (see the registry block on azurerm_container_app.app) and need
+# no grant.
 resource "azurerm_role_assignment" "acr_pull" {
-  scope                = coalesce(var.container_acr_id, "/subscriptions/${data.azurerm_client_config.current.subscription_id}")
+  count                = var.container_acr_id != null ? 1 : 0
+  scope                = var.container_acr_id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.managed_identity.principal_id
+  principal_type       = "ServicePrincipal"
+}
+
+moved {
+  from = azurerm_role_assignment.acr_pull
+  to   = azurerm_role_assignment.acr_pull[0]
 }
 
 # Role: Storage Account Contributor
@@ -116,6 +175,7 @@ resource "azurerm_role_assignment" "storage_account_contributor" {
   scope                = azurerm_storage_account.storage.id
   role_definition_name = "Storage Account Contributor"
   principal_id         = azurerm_user_assigned_identity.managed_identity.principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 # Role: Storage Blob Data Contributor
@@ -123,6 +183,7 @@ resource "azurerm_role_assignment" "storage_blob_data_contributor" {
   scope                = azurerm_storage_account.storage.id
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = azurerm_user_assigned_identity.managed_identity.principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 # Role: Key Vault Secrets Officer
@@ -130,6 +191,7 @@ resource "azurerm_role_assignment" "key_vault_secrets_officer" {
   scope                = azurerm_key_vault.keyvault.id
   role_definition_name = "Key Vault Secrets Officer"
   principal_id         = azurerm_user_assigned_identity.managed_identity.principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 # Role: Key Vault Secrets User
@@ -137,6 +199,7 @@ resource "azurerm_role_assignment" "key_vault_secrets_user" {
   scope                = azurerm_key_vault.keyvault.id
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.managed_identity.principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 # Role: Reader on Key Vault for metadata access
@@ -144,6 +207,7 @@ resource "azurerm_role_assignment" "key_vault_reader" {
   scope                = azurerm_key_vault.keyvault.id
   role_definition_name = "Reader"
   principal_id         = azurerm_user_assigned_identity.managed_identity.principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 # Container App Environment
@@ -314,6 +378,10 @@ resource "azurerm_container_app" "app" {
       )
       error_message = "container_acr_id registry name does not match the registry hostname in container_image_url — both must reference the same Azure Container Registry."
     }
+    precondition {
+      condition     = local.workload_profile_vcpu == null ? true : local.requested_vcpu <= var.workload_profile_max_count * local.workload_profile_vcpu
+      error_message = "The runner needs ${local.requested_vcpu} vCPU (replica_count ${var.replica_count} x ${tonumber(local.container_cpu)} vCPU${var.enable_script_runner ? format(" plus %s vCPU for the script runner", tonumber(local.script_runner_cpu)) : ""}), but workload_profile_max_count ${var.workload_profile_max_count} x ${local.workload_profile_type} gives ${var.workload_profile_max_count * coalesce(local.workload_profile_vcpu, 0)} vCPU. Raise workload_profile_max_count or lower replica_count."
+    }
   }
 }
 
@@ -334,6 +402,7 @@ resource "azurerm_role_assignment" "script_runner_acr_pull" {
   scope                = var.script_runner_acr_id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.script_runner_identity[0].principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 # Script runner reads blobs (inputs/artifacts) but never writes back — write-back
@@ -343,6 +412,7 @@ resource "azurerm_role_assignment" "script_runner_storage_blob_data_reader" {
   scope                = azurerm_storage_account.storage.id
   role_definition_name = "Storage Blob Data Reader"
   principal_id         = azurerm_user_assigned_identity.script_runner_identity[0].principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 resource "azurerm_role_assignment" "script_runner_key_vault_secrets_user" {
@@ -350,6 +420,7 @@ resource "azurerm_role_assignment" "script_runner_key_vault_secrets_user" {
   scope                = azurerm_key_vault.keyvault.id
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.script_runner_identity[0].principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 resource "azurerm_container_app" "script_runner" {
