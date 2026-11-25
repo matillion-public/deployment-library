@@ -34,16 +34,17 @@ module "networking" {
   # own VNet cannot be run there at all.
   count = length(var.existing_subnet_ids) == 0 ? 1 : 0
 
-  name                     = var.name
-  location                 = var.location
-  resource_group_name      = var.resource_group_name
-  random_string_salt       = random_string.salt.result
-  resource_names           = local.resource_names
-  enable_nat_gateway       = var.enable_nat_gateway
-  nat_gateway_idle_timeout = var.nat_gateway_idle_timeout
-  vnet_address_space       = var.vnet_address_space
-  service_endpoints        = var.service_endpoints
-  tags                     = var.tags
+  name                          = var.name
+  location                      = var.location
+  resource_group_name           = var.resource_group_name
+  random_string_salt            = random_string.salt.result
+  resource_names                = local.resource_names
+  enable_nat_gateway            = var.enable_nat_gateway
+  nat_gateway_idle_timeout      = var.nat_gateway_idle_timeout
+  vnet_address_space            = var.vnet_address_space
+  service_endpoints             = var.service_endpoints
+  https_inbound_source_prefixes = var.https_inbound_source_prefixes
+  tags                          = var.tags
 
 }
 
@@ -55,6 +56,7 @@ module "aks" {
 
   location            = var.location
   resource_group_name = var.resource_group_name
+  namespace           = var.namespace
 
   subnet_ids = local.subnet_ids
 
@@ -92,6 +94,8 @@ module "aks" {
   service_principal_enabled   = var.service_principal_enabled
   service_principal_client_id = var.service_principal_client_id
   service_principal_secret    = var.service_principal_secret
+
+  grant_runner_subscription_reader = var.grant_runner_subscription_reader
 
   key_vault_administrator_principal_ids = var.key_vault_administrator_principal_ids
 
