@@ -1,3 +1,9 @@
+locals {
+  # ["*"] maps to source_address_prefix, the form earlier versions wrote, so
+  # deployments that keep the default see no diff.
+  https_from_any_source = length(var.https_inbound_source_prefixes) == 1 && contains(var.https_inbound_source_prefixes, "*")
+}
+
 resource "azurerm_virtual_network" "vnet" {
   name                = lookup(var.resource_names, "vnet", join("-", [var.name, "vnet", var.random_string_salt]))
   address_space       = [var.vnet_address_space]
@@ -35,17 +41,28 @@ resource "azurerm_network_security_group" "nsg" {
   location            = var.location
   resource_group_name = var.resource_group_name
 
-  security_rule {
-    name                       = "AllowHTTPS"
-    priority                   = 100
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "443"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
+  # Attribute syntax, not a dynamic block: security_rule is Optional+Computed, so
+  # zero dynamic blocks would keep the rule from state instead of removing it.
+  security_rule = [
+    for prefixes in(length(var.https_inbound_source_prefixes) > 0 ? [var.https_inbound_source_prefixes] : []) : {
+      name                                       = "AllowHTTPS"
+      description                                = null
+      priority                                   = 100
+      direction                                  = "Inbound"
+      access                                     = "Allow"
+      protocol                                   = "Tcp"
+      source_port_range                          = "*"
+      source_port_ranges                         = null
+      destination_port_range                     = "443"
+      destination_port_ranges                    = null
+      source_address_prefix                      = local.https_from_any_source ? "*" : null
+      source_address_prefixes                    = local.https_from_any_source ? null : prefixes
+      source_application_security_group_ids      = null
+      destination_address_prefix                 = "*"
+      destination_address_prefixes               = null
+      destination_application_security_group_ids = null
+    }
+  ]
 
   tags = var.tags
 }

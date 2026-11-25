@@ -52,6 +52,9 @@ module "gke" {
   script_runner_k8s_service_account_name = var.script_runner_k8s_service_account_name
   runner_gcs_buckets                     = var.runner_gcs_buckets
   additional_gcp_projects                = var.additional_gcp_projects
+  existing_runner_secret_creator_role_id = var.existing_runner_secret_creator_role_id
+
+  existing_node_service_account_email = var.existing_node_service_account_email
 
   labels = var.labels
 }
