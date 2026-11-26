@@ -23,6 +23,11 @@ tags = {
   Owner       = "data-team"
 }
 
+# Kubernetes namespace the runner is installed into. Must equal the namespace
+# passed to `helm install`; the workload identity federated credentials are bound
+# to it. Leave as matillion unless you install the chart elsewhere.
+namespace = "matillion"
+
 # Initial node count. Must be at least the autoscaler floor: the number of
 # entries in node_pool_zones (3 for the recommended zones below), or 2 without
 # zones.
@@ -103,8 +108,8 @@ nat_gateway_idle_timeout = 10
 # ========================================
 
 # By default the cluster has local accounts enabled and no Entra ID
-# integration. Anyone with Contributor on the cluster can download an admin
-# kubeconfig (az aks get-credentials --admin) whose certificate is in
+# integration. Anyone with Contributor on the cluster can download a kubeconfig
+# (az aks get-credentials, with or without --admin) whose certificate is in
 # system:masters, is not tied to their identity and stays valid after their
 # role is removed.
 #
@@ -112,9 +117,10 @@ nat_gateway_idle_timeout = 10
 # Kubernetes. Access then follows Azure role assignments (for example
 # "Azure Kubernetes Service RBAC Cluster Admin") or membership of a group in
 # admin_group_object_ids. kubectl and helm need kubelogin.
-# local_account_disabled removes the admin kubeconfig and needs
-# azure_rbac_enabled = true. See "Cluster access" in modules/azure/aks/readme.md
-# before enabling either on an existing cluster.
+# local_account_disabled stops the cluster issuing the static admin credential
+# and needs azure_rbac_enabled = true. Contributor on the cluster can turn local
+# accounts back on. See "Cluster access" in modules/azure/aks/readme.md before
+# enabling either on an existing cluster.
 # azure_rbac_enabled     = true
 # admin_group_object_ids = ["00000000-0000-0000-0000-000000000000"]
 # local_account_disabled = true
@@ -136,6 +142,15 @@ service_principal_enabled = false
 # service_principal_client_id = "your-service-principal-client-id"
 # service_principal_secret    = "your-service-principal-secret"
 
+# Subscription Reader for the runner identity. By default the runner identity gets
+# Reader on the whole subscription, so whoever runs Terraform needs
+# Microsoft.Authorization/roleAssignments/read (plan) and roleAssignments/write
+# (apply) at subscription scope. Set false if you only have rights on the
+# resource group. Running pipelines without this grant has not been tested.
+# Setting false on an existing deployment destroys the assignment, which needs
+# roleAssignments/delete at subscription scope.
+# grant_runner_subscription_reader = false
+
 # Autoscaler bounds and tier. Commented out because the module's defaults are the
 # right starting point: floor of one node per zone, ceiling of double
 # desired_node_count, Standard tier (required for AKS cost analysis).
@@ -156,8 +171,19 @@ service_principal_enabled = false
 # backend, and Container Registry if images come from a network-restricted ACR.
 # service_endpoints = ["Microsoft.Storage", "Microsoft.KeyVault", "Microsoft.ServiceBus"]
 
+# Sources allowed inbound on TCP 443 through the subnet NSG. Default ["*"]. Set
+# CIDRs to restrict it, or [] when nothing in the cluster serves 443 from outside
+# the VNet. Ignored with existing_subnet_ids.
+# https_inbound_source_prefixes = ["203.0.113.0/24"]
+
 # Key Vault Administrator. Unset, the identity that runs terraform apply is the
 # administrator, so the grant moves to whoever applies next. Set object IDs of the
 # people, groups or CI service principal that should administer the vault. Include
 # the identity that applies, or it loses vault administration on the next apply.
 # key_vault_administrator_principal_ids = ["00000000-0000-0000-0000-000000000000"]
+
+# Purge the Key Vault on terraform destroy. Default false: the vault stays
+# soft-deleted for 7 days and its name is reserved. true needs the
+# Microsoft.KeyVault/locations/deletedVaults/purge/action permission at
+# subscription scope.
+# purge_key_vault_on_destroy = false

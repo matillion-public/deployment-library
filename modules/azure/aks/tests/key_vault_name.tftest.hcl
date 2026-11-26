@@ -129,3 +129,12 @@ run "name_of_18_with_override_does_not_warn" {
     error_message = "resource_names[\"key_vault\"] must replace the default Key Vault name."
   }
 }
+
+run "key_vault_uses_rbac_authorization" {
+  command = plan
+
+  assert {
+    condition     = azurerm_key_vault.keyvault.rbac_authorization_enabled == true
+    error_message = "The Key Vault must use the Azure RBAC permission model (rbac_authorization_enabled = true)."
+  }
+}
