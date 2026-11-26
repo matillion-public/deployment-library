@@ -182,9 +182,22 @@ data "aws_iam_policy_document" "lambda" {
 }
 
 resource "aws_iam_role_policy" "lambda" {
+  count = var.lambda_policy_arn == null ? 1 : 0
+
   name   = lookup(var.resource_names, "adapter_policy", "${var.name_prefix}-policy")
   role   = aws_iam_role.lambda.id
   policy = data.aws_iam_policy_document.lambda.json
+}
+
+moved {
+  from = aws_iam_role_policy.lambda
+  to   = aws_iam_role_policy.lambda[0]
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_supplied" {
+  count      = var.lambda_policy_arn != null ? 1 : 0
+  role       = aws_iam_role.lambda.name
+  policy_arn = var.lambda_policy_arn
 }
 
 # ---------------------------------------------------------------------------
@@ -233,6 +246,7 @@ resource "aws_lambda_function" "this" {
 
   depends_on = [
     aws_iam_role_policy.lambda,
+    aws_iam_role_policy_attachment.lambda_supplied,
     aws_cloudwatch_log_group.lambda,
   ]
 

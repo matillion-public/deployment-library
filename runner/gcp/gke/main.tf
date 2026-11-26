@@ -11,6 +11,11 @@ resource "random_string" "salt" {
       condition     = !var.is_private_cluster || var.enable_cloud_nat || var.existing_network != null
       error_message = "enable_cloud_nat must be true when is_private_cluster = true and this deployment creates the VPC (existing_network is null). Private nodes then have no route to the internet and the runner cannot reach Matillion. Set enable_cloud_nat = true, or deploy into an existing VPC (existing_network) that provides its own egress."
     }
+
+    precondition {
+      condition     = var.grant_node_project_roles || var.existing_node_service_account_email != null
+      error_message = "grant_node_project_roles = false requires existing_node_service_account_email. Without it the module creates the node service account and nobody grants it roles/logging.logWriter, roles/monitoring.metricWriter and roles/monitoring.viewer."
+    }
   }
 }
 
@@ -52,6 +57,11 @@ module "gke" {
   script_runner_k8s_service_account_name = var.script_runner_k8s_service_account_name
   runner_gcs_buckets                     = var.runner_gcs_buckets
   additional_gcp_projects                = var.additional_gcp_projects
+  existing_runner_secret_creator_role_id = var.existing_runner_secret_creator_role_id
+
+  existing_node_service_account_email            = var.existing_node_service_account_email
+  existing_runner_workload_service_account_email = var.existing_runner_workload_service_account_email
+  grant_node_project_roles                       = var.grant_node_project_roles
 
   labels = var.labels
 }

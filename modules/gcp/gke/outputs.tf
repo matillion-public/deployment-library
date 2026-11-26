@@ -8,12 +8,12 @@ output "cluster_endpoint" {
 }
 
 output "cluster_ca_certificate" {
-  value     = google_container_cluster.gke_cluster.master_auth[0].cluster_ca_certificate
+  value     = one(google_container_cluster.gke_cluster.master_auth[*].cluster_ca_certificate)
   sensitive = true
 }
 
 output "runner_workload_sa_email" {
-  value = google_service_account.runner_workload_sa.email
+  value = local.runner_sa_email
 }
 
 output "gcs_bucket_name" {

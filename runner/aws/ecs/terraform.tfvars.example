@@ -76,3 +76,11 @@ tags = {
   "SBU"      = "Support"
   "Owner"    = "user@example.com"
 }
+
+# Optional: pre-created IAM policies attached in place of the inline role policies, so the identity
+# running Terraform does not need iam:PutRolePolicy. See "Deploying without iam:PutRolePolicy" in README.md.
+# ecs_task_role_policy_arn                   = "arn:aws:iam::123456789012:policy/my-agent-task"
+# ecs_task_execution_role_policy_arn         = "arn:aws:iam::123456789012:policy/my-agent-exec-secret"
+# ecs_task_execution_role_keypair_policy_arn = "arn:aws:iam::123456789012:policy/my-agent-exec-keypair"
+# script_runner_extension_library_policy_arn = "arn:aws:iam::123456789012:policy/my-agent-extlib"
+# sqs_adapter_lambda_policy_arn              = "arn:aws:iam::123456789012:policy/my-agent-sqs-adapter"
