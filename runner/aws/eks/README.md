@@ -93,6 +93,8 @@ Required IAM permissions:
 - S3 bucket operations
 - CloudWatch logs and monitoring
 
+Every resource the deployment creates carries the tag `matillion:deployment-id` with the value of `name`. It is set through the resource tags and the provider default tags. The narrowed deployment policies scope their statements with `aws:RequestTag/matillion:deployment-id` and `aws:ResourceTag/matillion:deployment-id`, using `name` as the value. A `matillion:deployment-id` key in `tags` is overridden by `name`.
+
 ## Quick Start
 
 ### 1. Clone and Navigate
@@ -204,6 +206,8 @@ cd ../../helm/runner
 
 # Install the runner using Helm
 helm install matillion-runner . \
+  --namespace matillion \
+  --create-namespace \
   --set cloudProvider="aws" \
   --set config.oauthClientId="<your-client-id>" \
   --set config.oauthClientSecret="<your-client-secret>" \
@@ -217,25 +221,27 @@ helm install matillion-runner . \
   --set dpcAgent.metricsExporter.image.tag="current"
 ```
 
+The release must go into the namespace that the module's Fargate profile covers, which is the `namespace` Terraform variable (default `matillion`). A pod in any other namespace stays `Pending` and cannot assume the IRSA role. If you set a different `namespace` in `terraform.tfvars`, use that value in place of `matillion` in every `--namespace` and `-n` in this README.
+
 > **Handling credentials safely:** The `--set` flags above place the OAuth client secret in your shell history. For real deployments, prefer a values file (e.g., `helm-values.yaml`) passed via `--values helm-values.yaml`. **That file must never be committed.** Either keep it outside the repo, name it to match an existing `.gitignore` pattern (e.g., place secrets in a `.env` file referenced by your CI), or add your specific override filename to `.gitignore` before creating it. For production, consider AWS Secrets Manager + the AWS Secrets Store CSI Driver, or sealed-secrets, instead of any local file.
 
 ### 6. Verify Deployment
 
 ```bash
 # Check pod status
-kubectl get pods -l app.kubernetes.io/name=matillion-runner
+kubectl get pods -n matillion -l app.kubernetes.io/name=matillion-runner
 
 # View pod logs
-kubectl logs -l app.kubernetes.io/name=matillion-runner -c matillion-runner-pods
+kubectl logs -n matillion -l app.kubernetes.io/name=matillion-runner -c matillion-runner-pods
 
 # Check service status
-kubectl get services
+kubectl get services -n matillion
 
 # View HPA status (if enabled)
-kubectl get hpa
+kubectl get hpa -n matillion
 ```
 
-> **Note on initial HPA state:** Immediately after deployment, `kubectl get hpa` may report `TARGETS: <unknown>/<threshold>` for 1–2 minutes. This is expected — Prometheus has to complete its first scrape cycle and the custom-metrics adapter has to relist the new pods before the HPA can read the metric. The state resolves on its own; no action required. If it persists past 5 minutes, check `kubectl exec -n prometheus deploy/prometheus -- wget -qO- http://localhost:9090/api/v1/targets` for scrape errors.
+> **Note on initial HPA state:** Immediately after deployment, `kubectl get hpa -n matillion` may report `TARGETS: <unknown>/<threshold>` for 1–2 minutes. This is expected — Prometheus has to complete its first scrape cycle and the custom-metrics adapter has to relist the new pods before the HPA can read the metric. The state resolves on its own; no action required. If it persists past 5 minutes, check `kubectl exec -n prometheus deploy/prometheus -- wget -qO- http://localhost:9090/api/v1/targets` for scrape errors.
 
 ## Configuration Options
 
@@ -380,6 +386,14 @@ Earlier versions of the module patched the cluster's self-managed CoreDNS deploy
 
 On an existing cluster, `terraform plan` shows `terraform_data.coredns_fargate_patch` being destroyed (no change to the cluster) and `aws_eks_addon.coredns` being created. The addon is created with `resolve_conflicts_on_create = "OVERWRITE"`, so EKS takes over the existing CoreDNS deployment and replaces its configuration with the addon's. Any manual changes to that deployment, such as replica count, resource requests or a customised Corefile, are overwritten. Record them before applying and re-apply them through the addon `configuration_values` if they are still needed.
 
+#### Upgrading to a version with the `matillion:deployment-id` tag
+
+The next `terraform plan` shows an in-place update to `tags` and `tags_all` on every tagged resource. No resource is replaced.
+
+The identity running the apply needs the tagging actions for those resource types, for example `ec2:CreateTags`, `iam:TagRole`, `iam:TagPolicy`, `kms:TagResource`, `eks:TagResource`, `ecs:TagResource`, `logs:TagResource` and `secretsmanager:TagResource`.
+
+A deployment that set `matillion:deployment-id` in `tags` to a value other than `name` has that value replaced.
+
 ### Runner Configuration with Helm
 
 Create a custom values file (`values-production.yaml`):
@@ -440,7 +454,9 @@ networkPolicy:
 Deploy with custom values:
 
 ```bash
-helm install matillion-runner . -f values-production.yaml
+helm install matillion-runner . -f values-production.yaml \
+  --namespace matillion \
+  --create-namespace
 ```
 
 ### Sizing the HPA target (`averageValue`)
@@ -526,13 +542,13 @@ kubectl port-forward -n prometheus svc/prometheus-server 9090:80
 
 ```bash
 # View runner logs
-kubectl logs -f deployment/matillion-runner-app -c matillion-runner-pods
+kubectl logs -f -n matillion deployment/matillion-runner-app -c matillion-runner-pods
 
 # View metrics exporter logs
-kubectl logs -f deployment/matillion-runner-app -c metrics-exporter
+kubectl logs -f -n matillion deployment/matillion-runner-app -c metrics-exporter
 
 # Stream all logs
-kubectl logs -f -l app.kubernetes.io/name=matillion-runner --all-containers=true
+kubectl logs -f -n matillion -l app.kubernetes.io/name=matillion-runner --all-containers=true
 ```
 
 ## 🔒 Security Configuration
@@ -548,10 +564,10 @@ The deployment creates:
 
 ```bash
 # View service account
-kubectl describe serviceaccount matillion-runner-sa
+kubectl describe serviceaccount matillion-runner-sa -n matillion
 
 # Check role annotation
-kubectl get serviceaccount matillion-runner-sa -o yaml
+kubectl get serviceaccount matillion-runner-sa -n matillion -o yaml
 ```
 
 The role's trust policy names two service accounts exactly, both in one namespace, and
@@ -586,6 +602,7 @@ the platform creates its own — add `serviceAccount.create=false` and set
 ```bash
 helm upgrade --install matillion-runner ./runner \
   --namespace matillion \
+  --create-namespace \
   --set serviceAccount.create=false \
   --set serviceAccount.name=duploservices-mytenant \
   --set serviceAccount.credentialSource=node \
@@ -739,10 +756,10 @@ networkPolicy:
 
 ```bash
 # OAuth credentials stored in Kubernetes secrets
-kubectl get secrets -l app.kubernetes.io/name=matillion-runner
+kubectl get secrets -n matillion -l app.kubernetes.io/name=matillion-runner
 
 # View secret (base64 encoded)
-kubectl describe secret matillion-runner-config
+kubectl describe secret matillion-runner-config -n matillion
 ```
 
 ## Operations
@@ -752,7 +769,7 @@ kubectl describe secret matillion-runner-config
 #### Manual Scaling
 ```bash
 # Scale deployment manually
-kubectl scale deployment matillion-runner-app --replicas=5
+kubectl scale deployment matillion-runner-app -n matillion --replicas=5
 
 # Scale cluster nodes (via AWS CLI)
 aws eks update-nodegroup-config \
@@ -764,13 +781,13 @@ aws eks update-nodegroup-config \
 #### Horizontal Pod Autoscaler (HPA)
 ```bash
 # View HPA status
-kubectl get hpa
+kubectl get hpa -n matillion
 
 # Describe HPA details
-kubectl describe hpa matillion-runner-hpa
+kubectl describe hpa matillion-runner-hpa -n matillion
 
 # Monitor scaling events
-kubectl get events --sort-by=.metadata.creationTimestamp
+kubectl get events -n matillion --sort-by=.metadata.creationTimestamp
 ```
 
 #### Cluster Autoscaler (Optional)
@@ -790,23 +807,24 @@ kubectl patch deployment cluster-autoscaler \
 ```bash
 # Update runner image
 helm upgrade matillion-runner . \
+  --namespace matillion \
   --set dpcAgent.dpcAgent.image.tag="v2.0.0" \
   --reuse-values
 
 # Monitor rollout
-kubectl rollout status deployment/matillion-runner-app
+kubectl rollout status deployment/matillion-runner-app -n matillion
 
 # View rollout history  
-kubectl rollout history deployment/matillion-runner-app
+kubectl rollout history deployment/matillion-runner-app -n matillion
 ```
 
 #### Rollback Operations
 ```bash
 # Rollback to previous version
-kubectl rollout undo deployment/matillion-runner-app
+kubectl rollout undo deployment/matillion-runner-app -n matillion
 
 # Rollback to specific revision
-kubectl rollout undo deployment/matillion-runner-app --to-revision=2
+kubectl rollout undo deployment/matillion-runner-app -n matillion --to-revision=2
 ```
 
 ### Troubleshooting
@@ -817,7 +835,7 @@ kubectl rollout undo deployment/matillion-runner-app --to-revision=2
 aws eks describe-cluster --name <cluster-name>
 
 # View cluster events
-kubectl get events --sort-by=.metadata.creationTimestamp
+kubectl get events -A --sort-by=.metadata.creationTimestamp
 
 # Check node status
 kubectl describe nodes
@@ -834,6 +852,19 @@ kubectl logs <pod-name> -c <container-name>
 # Execute into pod for debugging
 kubectl exec -it <pod-name> -c <container-name> -- /bin/sh
 ```
+
+**Runner pods stay `Pending`, or `kubectl get pods -n matillion` shows nothing.** The release was installed outside the namespace that the Fargate profile covers, which is the `namespace` Terraform variable (default `matillion`). This happens when `helm install` runs without `--namespace`: Helm then installs into the current kubectl namespace, usually `default`, where no pod can be scheduled. `helm list -A` shows the namespace each release is in. Uninstall the release from that namespace and install it again into the profile's namespace:
+
+```bash
+# Find the namespace the release is in
+helm list -A
+
+# Reinstall into the namespace the Fargate profile covers
+helm uninstall matillion-runner --namespace <namespace-shown-by-helm-list>
+helm install matillion-runner . --namespace matillion --create-namespace <your --set or -f flags>
+```
+
+If you changed `namespace` in `terraform.tfvars`, the `--namespace` value must match it.
 
 #### Network Connectivity
 ```bash
@@ -929,10 +960,10 @@ node_groups = {
 #### Scheduled Scaling
 ```bash
 # Use CronJobs for scheduled scaling
-kubectl create cronjob scale-down --image=bitnami/kubectl \
+kubectl create cronjob scale-down -n matillion --image=bitnami/kubectl \
   --schedule="0 18 * * *" -- kubectl scale deployment matillion-runner-app --replicas=1
 
-kubectl create cronjob scale-up --image=bitnami/kubectl \
+kubectl create cronjob scale-up -n matillion --image=bitnami/kubectl \
   --schedule="0 8 * * *" -- kubectl scale deployment matillion-runner-app --replicas=3
 ```
 
@@ -966,6 +997,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: matillion-runner-pdb
+  namespace: matillion
 spec:
   minAvailable: 1
   selector:
@@ -1026,7 +1058,7 @@ If migrating from ECS Fargate:
 ### Remove Application
 ```bash
 # Uninstall Helm chart
-helm uninstall matillion-runner
+helm uninstall matillion-runner --namespace matillion
 
 # Remove monitoring (if installed)
 helm uninstall prometheus -n prometheus
@@ -1048,7 +1080,7 @@ aws ec2 describe-instances --filters "Name=tag:kubernetes.io/cluster/<cluster-na
 > terraform output service_account_role_arn   # paste into your Helm values
 > terraform output auth_config_command        # re-run to refresh kubeconfig
 > ```
-> Helm releases will need to be re-installed (or `helm upgrade --reuse-values --set serviceAccount.roleArn=<new-arn>`). This is expected behavior — the salt prevents name collisions when multiple environments share an account.
+> Helm releases will need to be re-installed (or `helm upgrade matillion-runner <chart> --namespace matillion --reuse-values --set serviceAccount.roleArn=<new-arn>`). This is expected behavior — the salt prevents name collisions when multiple environments share an account.
 
 ### Manual Cleanup (if needed)
 ```bash

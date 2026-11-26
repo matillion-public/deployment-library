@@ -61,3 +61,6 @@ pass-through variables.
 - `checkov` findings for this module are limited to KMS-CMK / 1-year-retention
   items that the sibling `saturation-monitor` module also accepts; no new skip
   posture is introduced.
+- Set `lambda_policy_arn` to attach a pre-created policy to the Lambda role
+  instead of creating the inline policy, so the deploying identity does not need
+  `iam:PutRolePolicy`. The caller owns that policy's content.

@@ -32,6 +32,50 @@ variable "script_runner_task_role_policy_arns" {
   default     = []
 }
 
+variable "ecs_task_role_policy_arn" {
+  description = "Optional: ARN of an IAM policy to attach to the runner task role in place of the inline policy built from templates/ecs_task_role_policy.json. When set, the ARN is attached and the inline policy is not created; the caller owns the policy content. Null keeps the inline policy."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.ecs_task_role_policy_arn == null || can(regex("^arn:aws[a-z-]*:iam::(aws|[0-9]{12}):policy/.+$", var.ecs_task_role_policy_arn))
+    error_message = "ecs_task_role_policy_arn must be null or an IAM policy ARN (arn:aws:iam::<account id or aws>:policy/<path and name>)."
+  }
+}
+
+variable "ecs_task_execution_role_policy_arn" {
+  description = "Optional: ARN of an IAM policy to attach to the task execution role in place of the inline policy granting secretsmanager:GetSecretValue on runner_secret_arn. When set, the ARN is attached and the inline policy is not created; the caller owns the policy content. Null keeps the inline policy."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.ecs_task_execution_role_policy_arn == null || can(regex("^arn:aws[a-z-]*:iam::(aws|[0-9]{12}):policy/.+$", var.ecs_task_execution_role_policy_arn))
+    error_message = "ecs_task_execution_role_policy_arn must be null or an IAM policy ARN (arn:aws:iam::<account id or aws>:policy/<path and name>)."
+  }
+}
+
+variable "ecs_task_execution_role_keypair_policy_arn" {
+  description = "Optional: ARN of an IAM policy to attach to the task execution role in place of the inline policy granting secretsmanager:GetSecretValue on runner_keypair_secret_arn. Applies only when enable_script_runner is true. When set, the ARN is attached and the inline policy is not created; the caller owns the policy content. Null keeps the inline policy."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.ecs_task_execution_role_keypair_policy_arn == null || can(regex("^arn:aws[a-z-]*:iam::(aws|[0-9]{12}):policy/.+$", var.ecs_task_execution_role_keypair_policy_arn))
+    error_message = "ecs_task_execution_role_keypair_policy_arn must be null or an IAM policy ARN (arn:aws:iam::<account id or aws>:policy/<path and name>)."
+  }
+}
+
+variable "script_runner_extension_library_policy_arn" {
+  description = "Optional: ARN of an IAM policy to attach to the script runner task role in place of the inline extension library S3 policy. Applies only when enable_script_runner is true, and is attached whether or not script_runner_extension_library_bucket_arn is set. When set, the ARN is attached and the inline policy is not created; the caller owns the policy content. Null keeps the inline policy."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.script_runner_extension_library_policy_arn == null || can(regex("^arn:aws[a-z-]*:iam::(aws|[0-9]{12}):policy/.+$", var.script_runner_extension_library_policy_arn))
+    error_message = "script_runner_extension_library_policy_arn must be null or an IAM policy ARN (arn:aws:iam::<account id or aws>:policy/<path and name>)."
+  }
+}
+
 
 variable "resource_names" {
   description = <<-EOT

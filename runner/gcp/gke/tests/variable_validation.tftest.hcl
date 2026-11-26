@@ -96,3 +96,49 @@ run "rejects_an_authorized_ip_range_without_a_prefix_length" {
 
   expect_failures = [var.authorized_ip_ranges]
 }
+
+run "accepts_a_precreated_secret_creator_role" {
+  command = plan
+
+  variables {
+    existing_runner_secret_creator_role_id = "projects/runner-project/roles/matillion_runner_secret_creator"
+  }
+
+  assert {
+    condition     = var.existing_runner_secret_creator_role_id == "projects/runner-project/roles/matillion_runner_secret_creator"
+    error_message = "A full project custom role name must plan."
+  }
+}
+
+run "rejects_a_bare_secret_creator_role_id" {
+  command = plan
+
+  variables {
+    existing_runner_secret_creator_role_id = "matillion_runner_secret_creator"
+  }
+
+  expect_failures = [var.existing_runner_secret_creator_role_id]
+}
+
+run "accepts_a_pre_created_node_service_account_email" {
+  command = plan
+
+  variables {
+    existing_node_service_account_email = "runner-nodes@runner-project.iam.gserviceaccount.com"
+  }
+
+  assert {
+    condition     = var.existing_node_service_account_email == "runner-nodes@runner-project.iam.gserviceaccount.com"
+    error_message = "A user-managed service account email must plan."
+  }
+}
+
+run "rejects_the_default_compute_service_account_as_node_service_account" {
+  command = plan
+
+  variables {
+    existing_node_service_account_email = "123456789012-compute@developer.gserviceaccount.com"
+  }
+
+  expect_failures = [var.existing_node_service_account_email]
+}

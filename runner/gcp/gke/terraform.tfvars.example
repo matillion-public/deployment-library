@@ -34,6 +34,15 @@ authorized_ip_ranges   = ["0.0.0.0/0"]   # CIDR blocks allowed to access GKE API
                                           # Example: ["203.0.113.0/24", "10.0.0.0/8"]
 
 # -----------------------------------------------------------------------------
+# Runner secret creator role
+# -----------------------------------------------------------------------------
+
+# Leave unset to let Terraform create a custom role for this deployment.
+# Set it to a role created beforehand (see README, "Pre-creating the runner
+# secret creator role") so the deployer does not need iam.roles.create.
+# existing_runner_secret_creator_role_id = "projects/your-gcp-project-id/roles/matillion_runner_secret_creator"
+
+# -----------------------------------------------------------------------------
 # Networking Configuration
 # -----------------------------------------------------------------------------
 
@@ -52,6 +61,16 @@ enable_cloud_nat = true
 #   pod_secondary_range_name       = "pods"
 #   services_secondary_range_name  = "services"
 # }
+
+# Optional node service account created outside Terraform: see "Pre-creating the node service account" in README.md.
+# existing_node_service_account_email = "runner-nodes@your-gcp-project-id.iam.gserviceaccount.com"
+
+# Optional runner service account created outside Terraform: see "Pre-creating the runner service account" in README.md.
+# existing_runner_workload_service_account_email = "runner-workload@your-gcp-project-id.iam.gserviceaccount.com"
+
+# Only with existing_node_service_account_email, after an IAM admin has granted the node account
+# roles/logging.logWriter, roles/monitoring.metricWriter and roles/monitoring.viewer.
+# grant_node_project_roles = false
 
 # =============================================================================
 # Configuration Examples
