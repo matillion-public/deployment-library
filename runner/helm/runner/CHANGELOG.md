@@ -33,6 +33,16 @@
   `env.direct` mode too. The same switch is `disable_script_execution` in the
   ECS, Container Apps and `core/compute-*` Terraform modules.
 
+### Fixed
+
+- GKE Workload Identity verification in NOTES and `runner/gcp/gke/README.md`
+  now checks the HTTP status of the metadata server's `/token` endpoint (expect
+  200) instead of `/email`, which returns the annotated account even without the
+  `roles/iam.workloadIdentityUser` binding (DPC-63744). The in-pod check
+  (`checks/pre-deployment-check.sh`) reports PASS or FAIL on GCP, and
+  `checks/run-check.sh` warns when a GCP runner's ServiceAccount has no
+  Workload Identity annotation.
+
 ## 0.9.0
 
 Sizing and scaling guidance for the shared script runner (DPC-55688), and a

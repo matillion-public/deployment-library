@@ -34,6 +34,11 @@ output "runner_workload_identity_client_id" {
   value = local.create_runner_identity ? azurerm_user_assigned_identity.runner_workload_identity[0].client_id : ""
 }
 
+output "runner_federated_credential_subject" {
+  description = "Subject of the runner federated credential, or empty when the shared runner identity is not created."
+  value       = local.create_runner_identity ? azurerm_federated_identity_credential.runner_federated_credential[0].subject : ""
+}
+
 output "oidc_issuer_url" {
   value = var.workload_identity_enabled ? azurerm_kubernetes_cluster.aks_cluster.oidc_issuer_url : ""
 }

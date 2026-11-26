@@ -135,7 +135,7 @@ With `workload_identity_enabled` (the default) the module turns on the cluster's
 OIDC issuer and workload identity addon, and also creates one shared runner
 identity, federated to the runner and script-runner service accounts in
 `namespace`. That identity holds `Key Vault Secrets User` and `Reader` on the
-whole vault, `Reader` on the subscription and `Storage Blob Data Contributor` on
+whole vault, `Reader` on the subscription (unless `grant_runner_subscription_reader = false`) and `Storage Blob Data Contributor` on
 the staging account — right for one runner, wrong once the cluster and vault
 are shared between tenants.
 
