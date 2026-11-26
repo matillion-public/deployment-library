@@ -84,3 +84,21 @@ variable "resource_names" {
   type        = map(string)
   default     = {}
 }
+
+variable "https_inbound_source_prefixes" {
+  description = <<-EOT
+    Sources allowed by the AllowHTTPS inbound rule (TCP 443, priority 100) on the
+    NSG attached to every subnet this module creates. ["*"] allows any source, as
+    earlier versions did. A list of IP addresses or CIDR ranges allows only those.
+    An empty list removes the rule; the Azure default inbound rules (AllowVnetInBound,
+    AllowAzureLoadBalancerInBound, DenyAllInBound) still apply.
+  EOT
+  type        = list(string)
+  default     = ["*"]
+  nullable    = false
+
+  validation {
+    condition     = !contains(var.https_inbound_source_prefixes, "*") || length(var.https_inbound_source_prefixes) == 1
+    error_message = "https_inbound_source_prefixes: \"*\" must be the only entry when it is used."
+  }
+}

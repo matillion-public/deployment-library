@@ -147,7 +147,7 @@ A single Prometheus can serve every runner on a shared cluster. The adapter maps
 `type: Pods`, so each Deployment scales on its own pods — adding tenants causes
 no cross-talk between them.
 
-Three settings have to line up, and getting them wrong fails quietly rather than
+Four settings have to line up, and getting them wrong fails quietly rather than
 loudly. A runner Prometheus cannot see, or is discovered but not reachable,
 produces no metric, and the HPA depending on that metric simply sits at
 `minReplicas` with nothing in any log to explain it.
@@ -163,6 +163,9 @@ config:
   #    `<release>-matillion-runner-pods`, so one literal name will not match
   #    more than one tenant.
   scrapePodLabelRegex: ".*matillion-runner-pods"
+  #    Script runner pods are kept by their own regex.
+  scriptRunner:
+    podLabelRegex: ".*matillion-runner-script-runner-pods"
 
 networkPolicy:
   # 3. What the Prometheus pod is allowed to reach. The built-in egress rule
@@ -171,6 +174,13 @@ networkPolicy:
   additionalScrapeNamespaces:
     - bu-retail
     - bu-trading
+  # 4. Which pods it may reach there. The defaults match only a release named
+  #    `matillion-runner`; a selector can't express the regexes in 2, so clear
+  #    them. `null`, not `{}` — Helm merges maps, so `{}` keeps the default.
+  #    A tenant in Prometheus's own namespace is reached by a fixed
+  #    `matillion-runner-pods` rule, so keep tenants out of that namespace.
+  runnerPodSelector: null
+  scriptRunnerPodSelector: null
 ```
 
 Verify from the Prometheus pod after rollout — every tenant should appear:
@@ -183,7 +193,8 @@ kubectl exec -n monitoring deployment/prometheus-stack -c prometheus -- \
 If a namespace is listed in `scrapeNamespaces` but missing from the target list,
 the pod label regex did not match. If it appears as a target but is permanently
 `down` with a connection timeout, it is missing from
-`networkPolicy.additionalScrapeNamespaces`.
+`networkPolicy.additionalScrapeNamespaces`, or the pod selectors in 4 still
+hold their defaults.
 
 The pod-list RBAC is already a `ClusterRole`, so no permission changes are needed
 to add namespaces.

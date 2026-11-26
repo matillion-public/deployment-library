@@ -84,7 +84,69 @@ Required IAM roles for the Terraform runner:
 - `roles/secretmanager.admin` — Secret Manager management
 - `roles/resourcemanager.projectIamAdmin` — IAM bindings
 - `roles/iam.roleAdmin` — Custom role creation (`runner_secret_creator`)
-- `roles/iam.serviceAccountUser` — Lets the cluster use the default compute service account (`<project-number>-compute@developer.gserviceaccount.com`) and the node pool use the node service account this module creates; grant it on both service accounts or at project level
+- `roles/iam.serviceAccountUser` (`iam.serviceAccounts.actAs`): lets the cluster and its node pools run as the node service account. The default compute service account is not used. When the module creates the node service account, that account does not exist before the first apply, so grant this role at project level. To grant it on a single account instead, pre-create the node service account (see [Pre-creating the node service account](#pre-creating-the-node-service-account)).
+
+#### Deploying with pre-created accounts
+
+When an IAM admin pre-creates the node service account, the runner service
+account and the runner secret creator role, and the deployment sets
+`existing_node_service_account_email`,
+`existing_runner_workload_service_account_email`,
+`existing_runner_secret_creator_role_id` and `grant_node_project_roles = false`,
+Terraform makes no project-level IAM change. The deployer then needs:
+
+- on the project: `roles/container.admin`, `roles/compute.networkAdmin`,
+  `roles/storage.admin` and `roles/secretmanager.admin`;
+- on the node service account only: `roles/iam.serviceAccountUser`;
+- on the runner service account only: a role holding
+  `iam.serviceAccounts.getIamPolicy` and `iam.serviceAccounts.setIamPolicy`
+  (for example `roles/iam.serviceAccountAdmin`), to add the Workload Identity
+  members.
+
+The deployer needs none of `roles/iam.serviceAccountAdmin`,
+`roles/iam.serviceAccountKeyAdmin`, `roles/resourcemanager.projectIamAdmin`,
+`roles/iam.roleAdmin` or `roles/iam.serviceAccountUser` at project level.
+
+Two inputs still need more:
+
+- `additional_gcp_projects`: Terraform grants the runner service account roles
+  in each listed project, so the deployer needs
+  `resourcemanager.projects.setIamPolicy` (for example
+  `roles/resourcemanager.projectIamAdmin`) in each of those projects.
+- `existing_runner_workload_service_account_email` without
+  `existing_runner_secret_creator_role_id`: Terraform still creates its own
+  secret creator role (needs `iam.roles.create`) and grants it to nobody. Set
+  both.
+
+### Pre-creating the runner secret creator role
+
+By default the deployment creates a custom role, `<name>_a_<suffix>_secret_creator` (hyphens in `name` become underscores), and grants it to the runner service account. The role id changes with every deployment.
+
+To use a fixed role instead, an IAM admin holding `roles/iam.roleAdmin` creates it once per project from [runner-secret-creator-role.yaml](runner-secret-creator-role.yaml):
+
+```bash
+gcloud iam roles create matillion_runner_secret_creator \
+  --project=<your-project-id> \
+  --file=runner-secret-creator-role.yaml
+```
+
+The deployment then sets, in `terraform.tfvars`:
+
+```hcl
+existing_runner_secret_creator_role_id = "projects/<your-project-id>/roles/matillion_runner_secret_creator"
+```
+
+With this set, Terraform creates no custom role and grants the given role to the runner service account, so the deployer no longer needs `iam.roles.create`. It still needs to set the project IAM policy to grant the role. Restricting the deployer's `setIamPolicy` to named roles needs an IAM condition, which is covered separately.
+
+`terraform destroy` removes the grant and leaves the pre-created role in place. Several deployments in one project can share the role.
+
+Do not delete and recreate the role with the same id. A deleted custom role can be undeleted for 7 days (`gcloud iam roles undelete`), and its id cannot be reused for about 37 days after deletion.
+
+#### Upgrading: existing deployments
+
+On an existing deployment, leaving `existing_runner_secret_creator_role_id` unset gives no plan change. The role's address moves from `module.gke.google_project_iam_custom_role.runner_secret_creator` to `module.gke.google_project_iam_custom_role.runner_secret_creator[0]`, which the plan reports as a move only.
+
+Setting it on an existing deployment destroys that deployment's own role (GCP soft-deletes it) and replaces the binding to grant the given role. Between the two, the runner cannot create secrets, so apply when nobody is adding OAuth or cloud credentials in the Matillion UI.
 
 ## Quick Start
 
@@ -236,7 +298,7 @@ master_ipv4_cidr_block = "172.16.0.0/28"
 
 GKE Workload Identity allows pods to authenticate to GCP APIs without managing service account keys. The Terraform module:
 
-1. Creates a GCP Service Account (`runner_workload_sa`)
+1. Creates a GCP Service Account (`runner_workload_sa`), unless `existing_runner_workload_service_account_email` names one created beforehand (see [Pre-creating the runner service account](#pre-creating-the-runner-service-account))
 2. Binds it to the Kubernetes Service Account created by Helm (`matillion/matillion-runner-sa` by default, independent of `var.name`)
 3. Grants the GCP SA access to Secret Manager and GCS
 
@@ -333,17 +395,28 @@ helm upgrade matillion-runner ../../helm/runner --namespace "$NAMESPACE" --reuse
   --set gcp.workloadIdentity.serviceAccountEmail="$GSA"
 kubectl rollout status deployment/matillion-runner-app -n "$NAMESPACE"
 
-# 5. Confirm the pod actually gets it — this is the only check that proves
-#    all three layers line up.
+# 5. Confirm the pod can get a token. This is the only check that proves all
+#    three layers line up. It prints the HTTP status only, never the token.
+kubectl exec -n "$NAMESPACE" deploy/matillion-runner-app -- \
+  curl -s -o /dev/null -w '%{http_code}\n' -H 'Metadata-Flavor: Google' \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+# must print 200
+
+# 6. Informational: which account the pod is configured with.
 kubectl exec -n "$NAMESPACE" deploy/matillion-runner-app -- \
   curl -sH 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email
-# must print $GSA, not <project-number>-compute@developer.gserviceaccount.com
+# shows $GSA once the annotation is in place, even if step 3's binding is wrong
 ```
 
-Step 5 returning the compute SA means step 1 did not take: the node pool is
-still on `GCE_METADATA` and the annotation is being ignored. Node-pool updates
-recreate nodes, so run them in a maintenance window.
+Step 5 returning 403 while step 6 prints `$GSA` means step 3's binding does not
+match this namespace and Kubernetes service account: the member must be exactly
+`serviceAccount:$PROJECT.svc.id.goog[$NAMESPACE/$KSA]`. Check it first with
+`gcloud iam service-accounts get-iam-policy "$GSA" --project="$PROJECT"`.
+Step 6 returning `<project-number>-compute@developer.gserviceaccount.com` means
+step 1 did not take: the node pool is still on `GCE_METADATA` and the annotation
+is being ignored. Node-pool updates recreate nodes, so run them in a maintenance
+window.
 
 The runner reads its identity once at startup, so step 4's rollout is not
 optional — annotating the ServiceAccount alone leaves the running pods on the
@@ -411,6 +484,177 @@ could not reach Matillion. To fix an affected configuration, set
 and a Cloud NAT, see `modules/gcp/networking/main.tf`), or move to
 `existing_network` with a VPC that provides its own egress. This root now
 requires Terraform 1.2 or later.
+
+### Pre-creating the node service account
+
+GKE checks `iam.serviceAccounts.actAs` on the node service account when it
+creates the cluster and the node pool. A service account created by this module
+has no id before apply, so actAs cannot be limited to it in advance. Creating
+the account once beforehand lets an IAM admin limit actAs to that one account.
+
+One-time commands for an IAM admin:
+
+```bash
+gcloud iam service-accounts create runner-nodes \
+  --project=<project-id> \
+  --display-name="Matillion runner GKE nodes"
+
+gcloud iam service-accounts add-iam-policy-binding \
+  runner-nodes@<project-id>.iam.gserviceaccount.com \
+  --project=<project-id> \
+  --member="serviceAccount:<deployer-email>" \
+  --role="roles/iam.serviceAccountUser"
+```
+
+Use `--member="user:<email>"` for a user deployer. To grant the role at project
+level instead, add a condition on the account's unique id. Get the id with
+`gcloud iam service-accounts describe runner-nodes@<project-id>.iam.gserviceaccount.com --format='value(uniqueId)'`
+and use the condition expression
+`resource.name == "projects/-/serviceAccounts/<unique-id>"`.
+
+Then set in `terraform.tfvars`:
+
+```hcl
+existing_node_service_account_email = "runner-nodes@<project-id>.iam.gserviceaccount.com"
+```
+
+The module then creates no node service account, and both the cluster's
+initial node pool and the runner node pool run as this account. The deployer
+needs no `roles/iam.serviceAccountUser` at project level.
+
+By default (`grant_node_project_roles = true`) Terraform grants this account
+`roles/logging.logWriter`, `roles/monitoring.metricWriter` and
+`roles/monitoring.viewer` on the project, and `terraform destroy` removes them,
+including an identical grant made outside Terraform. Do not also grant these
+three by hand.
+
+With `grant_node_project_roles = false`, Terraform makes no project grant to
+the node account and the deployer needs no project IAM rights for it. The IAM
+admin grants the three roles instead:
+
+```bash
+gcloud projects add-iam-policy-binding <project-id> \
+  --member="serviceAccount:runner-nodes@<project-id>.iam.gserviceaccount.com" \
+  --role="roles/logging.logWriter"
+
+gcloud projects add-iam-policy-binding <project-id> \
+  --member="serviceAccount:runner-nodes@<project-id>.iam.gserviceaccount.com" \
+  --role="roles/monitoring.metricWriter"
+
+gcloud projects add-iam-policy-binding <project-id> \
+  --member="serviceAccount:runner-nodes@<project-id>.iam.gserviceaccount.com" \
+  --role="roles/monitoring.viewer"
+```
+
+```hcl
+grant_node_project_roles = false
+```
+
+`grant_node_project_roles = false` without `existing_node_service_account_email`
+fails at plan, because nobody would grant the three roles to the account the
+module creates.
+
+Grant any other role the nodes need (for example Artifact Registry read access
+for private images) yourself.
+
+#### Upgrading
+
+With `existing_node_service_account_email` unset, an existing deployment plans
+no change: the state entry moves from `google_service_account.gke_node_sa` to
+`google_service_account.gke_node_sa[0]`, and the cluster's new `node_config`
+is ignored.
+
+Setting `existing_node_service_account_email` on an existing deployment plans:
+
+- replacement of `google_container_node_pool.runner_nodes` (its
+  `node_config.service_account` forces a new pool);
+- replacement of the three `google_project_iam_member.gke_node_*` grants;
+- destruction of the service account the module created.
+
+The cluster itself is not replaced. The node pool is deleted before the new one
+is created, so every runner pod stops and restarts on the new nodes. Plan for a
+runner outage of several minutes (in europe-west1 a node pool create took 1m16s
+and a destroy 3m34s). Deleting the old service account leaves a
+`deleted:serviceAccount:...?uid=` member in the project IAM policy, which can
+be removed with `gcloud projects remove-iam-policy-binding`.
+
+With `grant_node_project_roles` unset, an existing deployment plans no change:
+the three `google_project_iam_member.gke_node_*` grants move to `[0]`.
+
+Setting `grant_node_project_roles = false` on an existing deployment destroys
+the three node grants. Destroying a `google_project_iam_member` removes the
+binding even when the admin made an identical one, so the admin grants the
+three roles after that apply. Until then the nodes cannot write logs and
+metrics.
+
+### Pre-creating the runner service account
+
+By default the module creates the runner service account and grants it
+project-level roles, which needs `roles/iam.serviceAccountAdmin` and
+`roles/resourcemanager.projectIamAdmin` at project level. An IAM admin can
+create the account and make those grants once instead.
+
+One-time commands for an IAM admin. The first grant uses the role from
+[Pre-creating the runner secret creator role](#pre-creating-the-runner-secret-creator-role):
+
+```bash
+gcloud iam service-accounts create runner-workload \
+  --project=<project-id> \
+  --display-name="Matillion runner workload"
+
+for role in \
+  projects/<project-id>/roles/matillion_runner_secret_creator \
+  roles/secretmanager.secretAccessor \
+  roles/secretmanager.viewer \
+  roles/browser; do
+  gcloud projects add-iam-policy-binding <project-id> \
+    --member="serviceAccount:runner-workload@<project-id>.iam.gserviceaccount.com" \
+    --role="$role"
+done
+
+gcloud iam service-accounts add-iam-policy-binding \
+  runner-workload@<project-id>.iam.gserviceaccount.com \
+  --project=<project-id> \
+  --member="serviceAccount:<deployer-email>" \
+  --role="roles/iam.serviceAccountAdmin"
+```
+
+`roles/iam.serviceAccountAdmin` on this one account lets the deployer add the
+Workload Identity members. A custom role holding only
+`iam.serviceAccounts.getIamPolicy` and `iam.serviceAccounts.setIamPolicy` on
+the account is enough.
+
+Then set in `terraform.tfvars`:
+
+```hcl
+existing_runner_workload_service_account_email = "runner-workload@<project-id>.iam.gserviceaccount.com"
+existing_runner_secret_creator_role_id         = "projects/<project-id>/roles/matillion_runner_secret_creator"
+```
+
+The module then creates no runner service account and makes no project-level
+grant to it. It still grants the account access to the staging bucket, the
+runner secret, `runner_gcs_buckets` and `additional_gcp_projects`. It adds the
+two Kubernetes service accounts to `roles/iam.workloadIdentityUser` on the
+account without removing members added there by others. The Helm value
+`gcp.workloadIdentity.serviceAccountEmail` still comes from
+`terraform output -raw runner_workload_sa_email`.
+
+#### Upgrading
+
+With `existing_runner_workload_service_account_email` and
+`grant_node_project_roles` unset, an existing deployment plans no change. The
+plan reports moves to `[0]` of `google_service_account.runner_workload_sa`,
+`google_service_account_iam_binding.workload_identity_binding`, the four
+runner project grants (`google_project_iam_member.runner_secret_creator`,
+`runner_secret_accessor`, `runner_secret_viewer`, `runner_browser`) and the
+three node grants (`google_project_iam_member.gke_node_*`).
+
+Setting `existing_runner_workload_service_account_email` on an existing
+deployment destroys the module's runner service account, its Workload Identity
+binding and its four project grants, and replaces the staging bucket, runner
+secret, extra bucket and additional project grants with the new member. Runner
+pods lose GCP access until the admin's grants exist and the Helm release is
+upgraded with the new email. Treat it as a migration with downtime.
 
 ## Outputs
 
@@ -546,9 +790,16 @@ kubectl describe pod <pod-name> -n matillion
 # View pod logs
 kubectl logs <pod-name> -c matillion-runner-pods -n matillion
 
-# Check Workload Identity is working
-kubectl exec -it <pod-name> -n matillion -- \
-  curl -H "Metadata-Flavor: Google" \
+# Check Workload Identity is working: must print 200 (status only, never the token).
+# 403 means the roles/iam.workloadIdentityUser binding does not list this
+# namespace and service account (see "Binding an identity to a runner already installed").
+kubectl exec <pod-name> -n matillion -- \
+  curl -s -o /dev/null -w '%{http_code}\n' -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+
+# Informational: which Google service account the pod is configured with
+kubectl exec <pod-name> -n matillion -- \
+  curl -s -H "Metadata-Flavor: Google" \
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email"
 ```
 

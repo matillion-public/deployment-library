@@ -37,7 +37,7 @@ run "oauth_secret_name_defaults_to_deployment_prefix" {
   command = plan
 
   assert {
-    condition     = module.secert_manager.runner_secret_name == "t-abc123-oauth-credentials"
+    condition     = module.secrets_manager.runner_secret_name == "t-abc123-oauth-credentials"
     error_message = "Default OAuth secret name must be <name>-<salt>-oauth-credentials."
   }
 }
@@ -50,7 +50,7 @@ run "oauth_secret_name_override_is_used" {
   }
 
   assert {
-    condition     = module.secert_manager.runner_secret_name == "custom-oauth"
+    condition     = module.secrets_manager.runner_secret_name == "custom-oauth"
     error_message = "secret_name override must be used verbatim."
   }
 }
@@ -63,7 +63,7 @@ run "tags_reach_oauth_secret" {
   }
 
   assert {
-    condition     = module.secert_manager.runner_secret_tags["Owner"] == "team"
+    condition     = module.secrets_manager.runner_secret_tags["Owner"] == "team"
     error_message = "var.tags must reach the OAuth secret."
   }
 }
@@ -78,7 +78,7 @@ run "keypair_secret_name_defaults_to_deployment_prefix" {
   }
 
   assert {
-    condition     = module.secert_manager.runner_keypair_secret_name == "t-abc123-runner-keypair"
+    condition     = module.secrets_manager.runner_keypair_secret_name == "t-abc123-runner-keypair"
     error_message = "Default keypair secret name must be <name>-<salt>-runner-keypair."
   }
 }

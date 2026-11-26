@@ -244,7 +244,10 @@ Set once on the **prometheus** chart, not per tenant. Every tenant namespace has
 to appear in both lists — one controls what service discovery finds, the other
 what the Prometheus pod is permitted to reach, and a namespace missing from
 either means that tenant's HPA sits at `minReplicas` with nothing in any log to
-explain it:
+explain it. The script runner's discovery regex and the two pod selectors
+have to be widened as well: by default they match only the labels
+`matillion-runner-pods` and `matillion-runner-script-runner-pods`, which is
+what a release named `matillion-runner` produces:
 
 ```yaml
 config:
@@ -252,8 +255,16 @@ config:
   # Each release labels its pods `<release>-matillion-runner-pods`, so one
   # literal name will not match more than a single tenant.
   scrapePodLabelRegex: ".*matillion-runner-pods"
+  # Script runner pods, labeled `<release>-matillion-runner-script-runner-pods`.
+  scriptRunner:
+    podLabelRegex: ".*matillion-runner-script-runner-pods"
 networkPolicy:
   additionalScrapeNamespaces: [bu-grid, bu-retail, bu-trading]
+  # NetworkPolicy selectors can't match a regex, so admit any pod in the
+  # namespaces above and let the two regexes pick out the runners.
+  # `null`, not `{}`: Helm merges maps, so `{}` keeps the default.
+  runnerPodSelector: null
+  scriptRunnerPodSelector: null
 ```
 
 See `prometheus/README.md` for how to verify every tenant is actually being
