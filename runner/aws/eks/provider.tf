@@ -5,9 +5,10 @@ provider "aws" {
   # Add default tags for all resources
   default_tags {
     tags = {
-      ManagedBy      = "Terraform"
-      DeploymentType = "EKS"
-      Project        = "MatillionRunner"
+      ManagedBy                 = "Terraform"
+      DeploymentType            = "EKS"
+      Project                   = "MatillionRunner"
+      "matillion:deployment-id" = var.name
     }
   }
 }

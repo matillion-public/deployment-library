@@ -41,17 +41,21 @@ data "aws_subnet" "existing_details" {
 }
 
 locals {
+  # Read from the managed VPC when the deployment owns it. Any pending change to that VPC, such as a tag update, defers
+  # the data source read to apply, which leaves the CIDR unknown at plan and forces the subnets to be replaced.
+  vpc_cidr_block = var.use_existing_vpc ? data.aws_vpc.vpc.cidr_block : aws_vpc.main_vpc[0].cidr_block
+
   existing_subnet_cidrs = [for s in data.aws_subnet.existing_details : s.cidr_block]
 
   # CIDR overlap detection using IP-to-integer arithmetic (Terraform-compatible, no cidrcontains)
-  vpc_prefix_len = tonumber(split("/", data.aws_vpc.vpc.cidr_block)[1])
+  vpc_prefix_len = tonumber(split("/", local.vpc_cidr_block)[1])
   candidate_size = pow(2, 32 - local.vpc_prefix_len - 8)
 
   vpc_start_int = (
-    tonumber(element(split(".", cidrhost(data.aws_vpc.vpc.cidr_block, 0)), 0)) * pow(2, 24) +
-    tonumber(element(split(".", cidrhost(data.aws_vpc.vpc.cidr_block, 0)), 1)) * pow(2, 16) +
-    tonumber(element(split(".", cidrhost(data.aws_vpc.vpc.cidr_block, 0)), 2)) * pow(2, 8) +
-    tonumber(element(split(".", cidrhost(data.aws_vpc.vpc.cidr_block, 0)), 3))
+    tonumber(element(split(".", cidrhost(local.vpc_cidr_block, 0)), 0)) * pow(2, 24) +
+    tonumber(element(split(".", cidrhost(local.vpc_cidr_block, 0)), 1)) * pow(2, 16) +
+    tonumber(element(split(".", cidrhost(local.vpc_cidr_block, 0)), 2)) * pow(2, 8) +
+    tonumber(element(split(".", cidrhost(local.vpc_cidr_block, 0)), 3))
   )
 
   existing_subnet_ranges = [
@@ -121,7 +125,7 @@ resource "aws_subnet" "public_subnet" {
   count = var.use_existing_subnet ? 0 : 2
 
   vpc_id                  = data.aws_vpc.vpc.id
-  cidr_block              = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.public_netnums[count.index])
+  cidr_block              = cidrsubnet(local.vpc_cidr_block, 8, local.public_netnums[count.index])
   availability_zone       = element(random_shuffle.aws_availability_zone_names.result, count.index)
   map_public_ip_on_launch = true
   tags = merge(var.tags, {
@@ -133,7 +137,7 @@ resource "aws_subnet" "private_subnet" {
   count = var.use_existing_subnet ? 0 : 2
 
   vpc_id                  = data.aws_vpc.vpc.id
-  cidr_block              = cidrsubnet(data.aws_vpc.vpc.cidr_block, 8, local.private_netnums[count.index])
+  cidr_block              = cidrsubnet(local.vpc_cidr_block, 8, local.private_netnums[count.index])
   availability_zone       = element(random_shuffle.aws_availability_zone_names.result, count.index)
   map_public_ip_on_launch = false
   tags = merge(var.tags, {

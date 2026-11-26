@@ -11,6 +11,11 @@ variable "namespace" {
   type        = string
   description = "Kubernetes namespace the runner is deployed into. Must match the namespace used in Helm chart installation (default: matillion). The federated credential subject references this namespace for AAD token exchange."
   default     = "matillion"
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$", var.namespace))
+    error_message = "namespace must be a valid Kubernetes namespace: lowercase letters, digits and hyphens, starting and ending with a letter or digit, up to 63 characters."
+  }
 }
 
 # ServiceAccount names presented by the runner pods. These are fixed by the Helm
@@ -156,8 +161,15 @@ variable "workload_identity_enabled" {
 
 variable "create_runner_identity" {
   type        = bool
-  description = "Create the shared runner managed identity: its federated credentials for the runner and script-runner service accounts in var.namespace, and its Key Vault Secrets User and Reader grants on the whole vault, Reader on the subscription and Storage Blob Data Contributor on the staging account. Only takes effect with workload_identity_enabled. Set false on a shared cluster where each tenant gets its own identity from modules/azure/runner-identity, because the shared identity can read every secret in the vault, which is the access per-tenant identities exist to withhold. The OIDC issuer and workload identity addon stay enabled either way."
+  description = "Create the shared runner managed identity: its federated credentials for the runner and script-runner service accounts in var.namespace, and its Key Vault Secrets User and Reader grants on the whole vault, Reader on the subscription (unless grant_runner_subscription_reader is false) and Storage Blob Data Contributor on the staging account. Only takes effect with workload_identity_enabled. Set false on a shared cluster where each tenant gets its own identity from modules/azure/runner-identity, because the shared identity can read every secret in the vault, which is the access per-tenant identities exist to withhold. The OIDC issuer and workload identity addon stay enabled either way."
   default     = true
+}
+
+variable "grant_runner_subscription_reader" {
+  type        = bool
+  description = "Grant the shared runner identity Reader on the whole subscription. Only takes effect when the shared identity is created (workload_identity_enabled and create_runner_identity). Planning and applying this grant needs Microsoft.Authorization/roleAssignments/read and roleAssignments/write at subscription scope from whoever runs Terraform. Set false when that principal is scoped to the resource group. Running pipelines without this grant has not been tested. Setting false on an existing deployment destroys the assignment, which needs roleAssignments/delete at subscription scope."
+  default     = true
+  nullable    = false
 }
 
 variable "service_principal_enabled" {

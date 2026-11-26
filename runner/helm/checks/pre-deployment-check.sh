@@ -511,6 +511,44 @@ case "$CP" in
                 "Configure Workload Identity (recommended) or inject SP credentials via a Secret"
         fi
         ;;
+    GCP)
+        GCP_MD="http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default"
+        GCP_EMAIL=""
+        GCP_TOKEN_CODE=""
+        # Every /token request discards the body (-o /dev/null, -O /dev/null): only the status is reported.
+        if command -v curl >/dev/null 2>&1; then
+            GCP_EMAIL=$(curl -s --connect-timeout 3 --max-time 5 -H 'Metadata-Flavor: Google' "${GCP_MD}/email" 2>/dev/null || true)
+            GCP_TOKEN_CODE=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 \
+                -H 'Metadata-Flavor: Google' "${GCP_MD}/token" 2>/dev/null || true)
+            [[ -z "$GCP_TOKEN_CODE" ]] && GCP_TOKEN_CODE="000"
+        elif command -v wget >/dev/null 2>&1; then
+            GCP_EMAIL=$(wget -q -T 5 -O - --header='Metadata-Flavor: Google' "${GCP_MD}/email" 2>/dev/null || true)
+            if wget -q -T 5 -O /dev/null --header='Metadata-Flavor: Google' "${GCP_MD}/token" 2>/dev/null; then
+                GCP_TOKEN_CODE="200"
+            else
+                GCP_TOKEN_CODE="non-200 (wget)"
+            fi
+        fi
+
+        if [[ -z "$GCP_TOKEN_CODE" ]]; then
+            warn "GCP: no curl or wget available, cannot check the metadata token"
+            add_issue "WARN" "GCP metadata token not checked (no curl or wget in the pod)" \
+                "Run the /token status command from runner/gcp/gke/README.md (Troubleshooting) from a pod that has curl"
+        else
+            GCP_EMAIL="${GCP_EMAIL%%$'\n'*}"
+            info "GCP metadata service account (/email): ${GCP_EMAIL:-<empty>}"
+            if [[ "$GCP_TOKEN_CODE" == "200" ]]; then
+                pass "GCP metadata server issued an access token (HTTP 200)"
+            else
+                fail "GCP metadata server did not issue an access token (HTTP ${GCP_TOKEN_CODE})"
+                detail "403 with the expected /email means the roles/iam.workloadIdentityUser binding on that"
+                detail "Google service account does not list serviceAccount:<PROJECT>.svc.id.goog[<namespace>/<ksa>]"
+                detail "000 means the metadata server was unreachable"
+                add_issue "FAIL" "GCP Workload Identity: no access token from the metadata server (HTTP ${GCP_TOKEN_CODE})" \
+                    "Check the roles/iam.workloadIdentityUser binding on the Google service account: gcloud iam service-accounts get-iam-policy <gsa-email> must list serviceAccount:<PROJECT>.svc.id.goog[<namespace>/<ksa>]. Also check the node pool uses --workload-metadata=GKE_METADATA."
+            fi
+        fi
+        ;;
     "")
         warn "CLOUD_PROVIDER not set — cannot validate cloud credentials"
         detail "Set CLOUD_PROVIDER to AWS or AZURE in your deployment configuration"
@@ -518,7 +556,7 @@ case "$CP" in
             "Set the CLOUD_PROVIDER environment variable on the runner pod"
         ;;
     *)
-        info "CLOUD_PROVIDER=${CP} — skipping credential validation (only AWS/AZURE supported)"
+        info "CLOUD_PROVIDER=${CP} — skipping credential validation (only AWS/AZURE/GCP supported)"
         ;;
 esac
 
