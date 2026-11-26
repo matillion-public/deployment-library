@@ -3,11 +3,19 @@ locals {
   name_prefix          = substr(lower(replace(var.name, "_", "-")), 0, 16)
   node_sa_account_id   = lookup(var.resource_names, "node_service_account", "${local.name_prefix}-n-${var.random_string_salt}")
   runner_sa_account_id = lookup(var.resource_names, "runner_workload_service_account", "${local.name_prefix}-a-${var.random_string_salt}")
+  node_sa_email        = var.existing_node_service_account_email != null ? var.existing_node_service_account_email : google_service_account.gke_node_sa[0].email
+  runner_sa_email      = var.existing_runner_workload_service_account_email != null ? var.existing_runner_workload_service_account_email : google_service_account.runner_workload_sa[0].email
+  # Project that owns the pre-created runner account, taken from its email.
+  runner_sa_project = var.existing_runner_workload_service_account_email != null ? regex("@([a-z][a-z0-9.-]*[a-z0-9])\\.iam\\.gserviceaccount\\.com$", var.existing_runner_workload_service_account_email)[0] : null
 
   # Fixed to match the Helm chart's default release name, not var.name — see README Workload Identity section.
   k8s_namespace                          = var.k8s_namespace != "" ? var.k8s_namespace : "matillion"
   k8s_service_account_name               = var.k8s_service_account_name != "" ? var.k8s_service_account_name : "matillion-runner-sa"
   script_runner_k8s_service_account_name = var.script_runner_k8s_service_account_name != "" ? var.script_runner_k8s_service_account_name : "matillion-runner-script-runner-sa"
+  workload_identity_members = toset([
+    "serviceAccount:${var.project_id}.svc.id.goog[${local.k8s_namespace}/${local.k8s_service_account_name}]",
+    "serviceAccount:${var.project_id}.svc.id.goog[${local.k8s_namespace}/${local.script_runner_k8s_service_account_name}]",
+  ])
 
   # Flat map of bucket/role pairs for extra GCS bucket permissions
   runner_extra_bucket_roles = {
@@ -37,6 +45,22 @@ resource "google_container_cluster" "gke_cluster" {
   # node pool and immediately delete it.
   remove_default_node_pool = true
   initial_node_count       = 1
+
+  # The initial pool is deleted straight after creation (remove_default_node_pool), but it is
+  # created first, so it must run as the node service account rather than the default compute one.
+  node_config {
+    service_account = local.node_sa_email
+    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+  }
+
+  lifecycle {
+    ignore_changes = [node_config]
+
+    precondition {
+      condition     = var.grant_node_project_roles || var.existing_node_service_account_email != null
+      error_message = "grant_node_project_roles = false requires existing_node_service_account_email. Without it the module creates the node service account and nobody grants it roles/logging.logWriter, roles/monitoring.metricWriter and roles/monitoring.viewer."
+    }
+  }
 
   network    = var.network_id
   subnetwork = var.subnet_id
@@ -100,7 +124,7 @@ resource "google_container_node_pool" "runner_nodes" {
       mode = "GKE_METADATA"
     }
 
-    service_account = google_service_account.gke_node_sa.email
+    service_account = local.node_sa_email
 
     oauth_scopes = [
       "https://www.googleapis.com/auth/cloud-platform"
@@ -124,48 +148,101 @@ resource "google_container_node_pool" "runner_nodes" {
 
 # Service Account for GKE nodes
 resource "google_service_account" "gke_node_sa" {
+  count = var.existing_node_service_account_email == null ? 1 : 0
+
   account_id   = local.node_sa_account_id
   display_name = "GKE Node Service Account for ${var.name}"
   project      = var.project_id
 }
 
+moved {
+  from = google_service_account.gke_node_sa
+  to   = google_service_account.gke_node_sa[0]
+}
+
 resource "google_project_iam_member" "gke_node_log_writer" {
+  count = var.grant_node_project_roles ? 1 : 0
+
   project = var.project_id
   role    = "roles/logging.logWriter"
-  member  = "serviceAccount:${google_service_account.gke_node_sa.email}"
+  member  = "serviceAccount:${local.node_sa_email}"
 }
 
 resource "google_project_iam_member" "gke_node_metric_writer" {
+  count = var.grant_node_project_roles ? 1 : 0
+
   project = var.project_id
   role    = "roles/monitoring.metricWriter"
-  member  = "serviceAccount:${google_service_account.gke_node_sa.email}"
+  member  = "serviceAccount:${local.node_sa_email}"
 }
 
 resource "google_project_iam_member" "gke_node_monitoring_viewer" {
+  count = var.grant_node_project_roles ? 1 : 0
+
   project = var.project_id
   role    = "roles/monitoring.viewer"
-  member  = "serviceAccount:${google_service_account.gke_node_sa.email}"
+  member  = "serviceAccount:${local.node_sa_email}"
+}
+
+moved {
+  from = google_project_iam_member.gke_node_log_writer
+  to   = google_project_iam_member.gke_node_log_writer[0]
+}
+
+moved {
+  from = google_project_iam_member.gke_node_metric_writer
+  to   = google_project_iam_member.gke_node_metric_writer[0]
+}
+
+moved {
+  from = google_project_iam_member.gke_node_monitoring_viewer
+  to   = google_project_iam_member.gke_node_monitoring_viewer[0]
 }
 
 # GCP Service Account for Runner Workload Identity
 resource "google_service_account" "runner_workload_sa" {
+  count = var.existing_runner_workload_service_account_email == null ? 1 : 0
+
   account_id   = local.runner_sa_account_id
   display_name = "Runner Workload Identity Service Account for ${var.name}"
   project      = var.project_id
 }
 
-# Workload Identity binding: Kubernetes SA -> GCP SA
+moved {
+  from = google_service_account.runner_workload_sa
+  to   = google_service_account.runner_workload_sa[0]
+}
+
+# Workload Identity binding: Kubernetes SA -> GCP SA, for the runner account this module creates.
 # Covers both the runner SA and the script-runner SA (same GCP identity, different k8s SAs).
 # The Kubernetes SAs are created by Helm in the namespace matching var.name.
 # depends_on the cluster ensures the Workload Identity pool exists before binding.
 resource "google_service_account_iam_binding" "workload_identity_binding" {
-  service_account_id = google_service_account.runner_workload_sa.name
+  count = var.existing_runner_workload_service_account_email == null ? 1 : 0
+
+  service_account_id = google_service_account.runner_workload_sa[0].name
   role               = "roles/iam.workloadIdentityUser"
   members = [
     "serviceAccount:${var.project_id}.svc.id.goog[${local.k8s_namespace}/${local.k8s_service_account_name}]",
     "serviceAccount:${var.project_id}.svc.id.goog[${local.k8s_namespace}/${local.script_runner_k8s_service_account_name}]"
   ]
   depends_on = [google_container_cluster.gke_cluster]
+}
+
+moved {
+  from = google_service_account_iam_binding.workload_identity_binding
+  to   = google_service_account_iam_binding.workload_identity_binding[0]
+}
+
+# Workload Identity for a runner account created outside this module. Non-authoritative,
+# so members an admin added to roles/iam.workloadIdentityUser on that account are kept.
+resource "google_service_account_iam_member" "workload_identity_member" {
+  for_each = var.existing_runner_workload_service_account_email != null ? local.workload_identity_members : toset([])
+
+  service_account_id = "projects/${local.runner_sa_project}/serviceAccounts/${var.existing_runner_workload_service_account_email}"
+  role               = "roles/iam.workloadIdentityUser"
+  member             = each.value
+  depends_on         = [google_container_cluster.gke_cluster]
 }
 
 # GCS Bucket for runner staging storage
@@ -187,7 +264,7 @@ resource "google_storage_bucket" "staging" {
 resource "google_storage_bucket_iam_member" "runner_storage_admin" {
   bucket = google_storage_bucket.staging.name
   role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.runner_workload_sa.email}"
+  member = "serviceAccount:${local.runner_sa_email}"
 }
 
 # Secret Manager secret for runner credentials
@@ -206,14 +283,17 @@ resource "google_secret_manager_secret_iam_member" "runner_secret_version_manage
   project   = var.project_id
   secret_id = google_secret_manager_secret.runner_secret.secret_id
   role      = "roles/secretmanager.secretVersionManager"
-  member    = "serviceAccount:${google_service_account.runner_workload_sa.email}"
+  member    = "serviceAccount:${local.runner_sa_email}"
 }
 
 # Custom IAM role granting only the permissions needed to create secrets, populate their first
 # version, and set secret-level IAM policies when users define OAuth or Cloud Credentials in the
 # Matillion UI. No built-in GCP role grants these without also granting delete/destroy, so a
-# custom role is used.
+# custom role is used. The role is not created when existing_runner_secret_creator_role_id
+# names one created beforehand.
 resource "google_project_iam_custom_role" "runner_secret_creator" {
+  count = var.existing_runner_secret_creator_role_id == null ? 1 : 0
+
   # A role id rejects hyphens. The replace() is only the fallback for a deployment
   # that sets no convention — modules/gcp/naming generates this key in its
   # underscore form, so a convention-supplied name is never rewritten after the
@@ -230,31 +310,71 @@ resource "google_project_iam_custom_role" "runner_secret_creator" {
   ]
 }
 
+moved {
+  from = google_project_iam_custom_role.runner_secret_creator
+  to   = google_project_iam_custom_role.runner_secret_creator[0]
+}
+
 resource "google_project_iam_member" "runner_secret_creator" {
+  count = var.existing_runner_workload_service_account_email == null ? 1 : 0
+
   project = var.project_id
-  role    = google_project_iam_custom_role.runner_secret_creator.name
-  member  = "serviceAccount:${google_service_account.runner_workload_sa.email}"
+  role    = var.existing_runner_secret_creator_role_id != null ? var.existing_runner_secret_creator_role_id : google_project_iam_custom_role.runner_secret_creator[0].name
+  member  = "serviceAccount:${local.runner_sa_email}"
+
+  lifecycle {
+    precondition {
+      condition     = var.existing_runner_secret_creator_role_id == null || startswith(var.existing_runner_secret_creator_role_id, "projects/${var.project_id}/roles/")
+      error_message = "existing_runner_secret_creator_role_id must be a custom role in project ${var.project_id}."
+    }
+  }
 }
 
 # Project-wide Secret Manager access — required for the Matillion UI to list and read secrets
 resource "google_project_iam_member" "runner_secret_accessor" {
+  count = var.existing_runner_workload_service_account_email == null ? 1 : 0
+
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${google_service_account.runner_workload_sa.email}"
+  member  = "serviceAccount:${local.runner_sa_email}"
 }
 
 # Allows the runner to list/get secret metadata (required for list-secrets in the Matillion UI)
 resource "google_project_iam_member" "runner_secret_viewer" {
+  count = var.existing_runner_workload_service_account_email == null ? 1 : 0
+
   project = var.project_id
   role    = "roles/secretmanager.viewer"
-  member  = "serviceAccount:${google_service_account.runner_workload_sa.email}"
+  member  = "serviceAccount:${local.runner_sa_email}"
 }
 
 # Read access to GCP project metadata (required for the "GCP Project ID" field in the Matillion UI)
 resource "google_project_iam_member" "runner_browser" {
+  count = var.existing_runner_workload_service_account_email == null ? 1 : 0
+
   project = var.project_id
   role    = "roles/browser"
-  member  = "serviceAccount:${google_service_account.runner_workload_sa.email}"
+  member  = "serviceAccount:${local.runner_sa_email}"
+}
+
+moved {
+  from = google_project_iam_member.runner_secret_creator
+  to   = google_project_iam_member.runner_secret_creator[0]
+}
+
+moved {
+  from = google_project_iam_member.runner_secret_accessor
+  to   = google_project_iam_member.runner_secret_accessor[0]
+}
+
+moved {
+  from = google_project_iam_member.runner_secret_viewer
+  to   = google_project_iam_member.runner_secret_viewer[0]
+}
+
+moved {
+  from = google_project_iam_member.runner_browser
+  to   = google_project_iam_member.runner_browser[0]
 }
 
 # Extra GCS bucket read permissions for user-supplied buckets (custom certs, Python libs, external drivers)
@@ -263,7 +383,7 @@ resource "google_storage_bucket_iam_member" "runner_extra_bucket_viewer" {
 
   bucket = each.value.bucket
   role   = each.value.role
-  member = "serviceAccount:${google_service_account.runner_workload_sa.email}"
+  member = "serviceAccount:${local.runner_sa_email}"
 }
 
 # Additional GCP project (vault) access — each project appears in the Matillion UI's GCP Project ID dropdown
@@ -272,5 +392,5 @@ resource "google_project_iam_member" "runner_additional_project_roles" {
 
   project = each.value.project
   role    = each.value.role
-  member  = "serviceAccount:${google_service_account.runner_workload_sa.email}"
+  member  = "serviceAccount:${local.runner_sa_email}"
 }

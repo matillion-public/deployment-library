@@ -204,6 +204,17 @@ variable "tags" {
   default     = {}
 }
 
+variable "lambda_policy_arn" {
+  description = "Optional: ARN of an IAM policy to attach to the adapter Lambda role in place of the inline policy built from data.aws_iam_policy_document.lambda. When set, the ARN is attached and the inline policy is not created; the caller owns the policy content. Null keeps the inline policy."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.lambda_policy_arn == null || can(regex("^arn:aws[a-z-]*:iam::(aws|[0-9]{12}):policy/.+$", var.lambda_policy_arn))
+    error_message = "lambda_policy_arn must be null or an IAM policy ARN (arn:aws:iam::<account id or aws>:policy/<path and name>)."
+  }
+}
+
 variable "resource_names" {
   description = <<-EOT
     Resource key to explicit name, overriding the generated default. Intended to be

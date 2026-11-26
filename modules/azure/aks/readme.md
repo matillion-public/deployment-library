@@ -54,6 +54,7 @@ Defines the input variables used in the Terraform configurations:
 - `admin_group_object_ids`: Entra ID group object IDs bound to cluster-admin; only used with `azure_rbac_enabled = true`
 - `local_account_disabled`: Disable local accounts and the admin kubeconfig; requires `azure_rbac_enabled = true`
 - `enable_container_insights`: Create a Log Analytics workspace and connect the cluster to it (Container Insights); false (default) creates neither (see [Container Insights](#container-insights))
+- `enable_key_vault_secrets_provider`: Enable the Key Vault Secrets Store CSI driver addon with secret rotation; false (default) leaves it off (see [Key Vault secrets provider](#key-vault-secrets-provider))
 - `random_string_salt`: Random string for uniqueness
 - `is_private_cluster`: Boolean to enable private cluster
 - `authorized_ip_ranges`: List of authorized IP ranges for API server
@@ -135,7 +136,7 @@ With `workload_identity_enabled` (the default) the module turns on the cluster's
 OIDC issuer and workload identity addon, and also creates one shared runner
 identity, federated to the runner and script-runner service accounts in
 `namespace`. That identity holds `Key Vault Secrets User` and `Reader` on the
-whole vault, `Reader` on the subscription and `Storage Blob Data Contributor` on
+whole vault, `Reader` on the subscription (unless `grant_runner_subscription_reader = false`) and `Storage Blob Data Contributor` on
 the staging account — right for one runner, wrong once the cluster and vault
 are shared between tenants.
 
@@ -286,13 +287,19 @@ apply only creates the missing grant.
 ## Cluster access
 
 By default local accounts are enabled and the cluster has no Entra ID
-integration. Anyone with Contributor on the cluster
-(`Microsoft.ContainerService/managedClusters/listClusterAdminCredential/action`)
-can run `az aks get-credentials --admin` and get a kubeconfig whose client
-certificate is `O=system:masters, CN=masterclient`. The credential is not tied
-to the caller, keeps working after the caller's role is removed until the
-cluster certificates are rotated, and Kubernetes audit logs record
-`masterclient`.
+integration. In that state both cluster credentials are the same static client
+certificate, `O=system:masters, CN=masterclient`:
+
+- `az aks get-credentials` calls
+  `Microsoft.ContainerService/managedClusters/listClusterUserCredential/action`.
+- `az aks get-credentials --admin` calls
+  `Microsoft.ContainerService/managedClusters/listClusterAdminCredential/action`.
+
+Contributor on the cluster includes both actions. Any role that includes
+`listClusterUserCredential`, such as the built-in Azure Kubernetes Service
+Cluster User Role, also gets `system:masters`. The credential is not tied to
+the caller, keeps working after the caller's role is removed until the cluster
+certificates are rotated, and Kubernetes audit logs record `masterclient`.
 
 Three inputs change this. All are off by default:
 
@@ -308,8 +315,30 @@ local_account_disabled = true
   cluster-admin. It may be empty, in which case access comes only from Azure
   role assignments on the cluster. Setting it without `azure_rbac_enabled`
   fails the plan.
-- `local_account_disabled = true` removes the admin kubeconfig. It requires
-  `azure_rbac_enabled = true`, and the plan fails without it.
+- `local_account_disabled = true` stops the cluster issuing the static
+  `masterclient` credential. It requires `azure_rbac_enabled = true`, and the
+  plan fails without it.
+
+Static credentials remain available in two cases:
+
+- With `azure_rbac_enabled = true` and `local_account_disabled = false` the
+  cluster still issues the admin credential. The azurerm provider calls
+  `listClusterAdminCredential` when Terraform refreshes the cluster, so the
+  identity running Terraform needs
+  `Microsoft.ContainerService/managedClusters/listClusterAdminCredential/action`,
+  and any principal holding that action can still download the
+  `system:masters` certificate.
+- `local_account_disabled = true` does not stop a principal with Contributor on
+  the cluster. `Microsoft.ContainerService/managedClusters/write` lets it run
+  `az aks update --enable-local-accounts` (about 5 minutes) and then
+  `az aks get-credentials --admin`. The next `terraform plan` shows the change
+  as drift.
+
+Setting `local_account_disabled = true` together with
+`azure_rbac_enabled = true` is the only combination of these inputs in which
+the cluster issues no static credential while the inputs are in effect.
+Kubernetes access then comes only from Azure role assignments on the cluster
+and membership of groups in `admin_group_object_ids`.
 
 With Entra integration on, users, operators and `az aks command invoke` callers
 need an Azure RBAC role on the cluster (for example Azure Kubernetes Service
@@ -406,6 +435,23 @@ enabled.
   plans to destroy the workspace the addon writes to. Set
   `enable_container_insights = true` before applying. Whether Terraform also
   plans to remove the out-of-band addon from the cluster has not been checked.
+
+## Key Vault secrets provider
+
+`enable_key_vault_secrets_provider = true` adds a `key_vault_secrets_provider`
+block to the cluster, which installs the Secrets Store CSI driver with the
+Azure Key Vault provider, with `secret_rotation_enabled = true`. The runner chart
+uses it to read its OAuth credentials from Key Vault through
+`config.existingSecret`: see
+[OAuth credentials from a Secret you manage](../../../runner/helm/README.md#oauth-credentials-from-a-secret-you-manage).
+Rotation is on because without it the driver never updates a Kubernetes Secret
+it has already synced, so a client secret rotated in Key Vault would not reach
+the runner. The driver polls Key Vault every 2 minutes by default.
+
+With the default, false, the cluster has no `key_vault_secrets_provider` block.
+An addon enabled outside Terraform with `az aks enable-addons --addons
+azure-keyvault-secrets-provider` is then planned for removal on the next apply.
+Set the variable to true before applying to keep it.
 
 ## Service Principal Setup
 

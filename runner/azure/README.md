@@ -40,10 +40,11 @@ To put a runner into an AKS cluster you already run, beside any other runners, u
 
 ## Prerequisites
 
-- [Terraform 1.0+](https://www.terraform.io/downloads.html)
+- [Terraform 1.5+](https://www.terraform.io/downloads.html)
+- [Helm 3](https://helm.sh/docs/intro/install/)
+- [kubectl](https://kubernetes.io/docs/tasks/tools/)
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
-- Azure subscription with appropriate permissions
-- Contributor access to resource group
+- The permissions in [Required Azure Permissions](#required-azure-permissions): Owner on the resource group, or the custom roles in [aks/permissions](aks/permissions/)
 
 ### Image Delivery & Network Requirements
 
@@ -64,52 +65,144 @@ az account set --subscription "your-subscription-id"
 az role assignment list --assignee $(az account show --query user.name -o tsv)
 ```
 
+The principal that runs Terraform needs either Owner on the resource group, plus `Microsoft.Authorization/roleAssignments/read`, `/write` and `/delete` at subscription scope while `grant_runner_subscription_reader = true`, plus the purge actions below with `purge_key_vault_on_destroy = true`, or the custom roles below. Owner, User Access Administrator and Role Based Access Control Administrator let the holder assign any role, including Owner to itself, at the scope where it holds them.
+
+The custom roles are in [aks/permissions](aks/permissions/):
+
+| File | Assign at | Condition | Needed when |
+|------|-----------|-----------|-------------|
+| `deployer-resource-group-role.json` | resource group | none | always |
+| `deployer-role-assignments-role.json` | resource group | `condition-resource-group.txt` | always |
+| `deployer-role-assignments-role.json` | subscription | `condition-subscription.txt` | only while `grant_runner_subscription_reader = true` (default `true`) |
+| `deployer-purge-role.json` | subscription | none | only with `purge_key_vault_on_destroy = true` (default `false`) |
+
+The conditions limit what the role-assignments role can write and delete. At the resource group, it can write and delete assignments of Key Vault Administrator, Key Vault Secrets Officer, Key Vault Secrets User, Storage Account Contributor, Storage Blob Data Contributor and Reader. At the subscription, it can write an assignment of Reader to a principal of type `ServicePrincipal` and delete assignments of Reader. Reading role assignments is not conditioned.
+
+Replace the placeholders before you create the roles:
+
+- `<ROLE_PREFIX>`: a prefix for the role names. Custom role names are unique in the tenant, so use a different prefix for each deployment that has its own roles.
+- `<SUBSCRIPTION_ID>`: the ID of the subscription you deploy into.
+- `<RESOURCE_GROUP>`: the resource group you deploy into, the same value as `resource_group_name`. The resource group must exist before you create the roles, see Quick Start step 2.
+
+An administrator who holds `Microsoft.Authorization/roleDefinitions/write` and `Microsoft.Authorization/roleAssignments/write` at the subscription creates the roles and assigns them to the deploying principal (object ID in `DEPLOYER_OBJECT_ID`):
+
+```bash
+cd runner/azure/aks/permissions
+for f in deployer-*-role.json; do
+  sed -e "s/<ROLE_PREFIX>/$ROLE_PREFIX/g" -e "s/<SUBSCRIPTION_ID>/$SUBSCRIPTION_ID/g" \
+      -e "s/<RESOURCE_GROUP>/$RESOURCE_GROUP/g" "$f" > "/tmp/$f"
+  az role definition create --role-definition "@/tmp/$f"
+done
+
+RG_SCOPE="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
+
+az role assignment create --assignee-object-id "$DEPLOYER_OBJECT_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "$ROLE_PREFIX-aks-deployer-rg" --scope "$RG_SCOPE"
+
+az role assignment create --assignee-object-id "$DEPLOYER_OBJECT_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "$ROLE_PREFIX-aks-deployer-role-assignments" --scope "$RG_SCOPE" \
+  --condition "$(cat condition-resource-group.txt)" --condition-version 2.0
+
+# Only while grant_runner_subscription_reader = true
+az role assignment create --assignee-object-id "$DEPLOYER_OBJECT_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "$ROLE_PREFIX-aks-deployer-role-assignments" \
+  --scope "/subscriptions/$SUBSCRIPTION_ID" \
+  --condition "$(cat condition-subscription.txt)" --condition-version 2.0
+
+# Only with purge_key_vault_on_destroy = true
+az role assignment create --assignee-object-id "$DEPLOYER_OBJECT_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "$ROLE_PREFIX-aks-deployer-purge" \
+  --scope "/subscriptions/$SUBSCRIPTION_ID"
+```
+
+Use `--assignee-principal-type User` when the deploying principal is a user. Role assignments can take several minutes to take effect.
+
+The role-assignments role is assignable at the subscription because one of its assignments is there. If you never set `grant_runner_subscription_reader = true`, you can narrow its `AssignableScopes` to the resource group; this has not been tested.
+
+Remaining escalation paths with the custom roles:
+
+- The deploying principal can assign Key Vault Administrator or Storage Blob Data Contributor to itself or any principal at the resource group, which reaches every Key Vault and storage account in it.
+- `Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/write` has no condition keys, so the deploying principal can add a federated credential to any user-assigned identity in the resource group and sign in as that identity.
+- While `grant_runner_subscription_reader = true`, the deploying principal can give Reader on the whole subscription to any service principal, including itself.
+- The resource-group role covers every resource of its types in the resource group, for example `Microsoft.Storage/storageAccounts/listKeys/action` (shared-key access to every storage account) and `Microsoft.ContainerService/managedClusters/listClusterUserCredential/action` (cluster-admin on any cluster with local accounts enabled, the default).
+
+Deploying into a resource group that holds only this deployment limits the first, second and fourth paths to the deployment's own resources. The third goes away with `grant_runner_subscription_reader = false`. The custom roles do not allow assigning Owner, User Access Administrator or Contributor at the resource group or subscription, and do not include `Microsoft.Authorization/roleDefinitions/write`.
+
+Coverage: the roles were measured as a service principal holding only these roles, for create, a no-change plan and destroy, in three configurations: default inputs (`is_private_cluster = true`, `grant_runner_subscription_reader = true`); `is_private_cluster = false` with `grant_runner_subscription_reader = false` and no subscription-scope assignment; and `purge_key_vault_on_destroy = true` with the purge role. In-place updates of an existing deployment and a user (rather than a service principal) as the deploying principal were not measured. These inputs were not measured and need actions the roles do not include:
+
+- `enable_nat_gateway = true`
+- `enable_container_insights = true`
+- `existing_subnet_ids` (needs `Microsoft.Network/virtualNetworks/subnets/join/action` on the subnet's resource group)
+- `service_principal_enabled = true` (Microsoft Graph read for the `azuread_service_principal` data source)
+- resource providers that are not registered yet (`<namespace>/register/action`)
+- `azure_rbac_enabled = true` with `local_account_disabled = false` (refresh calls `listClusterAdminCredential`)
+
+#### Subscription-level permissions
+
+By default the deployment grants the runner's managed identity Reader on the whole subscription (`runner_subscription_reader_role` in `modules/azure/aks`). Because of that grant, whoever runs Terraform needs `Microsoft.Authorization/roleAssignments/read` at subscription scope to plan an existing deployment and `Microsoft.Authorization/roleAssignments/write` at subscription scope to apply (`deployer-role-assignments-role.json` assigned at the subscription with `condition-subscription.txt` grants both). Without them, plan fails with `403 AuthorizationFailed`, or apply fails on this resource after the cluster and the other resources have been created.
+
+An operator whose rights end at the resource group sets `grant_runner_subscription_reader = false`. The deployment then creates no subscription-scope assignment. The other role assignments are on the Key Vault and storage account in the resource group, so the operator still needs to write role assignments there (Owner on the resource group, or the custom roles above). With the custom roles, leave out the subscription-scope assignment of `deployer-role-assignments-role.json`.
+
+The runner logs in with `az login --identity --allow-no-subscriptions`. Without the grant it was tested for login, Key Vault read, blob read and write and the Agent Gateway connection. Running pipelines without the grant has not been tested.
+
+Upgrading: with the default (`true`) an existing deployment sees no plan change. Setting `false` on an existing deployment destroys that one role assignment, which needs `Microsoft.Authorization/roleAssignments/delete` at subscription scope for that apply. Run `terraform plan` and check that `module.aks.azurerm_role_assignment.runner_subscription_reader_role[0]` is the only resource destroyed.
+
+```hcl
+grant_runner_subscription_reader = false
+```
+
 ## Quick Start
 
 ### 1. Clone and Navigate
 
 ```bash
 git clone <repository-url>
-cd poc-agent-deployment/runner/azure/aks
+cd agent-deployment/runner/azure/aks
 ```
 
 ### 2. Configure Variables
+
+The resource group must already exist: Terraform references it and does not create it. Create it with:
+
+```bash
+az group create --name matillion-runner-rg --location eastus --tags Environment=production Owner=data-team
+```
 
 Create `terraform.tfvars`:
 
 ```hcl
 # Azure Configuration
 azure_subscription_id = "12345678-1234-1234-1234-123456789012"
+azure_tenant_id       = "your-azure-tenant-id"
 resource_group_name   = "matillion-runner-rg"
-location             = "East US"
-name                 = "matillion-runner"
-
-# Matillion Configuration  
-agent_id            = "your-unique-agent-id"
-account_id          = "your-matillion-account-id"
-matillion_region    = "us-east-1"
-client_id          = "your-oauth-client-id"
-client_secret      = "your-oauth-client-secret"
+location              = "eastus"
+name                  = "matillion-runner"
 
 # AKS Cluster Configuration
-vm_size            = "Standard_D4s_v4"    # 4 vCPU, 16GB RAM
-node_disk_size     = 250                   # GB
-desired_node_count = 3                     # Initial node count
-is_private_cluster = false                 # Public for testing
+vm_size              = "Standard_D4s_v4" # 4 vCPU, 16GB RAM
+node_disk_size       = 250               # GB
+desired_node_count   = 3                 # Initial node count
+is_private_cluster   = false             # Public for testing
 authorized_ip_ranges = ["0.0.0.0/0"]     # Restrict in production
 
-# Runner Configuration
-runner_replicas = 2                         # Number of runner pods
-metrics_exporter_image_repository = "brbajematillion/metrics-sidecar"
-metrics_exporter_image_tag = "latest"
+# Kubernetes namespace the runner is installed into. Must equal the namespace
+# passed to `helm install`; the workload identity federated credentials are bound
+# to it. Leave as matillion unless you install the chart elsewhere.
+namespace = "matillion"
 
-# Optional: Customize tags
+# Required: tags has no default
 tags = {
   Environment = "production"
   Project     = "matillion-runner"
   Owner       = "data-team"
 }
 ```
+
+`namespace` must equal the namespace used in `helm install` below; the workload identity federated credentials are bound to it.
 
 ### 3. Deploy Infrastructure
 
@@ -124,17 +217,52 @@ terraform plan
 terraform apply
 ```
 
-### 4. Verify Deployment
+### 4. Install the runner with Helm
+
+Terraform creates the cluster, identities and Key Vault but does not install the runner chart. Install it with Helm.
+
+Get cluster credentials, still in `runner/azure/aks`. The `k8s_access` output prints the full `az aks get-credentials` command:
+
+```bash
+eval "$(terraform output -raw k8s_access)"
+```
+
+From the repository root (`cd ../../..`), copy the Azure values file, fill in the values below, then install:
+
+```bash
+cp runner/helm/runner/values-azure.yaml my-values.yaml
+# edit my-values.yaml
+helm install matillion-runner ./runner/helm/runner --namespace matillion --create-namespace -f my-values.yaml
+```
+
+| Value | Where it comes from |
+|---|---|
+| `config.oauthClientId` | Matillion Hub |
+| `config.oauthClientSecret` | Matillion Hub |
+| `dpcAgent.dpcAgent.env.accountId` | Matillion Hub |
+| `dpcAgent.dpcAgent.env.agentId` | Matillion Hub |
+| `dpcAgent.dpcAgent.env.matillionRegion` | Matillion Hub |
+| `dpcAgent.dpcAgent.env.defaultKeyvault` | `terraform output -raw key_vault_name`, run in `runner/azure/aks` |
+| `azure.subscriptionId` | `az account show --query id -o tsv` |
+| `azure.workloadIdentity.clientId` | `terraform output -raw k8s_workload_identity_client_id`, run in `runner/azure/aks`. The chart writes it to the `azure.workload.identity/client-id` annotation on the runner service account. |
+
+`my-values.yaml` holds the OAuth client secret. Do not commit it: keep it outside the repository or add its name to `.gitignore` before creating it. To keep the client ID and secret in Key Vault instead of `my-values.yaml`, see [OAuth credentials from a Secret you manage](../helm/README.md#oauth-credentials-from-a-secret-you-manage).
+
+The namespace is `matillion`, the default of the `namespace` variable. To install into another namespace, set `namespace` in `terraform.tfvars` and run `terraform apply` first, because the federated credentials are bound to it. If the chart is installed into a namespace that does not match, the pod fails its token exchange with an MSAL managed identity error and does not become ready.
+
+### 5. Verify Deployment
+
+Run from `runner/azure/aks`:
 
 ```bash
 # Get AKS credentials
-az aks get-credentials --resource-group matillion-runner-rg --name <cluster-name>
+az aks get-credentials --resource-group matillion-runner-rg --name $(terraform output -raw cluster_name)
 
 # Check runner pods
-kubectl get pods -n matillion-runner
+kubectl get pods -n matillion
 
 # Check metrics endpoint
-kubectl port-forward -n matillion-runner deployment/matillion-runner-app 8080:8080
+kubectl port-forward -n matillion deployment/matillion-runner-app 8080:8080
 curl http://localhost:8080/actuator/prometheus
 ```
 
@@ -161,6 +289,21 @@ authorized_ip_ranges = ["your.public.ip.address/32"]
 ```hcl
 is_private_cluster = true
 authorized_ip_ranges = ["10.0.0.0/8", "172.16.0.0/12"]
+```
+
+#### Subnet NSG
+
+The NSG on the subnets this configuration creates allows inbound TCP 443 from
+any source (rule `AllowHTTPS`). Nothing in this repository exposes a service on
+443 (the runner chart creates no LoadBalancer service), so the rule is only
+needed for services added outside it. To tighten it, set
+`https_inbound_source_prefixes` to the CIDRs that need access, or `[]` to remove
+the rule. Either is an in-place update of the NSG. The Azure default rules (VNet
+and Azure load balancer allowed, everything else denied) apply in both cases.
+With `existing_subnet_ids` the NSG is not created and the variable is ignored.
+
+```hcl
+https_inbound_source_prefixes = ["203.0.113.0/24"]
 ```
 
 ### Scaling Configuration
@@ -277,14 +420,7 @@ The deployment creates a User Assigned Managed Identity with minimal permissions
 
 ### Key Vault Configuration
 
-```hcl
-# Automatic secret creation
-resource "azurerm_key_vault_secret" "oauth_client_id" {
-  name         = "oauth-client-id"
-  value        = var.client_id
-  key_vault_id = azurerm_key_vault.keyvault.id
-}
-```
+Terraform creates the Key Vault but does not write the runner's OAuth credentials to it. By default the chart reads them from `config.oauthClientId` and `config.oauthClientSecret` in `my-values.yaml` (step 4). To read them from this vault instead, store them there and sync them into the cluster with the Secrets Store CSI driver: see [From Azure Key Vault on AKS](../helm/README.md#from-azure-key-vault-on-aks). The vault name is the `key_vault_name` output.
 
 ### Network Security
 
@@ -310,10 +446,13 @@ az aks nodepool scale --resource-group matillion-runner-rg \
 ```
 
 #### Vertical Scaling (Runner Replicas)
+
+The deployment and container names below assume the Helm release is named `matillion-runner`, as in step 4.
+
+`values-azure.yaml` enables the HPA (`hpa.minReplicas: 2`, `hpa.maxReplicas: 10`), which overrides a `kubectl scale`. Change the floor or ceiling in `my-values.yaml` instead, for example `hpa.minReplicas: 4`, then from the repository root:
+
 ```bash
-# Update replica count
-kubectl scale deployment/matillion-runner-dpc-agent \
-  --namespace matillion-runner --replicas=4
+helm upgrade matillion-runner ./runner/helm/runner --namespace matillion -f my-values.yaml
 ```
 
 ### Updates and Maintenance
@@ -341,24 +480,24 @@ az aks upgrade --resource-group matillion-runner-rg \
 ### Troubleshooting
 
 #### Pod Issues
+
+The deployment and container names below assume the Helm release is named `matillion-runner`, as in step 4.
+
 ```bash
 # Check pod status
-kubectl get pods -n matillion-runner
+kubectl get pods -n matillion
 
 # View pod logs
-kubectl logs -n matillion-runner deployment/matillion-runner-dpc-agent -c agent
-
-# Check metrics sidecar
-kubectl logs -n matillion-runner deployment/matillion-runner-dpc-agent -c metrics-exporter
+kubectl logs -n matillion deployment/matillion-runner-app -c matillion-runner-pods
 
 # Describe pod for events
-kubectl describe pod -n matillion-runner <pod-name>
+kubectl describe pod -n matillion <pod-name>
 ```
 
 #### Network Issues
 ```bash
 # Check service endpoints
-kubectl get endpoints -n matillion-runner
+kubectl get endpoints -n matillion
 
 # Test internal DNS
 kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup kubernetes.default
@@ -366,8 +505,9 @@ kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup kubernete
 
 #### Authentication Issues
 ```bash
-# Check managed identity
-az identity show --ids $(terraform output managed_identity_id)
+# Check managed identity (run from runner/azure/aks)
+az identity list --resource-group "$(terraform output -raw resource_group_name)" \
+  --query "[?clientId=='$(terraform output -raw k8s_workload_identity_client_id)']" -o table
 
 # Verify Key Vault access
 az keyvault secret list --vault-name <vault-name>
@@ -406,7 +546,7 @@ Monitor resource usage:
 ```bash
 # CPU and memory usage
 kubectl top nodes
-kubectl top pods -n matillion-runner
+kubectl top pods -n matillion
 ```
 
 ### Spot Instances
@@ -429,22 +569,35 @@ Consider Azure Reserved VM Instances for predictable workloads.
 ### Destroy Infrastructure
 
 ```bash
-# Destroy all resources
 terraform destroy
-
-# Verify cleanup
-az group show --name matillion-runner-rg
 ```
 
-### Manual Cleanup (if needed)
+By default `terraform destroy` deletes the Key Vault and leaves it soft-deleted for 7 days. The vault name stays reserved for that time: a new deployment that produces the same vault name, for example through `naming_tokens` or `naming_overrides`, recovers the soft-deleted vault instead of creating a new one.
+
+To purge the vault on destroy, set:
+
+```hcl
+purge_key_vault_on_destroy = true
+```
+
+This needs `Microsoft.KeyVault/locations/deletedVaults/purge/action` and `Microsoft.KeyVault/locations/operationResults/read` at subscription scope: destroy polls the operation result after the purge and fails with a 403 without the second action. [aks/permissions/deployer-purge-role.json](aks/permissions/deployer-purge-role.json) holds both. Contributor or Owner at subscription scope includes both; Key Vault Contributor does not include the purge action (it lists it under `notActions`), and no role on the resource group grants it. Without it, destroy fails with a 403 after deleting every other resource. To purge a soft-deleted vault by hand:
 
 ```bash
-# Force delete resource group
-az group delete --name matillion-runner-rg --yes --no-wait
+az keyvault purge --name <vault> --location <region>
+```
 
-# Clean up Terraform state
-rm -rf .terraform*
-rm terraform.tfstate*
+Upgrading: an existing deployment gets `purge_key_vault_on_destroy = false` with no change to its configuration, and `terraform plan` shows no resource change. The behaviour changes only at the next `terraform destroy`: before, the azurerm provider default purged the vault; now the vault is left soft-deleted. If you relied on the purge and hold the subscription-scope permission, set `purge_key_vault_on_destroy = true`.
+
+`terraform destroy` does not delete the resource group, because you created it in step 2 and Terraform only references it. Check what is left in it:
+
+```bash
+az resource list --resource-group matillion-runner-rg -o table
+```
+
+Delete the group only if nothing else uses it:
+
+```bash
+az group delete --name matillion-runner-rg
 ```
 
 ## Performance Tuning
@@ -470,8 +623,11 @@ max_pods = 110  # Per node
 | `xlarge` | 8 vCPU / 32 GiB | 16 vCPU / 32 GiB | `Standard_D16s_v5` |
 
 ```bash
-helm install matillion-runner ./runner --set runnerSize=medium -f values-azure.yaml
+# From the repository root, after step 4
+helm upgrade matillion-runner ./runner/helm/runner --namespace matillion -f my-values.yaml --set runnerSize=medium
 ```
+
+A later `helm upgrade` without `--set runnerSize` resets the size to the value in `my-values.yaml`, so to keep it, set `runnerSize` in `my-values.yaml` instead.
 
 **Container Apps** — Container Apps sets `runner_size` on the Terraform template (see [`container_apps/README.md`](container_apps/README.md)). The size also drives `workload_profile_type` because the Consumption profile won't accept the 1:4 cpu:memory ratio.
 

@@ -44,7 +44,7 @@ helm install "$(terraform output -raw namespace)" ../../helm/runner \
 - `my-runner-values.yaml` holds the runner's own credentials and IDs, as in [`values-tenant-example.yaml`](../../helm/runner/values-tenant-example.yaml).
 - `aws.region` matters on Fargate, where pods can't look the region up themselves.
 
-If the cluster's Prometheus scales runners, add the namespace to its `scrapeNamespaces` and `networkPolicy.additionalScrapeNamespaces`. Otherwise the runner never scales beyond its minimum, and nothing logs why. The helm README's "Wiring the shared Prometheus" section shows how.
+If the cluster's Prometheus scales runners, add the namespace to its `scrapeNamespaces` and `networkPolicy.additionalScrapeNamespaces`, and widen its pod regexes and selectors, because this release isn't named `matillion-runner`. Otherwise the runner never scales beyond its minimum, and nothing logs why. The helm README's "Wiring the shared Prometheus" section shows how.
 
 ## Secrets
 

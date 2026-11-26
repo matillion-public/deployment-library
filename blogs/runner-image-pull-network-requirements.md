@@ -63,12 +63,12 @@ AWS only offers an ECR Public PrivateLink endpoint in `us-east-1` (per the [ECR 
 
 Unlike AWS ECR Public — which has a centralised control plane in `us-east-1` that all regional pulls must reach — every Azure Container Registry is **regional**. `matillion.azurecr.io` lives in a single Azure region of Matillion's choosing, with no fixed cross-region control plane that all pulls must route through. If your workload runs in a region other than the registry's home region you still reach it (over the internet, or over Microsoft's backbone if egress is configured via service tags), but there is no equivalent of the ECR Public regional-anchoring problem.
 
-When a workload pulls from `matillion.azurecr.io`, two ACR endpoints are involved (per Microsoft's [ACR firewall access rules documentation](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-firewall-access-rules)):
+When a workload pulls from `matillion.azurecr.io`, two endpoints are involved (per Microsoft's [ACR firewall access rules documentation](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-firewall-access-rules)):
 
 1. **Registry endpoint** — `matillion.azurecr.io` — authentication (anonymous in this case) and image manifest resolution
-2. **Regional data endpoint** — `matillion.<region>.data.azurecr.io` — image layer blob downloads, where `<region>` is the Azure region the ACR is hosted in
+2. **Blob storage** — `*.blob.core.windows.net` — image layer downloads. `matillion.azurecr.io` doesn't use dedicated data endpoints, so the registry answers each layer request with a redirect to an Azure Storage account it manages (for example `eusreplstore233.blob.core.windows.net`). Different layers come from different accounts, and the account names aren't published or fixed, so allow the wildcard rather than a single host. `matillion.<region>.data.azurecr.io` doesn't exist for this registry. To see which accounts serve layers today, use the check in [Azure — Whitelisted Egress](#azure-allowlist).
 
-Both endpoints must be reachable on TCP 443 for a successful pull. A workload with no permitted egress to either cannot pull the image and must use the [private mirror pattern](#azure-private-mirror-pattern) below.
+Both must be reachable on TCP 443 for a successful pull. A workload with no permitted egress to either cannot pull the image and must use the [private mirror pattern](#azure-private-mirror-pattern) below.
 
 ---
 
@@ -222,15 +222,27 @@ Per Microsoft's [ACR firewall access rules documentation](https://learn.microsof
 | Destination | Purpose |
 |---|---|
 | `matillion.azurecr.io` | ACR REST endpoint (auth + manifest) |
-| `matillion.<region>.data.azurecr.io` | Regional data endpoint (image layer downloads) |
+| `*.blob.core.windows.net` | Image layer downloads, redirected to registry-managed storage accounts |
 
-Where `<region>` is the Azure region the ACR is hosted in. Confirm the actual region via `nslookup matillion.azurecr.io` from a node with public DNS access; Matillion does not publish this region as a static fact and it can change.
+To see where layers come from today, request one and read the redirect:
 
-Pinning rules to these specific FQDNs (rather than to a wildcard like `*.azurecr.io`) gives least-privilege access — the workload can only reach Matillion's ACR, not arbitrary other Azure-hosted registries.
+```bash
+R=https://matillion.azurecr.io/v2/cloud-agent
+T=$(curl -s "https://matillion.azurecr.io/oauth2/token?scope=repository:cloud-agent:pull&service=matillion.azurecr.io" \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+A='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'
+m() { curl -s -H "Authorization: Bearer $T" -H "Accept: $A" "$R/manifests/$1"; }
+# A multi-platform tag returns an index: follow its linux/amd64 entry to the image manifest.
+REF=$(m current | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((x["digest"] for x in d.get("manifests",[]) if x.get("platform",{}).get("architecture")=="amd64"),"current"))')
+D=$(m "$REF" | python3 -c 'import sys,json;print(json.load(sys.stdin)["layers"][0]["digest"])')
+curl -s -o /dev/null -D - -H "Authorization: Bearer $T" "$R/blobs/$D" | grep -i '^location'
+```
+
+Pinning the registry rule to `matillion.azurecr.io` (rather than a wildcard like `*.azurecr.io`) keeps it to Matillion's ACR. The blob rule can't be narrowed the same way: the storage accounts vary per layer and can change, so a rule pinned to one account fails on the next layer that lives elsewhere.
 
 ### `AzureContainerRegistry` service tag
 
-If your environment uses NSGs or a firewall that supports Azure service tags but not FQDN rules, the [`AzureContainerRegistry` service tag](https://learn.microsoft.com/en-us/azure/virtual-network/service-tags-overview) covers all Azure-hosted ACR public IPs (regional scoping is supported). Note Microsoft's caveat: this tag does **not** isolate access to Matillion's ACR — it permits egress to *any* Azure-hosted ACR. Prefer FQDN-based application rules where supported.
+If your environment uses NSGs or a firewall that supports Azure service tags but not FQDN rules, the [`AzureContainerRegistry` service tag](https://learn.microsoft.com/en-us/azure/virtual-network/service-tags-overview) covers all Azure-hosted ACR public IPs (regional scoping is supported). On its own it isn't enough: layers download from Azure Storage (see [Azure path](#azure-path-matillionazurecrio)), so the `Storage` service tag is needed alongside it. Note Microsoft's caveat: these tags do **not** isolate access to Matillion's ACR — they permit egress to *any* Azure-hosted ACR and storage account. Prefer FQDN-based application rules where supported.
 
 ### Cross-tenant Private Endpoint to Matillion's ACR — requires Matillion approval (not currently offered)
 

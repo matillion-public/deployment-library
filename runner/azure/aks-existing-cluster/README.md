@@ -45,7 +45,7 @@ helm install "$(terraform output -raw namespace)" ../../helm/runner \
 - `my-runner-values.yaml` holds the runner's own credentials and IDs, as in [`values-tenant-example.yaml`](../../helm/runner/values-tenant-example.yaml).
 - `azure.subscriptionId` is where the runner looks for Key Vaults and storage accounts. Storage accounts in another subscription don't appear in the runner's storage account picker, so keep the runner's accounts in this one.
 
-If the cluster's Prometheus scales runners, add the namespace to its `scrapeNamespaces` and `networkPolicy.additionalScrapeNamespaces`. Otherwise the runner never scales beyond its minimum, and nothing logs why. The helm README's "Wiring the shared Prometheus" section shows how.
+If the cluster's Prometheus scales runners, add the namespace to its `scrapeNamespaces` and `networkPolicy.additionalScrapeNamespaces`, and widen its pod regexes and selectors, because this release isn't named `matillion-runner`. Otherwise the runner never scales beyond its minimum, and nothing logs why. The helm README's "Wiring the shared Prometheus" section shows how.
 
 Role assignments can take a few minutes to reach Key Vault and Storage. A runner started straight after the apply may get 403 errors at first; they clear on their own.
 
@@ -65,4 +65,4 @@ Azure RBAC can't limit a role to secrets whose names start with a prefix, as AWS
 - **Key Vault:** `../aks` makes one vault, and every runner using its identity can read every secret in it. Here each runner has its own.
 - **Script runner:** `../aks` gives the script runner the runner's identity, Key Vault included. Here it has its own identity, without Key Vault.
 - **Storage:** `../aks` creates a staging account and grants that. This root creates none and, by default, grants none: list the business unit's own accounts in `storage_account_ids`. Both identities get Storage Blob Data Contributor on each. The runner also gets Reader and Data Access, because it signs Snowflake and Databricks staging SAS tokens with the account's key; that key covers the whole account, so list only accounts the runner is meant to use. Set `grant_storage_account_keys = false` to give blob access only; Snowflake and Databricks loads from Azure staging, and the storage account picker, then stop working.
-- **Subscription:** `../aks` grants the runner Reader on the whole subscription. This root grants none: on a shared subscription it would show the runner every other business unit's resources.
+- **Subscription:** `../aks` grants the runner Reader on the whole subscription by default (`grant_runner_subscription_reader`). This root grants none: on a shared subscription it would show the runner every other business unit's resources.
