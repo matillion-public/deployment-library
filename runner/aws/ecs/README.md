@@ -99,12 +99,53 @@ aws configure
 aws sts get-caller-identity
 ```
 
-Required IAM permissions:
-- ECS service management
-- IAM role creation and management
-- Secrets Manager access
-- S3 bucket operations
-- CloudWatch logs access
+The IAM policy for the identity that runs `terraform apply` and `terraform destroy` is in [deploy-policy.json](./deploy-policy.json).
+
+To deploy without `iam:PutRolePolicy`, see [Deploying without iam:PutRolePolicy](#deploying-without-iamputrolepolicy).
+
+Replace the placeholders before you create the policy:
+
+- `<ACCOUNT_ID>`: the 12-digit ID of the AWS account you deploy into.
+- `<REGION>`: the region you deploy into, the same value as `region`.
+- `<NAME>`: the value of `name`. Every resource this configuration creates is named with the prefix `<NAME>-<salt>`, where `<salt>` is a random 6-character suffix, and the policy scopes its statements to names that start with `<NAME>-`. If you set `secret_name` or `runner_keypair_secret_name`, the value must also start with `<NAME>-`. Use lower case for `name`: the staging bucket name is lower-cased, and the policy's S3 statements match `<NAME>-*` exactly.
+
+A customer managed policy is limited to 6,144 characters, not counting whitespace. The policy is 5,960 characters with the placeholders in place, and replacing them makes it longer. Any `name` of 13 or more characters, including the default `data-insights`, puts it over the limit in every region. Shorter names can also go over in regions with longer codes, such as `ap-southeast-2`. Check the size after replacing the placeholders:
+
+```bash
+jq -c . deploy-policy.json | tr -d '\n' | wc -c
+```
+
+If the result is over 6,144, split the policy into two customer managed policies and attach both to the same identity. Each half is under the limit for any `name` that the `name` validation allows:
+
+```bash
+jq '.Statement |= .[:12]' deploy-policy.json > deploy-policy-1.json
+jq '.Statement |= .[12:]' deploy-policy.json > deploy-policy-2.json
+```
+
+The policy's EC2 statements require the tag `matillion:deployment-id` with the value `<NAME>` on every resource. This configuration does not set that tag yet (DPC-61601), so set it through `tags`:
+
+```hcl
+tags = {
+  "matillion:deployment-id" = "<NAME>"
+}
+```
+
+The policy covers a deployment with the default inputs, except the authentication failure metric filter on the runner task log group. That filter is always created and needs `logs:PutMetricFilter`, `logs:DeleteMetricFilter` and `logs:DescribeMetricFilters`, which the policy does not include. Grant them in a separate policy.
+
+The policy does not cover these optional features. Grant the extra permissions separately if you use them:
+
+- `enable_script_runner = true`: the Cloud Map private DNS namespace and service (`servicediscovery:*` actions and the Route 53 hosted zone actions the namespace needs), and the ingress rule on the script runner security group (`ec2:AuthorizeSecurityGroupIngress`, `ec2:RevokeSecurityGroupIngress`).
+- `auth_failure_alarm_actions` set: the CloudWatch alarm (`cloudwatch:PutMetricAlarm`, `cloudwatch:DeleteAlarms`, `cloudwatch:DescribeAlarms`, `cloudwatch:ListTagsForResource`, `cloudwatch:TagResource`, `cloudwatch:UntagResource`).
+- `metrics_ingress_cidr_blocks` or `metrics_ingress_security_group_ids` set: the security group ingress rules (`ec2:AuthorizeSecurityGroupIngress`, `ec2:RevokeSecurityGroupIngress`, `ec2:DescribeSecurityGroupRules`).
+- `enable_sqs_pipeline_trigger = true`: the SQS queues, DynamoDB table, Lambda function and event source mapping, SNS topic, CloudWatch alarms, the Lambda log group, and the managed policies `AWSLambdaBasicExecutionRole` and `AWSXRayDaemonWriteAccess` attached to the adapter role.
+- `script_runner_task_role_policy_arns` set: the policy allows attaching only `SecretsManagerReadWrite`, `CloudWatchFullAccess` and `AmazonECSTaskExecutionRolePolicy`.
+- `use_existing_vpc = true`: the policy allows creating subnets and security groups in a VPC, and associating route tables, only when the VPC and its main route table carry the `matillion:deployment-id` tag with the value `<NAME>`.
+- An S3 remote state backend (`backend.tf`): the state bucket and lock table need their own permissions.
+- Changing or removing tags on an existing deployment: the policy has no `ec2:DeleteTags` or `*:UntagResource` actions.
+
+The policy was audited against this configuration at commit 305ec97. Its resource scopes were updated for later changes (secret names, the Container Insights log group), but it has not been re-verified by a deployment since.
+
+Every resource the deployment creates carries the tag `matillion:deployment-id` with the value of `name`. It is set through the resource tags and the provider default tags. The narrowed deployment policies scope their statements with `aws:RequestTag/matillion:deployment-id` and `aws:ResourceTag/matillion:deployment-id`, using `name` as the value. A `matillion:deployment-id` key in `tags` is overridden by `name`.
 
 ## Quick Start
 
@@ -283,6 +324,34 @@ aws logs describe-log-groups --log-group-name-prefix "/ecs/"
 aws logs tail "/ecs/<name>-<suffix>-task" --follow
 ```
 
+### Checking that the runner is connected
+
+`terraform apply` and the ECS deployment status do not detect a wrong client secret. A runner that cannot authenticate keeps its tasks `RUNNING`, the deployment completes, and the runner retries indefinitely. Check the runner log instead:
+
+- `SSE Connection Subscription Started` is logged before the token request and does not mean the runner is connected.
+- `Successfully sent in-progress requests to Agent Gateway` appears only on a working runner.
+- `Recoverable error caught [[invalid_token_response] An error occurred while attempting to retrieve the OAuth 2.0 Access Token Response: 401 Unauthorized ...` means Keycloak rejected the runner's credentials, for example a wrong client secret. The same line with another status, a timeout or a connection error means the runner could not reach Keycloak.
+- `invalid_client` on a line without `Recoverable error caught` is usually a pipeline connector's OAuth failure, not the runner's own sign-in.
+
+To list authentication failures, run this CloudWatch Logs Insights query over `/ecs/<name>-<suffix>-task`:
+
+```bash
+aws logs start-query \
+  --log-group-name "/ecs/<name>-<suffix>-task" \
+  --start-time $(($(date +%s) - 3600)) \
+  --end-time $(date +%s) \
+  --query-string 'fields @timestamp, @message | filter @message like "Recoverable error caught [[invalid_" | sort @timestamp desc'
+
+# Then fetch the results with the queryId returned above
+aws logs get-query-results --query-id <query-id>
+```
+
+The deployment also counts these log events in the CloudWatch metric `<name>-<suffix>-runner-auth-failures` in the namespace `Matillion/Runner`. To be notified, set `auth_failure_alarm_actions` to a list of ARNs, for example an SNS topic. An alarm is then created that notifies them when the metric's sum is 1 or more in 2 of the last 3 five-minute periods, and again when it returns to `OK`. The alarm also fires while Keycloak is unreachable, and it does not detect a runner that is not running:
+
+```hcl
+auth_failure_alarm_actions = ["arn:aws:sns:<region>:<account-id>:<topic>"]
+```
+
 ### CloudWatch Alarms
 
 ```bash
@@ -319,12 +388,212 @@ The deployment creates two IAM roles:
 ```hcl
 # OAuth credentials stored in AWS Secrets Manager
 module "secrets_manager" {
-  source = "../../../modules/aws/secerts-manager"
+  source = "../../../modules/aws/secrets-manager"
   
   client_id     = var.client_id
   client_secret = var.client_secret
 }
 ```
+
+### Deploying without iam:PutRolePolicy
+
+`iam:PutRolePolicy` can be limited by role ARN but not by policy content, so a principal that holds it can write any inline policy on the roles it creates. By default this deployment creates up to five inline policies, so [deploy-policy.json](./deploy-policy.json) includes `iam:PutRolePolicy`.
+
+Each inline policy can be replaced by a policy you create beforehand. When an input below is set, Terraform attaches that policy to the role and does not create the inline policy. You own the content of the policies you supply. Inputs left at `null` keep the inline policy.
+
+| Input | Role | Applies when | Replaces inline policy |
+|-------|------|--------------|------------------------|
+| `ecs_task_role_policy_arn` | `<name>-<salt>-matillion-ecs-task-role` | always | `matillion_etl_runner_role` |
+| `ecs_task_execution_role_policy_arn` | `<name>-<salt>-task-execution-role` | always | `GetETLRunnerSecretValue` |
+| `ecs_task_execution_role_keypair_policy_arn` | `<name>-<salt>-task-execution-role` | `enable_script_runner = true` | `GetScriptRunnerKeypairSecretValue` |
+| `script_runner_extension_library_policy_arn` | `<name>-<salt>-script-runner-task-role` | `enable_script_runner = true` | `ScriptRunnerExtensionLibraryS3Access` |
+| `sqs_adapter_lambda_policy_arn` | `<name>-<salt>-maia-sqs-adapter-role` | `enable_sqs_pipeline_trigger = true` | `<name>-<salt>-maia-sqs-adapter-policy` |
+
+An input whose "Applies when" condition is false is ignored. `script_runner_extension_library_policy_arn` is attached whether or not `script_runner_extension_library_bucket_arn` is set.
+
+#### Creating the policies
+
+Create each policy once per account, or once per deployment where the resources it names differ, with:
+
+```bash
+aws iam create-policy --policy-name my-agent-task --policy-document file://task-policy.json
+```
+
+**Task role.** Use [`modules/aws/iam/templates/ecs_task_role_policy.json`](../../../modules/aws/iam/templates/ecs_task_role_policy.json) as it is.
+
+**Execution role: OAuth secret and keypair secret.** The execution role reads the OAuth credentials secret and, with `enable_script_runner = true`, the keypair secret. Three options, narrowest first:
+
+1. Exact name. Set `secret_name` and `runner_keypair_secret_name` in `terraform.tfvars`, then grant access to those names only. Secrets Manager appends six random characters to a secret ARN, hence `-??????`. This needs one policy per deployment.
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": "secretsmanager:GetSecretValue",
+         "Resource": "arn:aws:secretsmanager:<region>:<account>:secret:<secret_name>-??????"
+       }
+     ]
+   }
+   ```
+
+   Use the same document with `<runner_keypair_secret_name>` for the keypair policy.
+
+2. Name prefix. Grant `secretsmanager:GetSecretValue` on `arn:aws:secretsmanager:<region>:<account>:secret:<prefix>*`. Every runner whose execution role has this policy can read every secret under the prefix, including the OAuth credentials of other runners. The default secret names are `<name>-<salt>-oauth-credentials` and `<name>-<salt>-runner-keypair`, and the salt is not known before the first apply, so a prefix that covers the default names must end at `<name>-`.
+
+3. Attribute-based access control (ABAC). Grant `secretsmanager:GetSecretValue` on `*` when the secret's tag matches the role's tag:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": "secretsmanager:GetSecretValue",
+         "Resource": "*",
+         "Condition": {
+           "StringEquals": {
+             "secretsmanager:ResourceTag/<key>": "${aws:PrincipalTag/<key>}"
+           }
+         }
+       }
+     ]
+   }
+   ```
+
+   This isolates deployments only when the execution role and the secrets carry a value for `<key>` that is unique to the deployment, and the deploying principal cannot set `<key>` on arbitrary secrets or roles. This deployment tags its roles only with the provider `default_tags` in [`provider.tf`](provider.tf) (`ManagedBy`, `DeploymentType`, `Project`), which are the same for every deployment. With this deployment as it stands, the ABAC policy grants access as broadly as its tag value is shared.
+
+**Script runner extension library.** The same statement as the inline policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ExtensionLibraryS3",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:ListBucket"],
+      "Resource": ["<bucket ARN>", "<bucket ARN>/*"]
+    }
+  ]
+}
+```
+
+`script_runner_task_role_policy_arns` can attach the same policy; either works.
+
+**SQS adapter.** The four statements of the module's inline policy, with concrete ARNs. The Lambda dead-letter queue is named `<name>-<salt>-maia-sqs-adapter-lambda-dlq`; the salt is not known before the first apply, so match it with `*`.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadSecret",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:<region>:<account>:secret:<sqs_adapter_secret_name>-??????"
+    },
+    {
+      "Sid": "ReadProjectMappings",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:Query"],
+      "Resource": [
+        "arn:aws:dynamodb:<region>:<account>:table/<mapping table name>",
+        "arn:aws:dynamodb:<region>:<account>:table/<mapping table name>/index/*"
+      ]
+    },
+    {
+      "Sid": "ConsumeSourceQueue",
+      "Effect": "Allow",
+      "Action": ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
+      "Resource": "arn:aws:sqs:<region>:<account>:<source queue name>"
+    },
+    {
+      "Sid": "SendToLambdaDlq",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "arn:aws:sqs:<region>:<account>:<name>-*-maia-sqs-adapter-lambda-dlq"
+    }
+  ]
+}
+```
+
+#### Setting the inputs
+
+```hcl
+ecs_task_role_policy_arn                   = "arn:aws:iam::<account>:policy/my-agent-task"
+ecs_task_execution_role_policy_arn         = "arn:aws:iam::<account>:policy/my-agent-exec-secret"
+ecs_task_execution_role_keypair_policy_arn = "arn:aws:iam::<account>:policy/my-agent-exec-keypair"
+script_runner_extension_library_policy_arn = "arn:aws:iam::<account>:policy/my-agent-extlib"
+sqs_adapter_lambda_policy_arn              = "arn:aws:iam::<account>:policy/my-agent-sqs-adapter"
+```
+
+#### Deployment policy
+
+When every input that applies to the deployment is set, the `IamRoleScoped` statement of [deploy-policy.json](./deploy-policy.json) no longer needs `iam:PutRolePolicy`, `iam:GetRolePolicy` or `iam:DeleteRolePolicy`, and `iam:AttachRolePolicy` and `iam:DetachRolePolicy` can be limited to the supplied policies and the AWS managed policies the deployment attaches. The two IAM statements become:
+
+```json
+[
+  {
+    "Sid": "IamRoleScoped",
+    "Effect": "Allow",
+    "Action": [
+      "iam:CreateRole",
+      "iam:DeleteRole",
+      "iam:GetRole",
+      "iam:ListRolePolicies",
+      "iam:ListAttachedRolePolicies",
+      "iam:ListInstanceProfilesForRole"
+    ],
+    "Resource": "arn:aws:iam::<account>:role/<name>-*"
+  },
+  {
+    "Sid": "IamAttachAllowListOnly",
+    "Effect": "Allow",
+    "Action": ["iam:AttachRolePolicy", "iam:DetachRolePolicy"],
+    "Resource": "arn:aws:iam::<account>:role/<name>-*",
+    "Condition": {
+      "ArnEquals": {
+        "iam:PolicyARN": [
+          "arn:aws:iam::aws:policy/SecretsManagerReadWrite",
+          "arn:aws:iam::aws:policy/CloudWatchFullAccess",
+          "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+          "arn:aws:iam::<account>:policy/my-agent-task",
+          "arn:aws:iam::<account>:policy/my-agent-exec-secret",
+          "arn:aws:iam::<account>:policy/my-agent-exec-keypair",
+          "arn:aws:iam::<account>:policy/my-agent-extlib",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess",
+          "arn:aws:iam::<account>:policy/my-agent-sqs-adapter"
+        ]
+      }
+    }
+  }
+]
+```
+
+List only the supplied policies the deployment uses. The last three entries are needed only with `enable_sqs_pipeline_trigger = true`; this root leaves the adapter's X-Ray tracing on, so it attaches `AWSXRayDaemonWriteAccess`.
+
+`iam:ListRolePolicies` stays. The AWS provider (v5.100.0) lists a role's inline policy names every time it reads an `aws_iam_role`, and the read fails if the call is denied. It is a read-only action. `iam:GetRolePolicy` is called only for each inline policy found, so with no inline policies it is not called.
+
+#### Upgrade effect
+
+- Inputs left unset: no change. The task role policy and the execution role secret policy move to `aws_iam_role_policy.ecs_task_role_policy[0]` and `aws_iam_role_policy.ecs_task_execution_role_policy[0]` through `moved` blocks, and the adapter policy (with `enable_sqs_pipeline_trigger = true`) to `aws_iam_role_policy.lambda[0]`, so `terraform plan` shows no changes.
+- Setting an input on an existing deployment: the next apply destroys the matching inline policy and creates the attachment. Roles and task definitions are not replaced. Destroying the inline policy needs `iam:DeleteRolePolicy`, so apply this change with the previous deployment policy, then narrow the deployment policy. Terraform does not order the destroy before or after the create, so for a moment the role can lack the grant; apply while the runner is not starting tasks.
+
+#### Upgrading: secrets-manager module path and label
+
+The module directory `modules/aws/secerts-manager` is now
+`modules/aws/secrets-manager`, and this root's module label `secert_manager` is
+now `secrets_manager`.
+
+- Deployments of this root: a `moved` block in `main.tf` moves
+  `module.secert_manager` to `module.secrets_manager` in state. Run
+  `terraform init` before the next plan; the plan shows the move and no
+  resource changes.
+- Configurations that source `modules/aws/secerts-manager` directly must change
+  the path to `modules/aws/secrets-manager`.
 
 ### Network Security
 
@@ -425,6 +694,18 @@ The SQS adapter resources are now named `<name>-<salt>-maia-sqs-adapter` so that
 `sqs_adapter_matillion_api_url` now defaults to `https://<matillion_region>.api.matillion.com/dpc/v1` instead of the eu1 URL. A deployment with `matillion_region` other than `eu1` that left the variable unset changes its adapter's `MATILLION_API_URL` on the next apply.
 
 The source queue (`matillion-dpc-requests`) and mapping table (`matillion-project-mappings`) still default to fixed names. A second deployment in the same account and region must set `sqs_adapter_queue_name` and `sqs_adapter_mapping_table_name`, otherwise the table creation fails and the queue creation reuses the first deployment's queue.
+
+#### Upgrading to a version with the authentication failure metric
+
+The next `terraform apply` adds one CloudWatch Logs metric filter on the runner task log group, plus one CloudWatch alarm when `auth_failure_alarm_actions` is set. No existing resource changes. The identity running Terraform needs the permissions listed under [Required AWS Permissions](#required-aws-permissions). See [Checking that the runner is connected](#checking-that-the-runner-is-connected).
+
+#### Upgrading to a version with the `matillion:deployment-id` tag
+
+The next `terraform plan` shows an in-place update to `tags` and `tags_all` on every tagged resource. No resource is replaced.
+
+The identity running the apply needs the tagging actions for those resource types, for example `ec2:CreateTags`, `iam:TagRole`, `iam:TagPolicy`, `kms:TagResource`, `eks:TagResource`, `ecs:TagResource`, `logs:TagResource` and `secretsmanager:TagResource`.
+
+A deployment that set `matillion:deployment-id` in `tags` to a value other than `name` has that value replaced.
 
 ### Troubleshooting
 
@@ -558,6 +839,7 @@ terraform destroy
 aws ecs list-clusters
 aws secretsmanager list-secrets
 aws s3 ls
+aws logs describe-log-groups --log-group-name-prefix /aws/ecs/containerinsights/
 ```
 
 #### Empty the staging bucket first
@@ -593,6 +875,22 @@ aws ecs delete-task-definitions --task-definitions <arn> [<arn> ...]
 ```
 
 The caller needs `ecs:DeleteTaskDefinitions`. Deleted revisions show `DELETE_IN_PROGRESS` until AWS finishes removing them.
+
+#### Delete the Container Insights log group
+
+After `terraform destroy`, the log group `/aws/ecs/containerinsights/<name>-<salt>-cluster/performance` can exist again. The module removes it on destroy, but AWS can create it once more shortly afterwards, so check immediately and again after about 5 minutes. `<name>-<salt>-cluster` is the ECS cluster name. If you use the `modules/aws/ecs` module directly with a fixed cluster name, follow the [module README](../../../modules/aws/ecs/README.md#container-insights-log-group) instead.
+
+```bash
+aws logs describe-log-groups \
+  --log-group-name-prefix /aws/ecs/containerinsights/<cluster-name>/performance \
+  --query 'logGroups[].[logGroupName,retentionInDays]' --output text
+
+aws logs delete-log-group --log-group-name /aws/ecs/containerinsights/<cluster-name>/performance
+```
+
+A recreated group is not in Terraform state and nothing uses it. The salt is regenerated after a full destroy, so a new deployment gets a new cluster name and does not conflict with the leftover group. Importing the group into a new deployment would plan a replacement because the name differs. Delete it instead. Deletion is permanent, so export any log events you need first.
+
+The caller needs `logs:DescribeLogGroups` and `logs:DeleteLogGroup`.
 
 ### Manual Cleanup (if needed)
 

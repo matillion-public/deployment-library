@@ -63,7 +63,7 @@ VERIFY WORKLOAD IDENTITY. The chart annotated the ServiceAccount; that is only
 half the binding. The other half is an IAM policy binding on the GCP service
 account, which lives in your project, not in this release — a missing or
 misspelled one is invisible until the first Secret Manager or GCS call fails.
-Confirm all three:
+Confirm all four:
 
   # 1. The annotation the chart wrote
   kubectl get sa {{ $saName }} -n {{ .Release.Namespace }} \
@@ -75,14 +75,26 @@ Confirm all three:
     --format='value(bindings.members)'
   # expected: serviceAccount:<PROJECT>.svc.id.goog[{{ .Release.Namespace }}/{{ $saName }}]
 
-  # 3. What the pod actually gets (the real test)
+  # 3. Can the pod get a token? (the real test; prints only the HTTP status, never the token)
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "matillion-runner.fullname" . }}-app -- \
+    curl -s -o /dev/null -w '%{http_code}\n' -H 'Metadata-Flavor: Google' \
+    http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+  # expected: 200
+
+  # 4. Which account the pod is configured with (informational, not proof)
   kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "matillion-runner.fullname" . }}-app -- \
     curl -sH 'Metadata-Flavor: Google' \
     http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email
+  # expected: {{ .Values.gcp.workloadIdentity.serviceAccountEmail }}
 
-Step 3 returning the node pool's default compute SA, rather than
-{{ .Values.gcp.workloadIdentity.serviceAccountEmail }}, means Workload Identity is not enabled on the
-node pool and the annotation is being ignored. See runner/gcp/gke/README.md.
+Step 3 returning 403 while step 4 prints {{ .Values.gcp.workloadIdentity.serviceAccountEmail }}
+means the annotation is in place but the roles/iam.workloadIdentityUser binding
+from step 2 does not list {{ .Release.Namespace }}/{{ $saName }}. Compare the
+member step 2 prints with the expected line. Step 4 prints the annotated account
+whether or not the binding exists, so it does not prove the identity works.
+Step 4 returning the node pool's default compute SA means Workload Identity is
+not enabled on the node pool and the annotation is being ignored. See
+runner/gcp/gke/README.md.
 {{- else }}
 
 WARNING: this runner has NO WORKLOAD IDENTITY. gcp.nodeIdentity.enabled=true, so
