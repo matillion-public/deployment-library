@@ -102,3 +102,25 @@ run "workload_identity_off_keeps_aks_identity_type" {
     error_message = "No shared runner identity grant should be created."
   }
 }
+
+run "without_subscription_reader_keeps_runner_identity_type" {
+  command = plan
+
+  variables {
+    grant_runner_subscription_reader = false
+  }
+
+  assert {
+    condition = alltrue([
+      azurerm_role_assignment.runner_blob_storage_role[0].principal_type == "ServicePrincipal",
+      azurerm_role_assignment.runner_key_vault_role[0].principal_type == "ServicePrincipal",
+      azurerm_role_assignment.runner_key_vault_reader_role[0].principal_type == "ServicePrincipal",
+    ])
+    error_message = "The remaining grants on the shared runner identity should set principal_type to ServicePrincipal."
+  }
+
+  assert {
+    condition     = length(azurerm_role_assignment.runner_subscription_reader_role) == 0
+    error_message = "No subscription Reader assignment should be created."
+  }
+}

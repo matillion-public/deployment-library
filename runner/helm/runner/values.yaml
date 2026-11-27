@@ -31,6 +31,12 @@ cloudProvider: "<CloudProvider>"
 config:
   oauthClientId: "<AgentClientId>"
   oauthClientSecret: "<AgentClientSecret>"
+  # Name of a Secret in the release namespace, with the keys OAUTH_CLIENT_ID and
+  # OAUTH_CLIENT_SECRET, that you create and keep up to date yourself (Secrets
+  # Store CSI driver, External Secrets Operator, kubectl). When set, the chart
+  # creates no Secret, oauthClientId and oauthClientSecret above are ignored, and
+  # the credentials never pass through Helm. See runner/helm/README.md.
+  existingSecret: ""
 serviceAccount:
   # SA name must match the IRSA / workload-identity trust binding in Terraform.
   # The AWS trust policy names this service account exactly, in the namespace

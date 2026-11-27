@@ -27,7 +27,7 @@ data "azurerm_key_vault" "target" {
       # Failing here is the difference between an error and a silent
       # authorisation hole.
       condition     = self.rbac_authorization_enabled
-      error_message = "Key Vault '${self.name}' uses the legacy access-policy permission model. Per-secret scoping requires Azure RBAC authorization (enable_rbac_authorization = true). Access policies cannot scope below the vault, so this module would appear to apply cleanly while granting nothing. Use an RBAC-enabled vault, or migrate this one by granting the equivalent RBAC roles first and flipping the model afterwards."
+      error_message = "Key Vault '${self.name}' uses the legacy access-policy permission model. Per-secret scoping requires Azure RBAC authorization (rbac_authorization_enabled = true). Access policies cannot scope below the vault, so this module would appear to apply cleanly while granting nothing. Use an RBAC-enabled vault, or migrate this one by granting the equivalent RBAC roles first and flipping the model afterwards."
     }
   }
 }
