@@ -19,6 +19,17 @@ variable "resource_group_name" {
   type = string
 }
 
+variable "namespace" {
+  type        = string
+  description = "Kubernetes namespace the runner is installed into. The workload identity federated credentials are bound to this namespace, so it must equal the namespace used for `helm install`. Changing it on an existing deployment updates the subject of both federated credentials in place."
+  default     = "matillion"
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$", var.namespace))
+    error_message = "namespace must be a valid Kubernetes namespace: lowercase letters, digits and hyphens, starting and ending with a letter or digit, up to 63 characters."
+  }
+}
+
 variable "tags" {
   type = map(string)
 }
