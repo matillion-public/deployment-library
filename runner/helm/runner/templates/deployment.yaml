@@ -86,10 +86,26 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
+      {{- if .Values.config.existingSecret }}
+      # Named keys rather than envFrom, so a Secret the customer filled without
+      # either key stops the container with an error naming the missing key.
+      - env:
+        - name: OAUTH_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.config.existingSecret }}
+              key: OAUTH_CLIENT_ID
+        - name: OAUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.config.existingSecret }}
+              key: OAUTH_CLIENT_SECRET
+      {{- else }}
       - envFrom:
         - secretRef:
-            name: {{ include "matillion-runner.fullname" . }}-config
+            name: {{ include "matillion-runner.configSecretName" . }}
         env:
+      {{- end }}
         {{- if .Values.dpcAgent.dpcAgent.env.direct }}
         {{- range .Values.dpcAgent.dpcAgent.env.direct }}
         - name: {{ .name }}
@@ -302,7 +318,7 @@ spec:
       volumes:
       - name: config-volume
         secret:
-          secretName: {{ include "matillion-runner.fullname" . }}-config
+          secretName: {{ include "matillion-runner.configSecretName" . }}
       - name: tmp-volume
         emptyDir: {}
       - name: api-profiles-volume

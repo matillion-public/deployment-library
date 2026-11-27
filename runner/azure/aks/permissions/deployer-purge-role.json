@@ -1,0 +1,15 @@
+{
+  "Name": "<ROLE_PREFIX>-aks-deployer-purge",
+  "IsCustom": true,
+  "Description": "Purges the deleted Key Vault on terraform destroy. Needed only with purge_key_vault_on_destroy = true. Assign at the subscription.",
+  "Actions": [
+    "Microsoft.KeyVault/locations/deletedVaults/purge/action",
+    "Microsoft.KeyVault/locations/operationResults/read"
+  ],
+  "NotActions": [],
+  "DataActions": [],
+  "NotDataActions": [],
+  "AssignableScopes": [
+    "/subscriptions/<SUBSCRIPTION_ID>"
+  ]
+}

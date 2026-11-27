@@ -32,6 +32,30 @@
   Bash Script fail at Run. Script Pushdown is unaffected. Applies in
   `env.direct` mode too. The same switch is `disable_script_execution` in the
   ECS, Container Apps and `core/compute-*` Terraform modules.
+- **`config.existingSecret`** (default empty) (DPC-64049). The name of a Secret
+  you manage with the keys `OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET`. When set,
+  the chart creates no `<fullname>-config` Secret, `config.oauthClientId` and
+  `config.oauthClientSecret` are no longer required and are ignored, and the
+  runner reads `OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET` from the named
+  Secret by key (a missing key stops the container with an error naming it)
+  and mounts it as its config volume. This keeps the credentials out of values
+  files and the Helm release record, so they can come from Azure Key Vault
+  through the Secrets Store CSI driver, or from the External Secrets Operator.
+  The chart refuses an invalid Secret name, and its own `<fullname>-config`,
+  which `helm upgrade` would delete. Unset, the rendered output is unchanged.
+  The matching AKS Terraform input is `enable_key_vault_secrets_provider` in
+  `runner/azure/aks` and `modules/azure/aks`, which turns on the CSI add-on
+  with secret rotation.
+
+### Fixed
+
+- GKE Workload Identity verification in NOTES and `runner/gcp/gke/README.md`
+  now checks the HTTP status of the metadata server's `/token` endpoint (expect
+  200) instead of `/email`, which returns the annotated account even without the
+  `roles/iam.workloadIdentityUser` binding (DPC-63744). The in-pod check
+  (`checks/pre-deployment-check.sh`) reports PASS or FAIL on GCP, and
+  `checks/run-check.sh` warns when a GCP runner's ServiceAccount has no
+  Workload Identity annotation.
 
 ## 0.9.0
 

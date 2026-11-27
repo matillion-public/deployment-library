@@ -244,7 +244,10 @@ Set once on the **prometheus** chart, not per tenant. Every tenant namespace has
 to appear in both lists — one controls what service discovery finds, the other
 what the Prometheus pod is permitted to reach, and a namespace missing from
 either means that tenant's HPA sits at `minReplicas` with nothing in any log to
-explain it:
+explain it. The script runner's discovery regex and the two pod selectors
+have to be widened as well: by default they match only the labels
+`matillion-runner-pods` and `matillion-runner-script-runner-pods`, which is
+what a release named `matillion-runner` produces:
 
 ```yaml
 config:
@@ -252,8 +255,16 @@ config:
   # Each release labels its pods `<release>-matillion-runner-pods`, so one
   # literal name will not match more than a single tenant.
   scrapePodLabelRegex: ".*matillion-runner-pods"
+  # Script runner pods, labeled `<release>-matillion-runner-script-runner-pods`.
+  scriptRunner:
+    podLabelRegex: ".*matillion-runner-script-runner-pods"
 networkPolicy:
   additionalScrapeNamespaces: [bu-grid, bu-retail, bu-trading]
+  # NetworkPolicy selectors can't match a regex, so admit any pod in the
+  # namespaces above and let the two regexes pick out the runners.
+  # `null`, not `{}`: Helm merges maps, so `{}` keeps the default.
+  runnerPodSelector: null
+  scriptRunnerPodSelector: null
 ```
 
 See `prometheus/README.md` for how to verify every tenant is actually being
@@ -304,8 +315,8 @@ helm install prometheus ./prometheus --namespace prometheus \
 | `dpcAgent.dpcAgent.env.accountId` | Your Matillion account ID | `"12345"` |
 | `dpcAgent.dpcAgent.env.agentId` | Matillion runner (Agent) identifier | `"runner-prod-01"` |
 | `dpcAgent.dpcAgent.env.matillionRegion` | Matillion region | `"us1"` |
-| `config.oauthClientId` | OAuth client ID | `"client-123"` |
-| `config.oauthClientSecret` | OAuth client secret | `"secret-456"` |
+| `config.oauthClientId` | OAuth client ID. Not needed with `config.existingSecret` | `"client-123"` |
+| `config.oauthClientSecret` | OAuth client secret. Not needed with `config.existingSecret` | `"secret-456"` |
 | `serviceAccount.roleArn` | AWS IAM role ARN (required when `credentialSource` is `irsa`) | `"arn:aws:iam::..."` |
 | `aws.region` | AWS region for the agent and script runner, on every credential source | `"eu-west-1"` |
 | `aws.local.enabled` | Enable direct AWS credentials | `false` |
@@ -317,6 +328,127 @@ helm install prometheus ./prometheus --namespace prometheus \
 | `azure.subscriptionId` | Subscription for ARM lookups (Key Vault / storage listing). Pin it on multi-subscription tenants — `az account show --query id -o tsv` | `"00000000-0000-..."` |
 
 Every cloud requires an identity. See [Cloud identity is mandatory](#cloud-identity-is-mandatory).
+
+### OAuth credentials from a Secret you manage
+
+By default the chart creates the Secret `matillion-runner-config` (for a release
+named `matillion-runner`) from
+`config.oauthClientId` and `config.oauthClientSecret`. That means the client
+secret is in your values file, and Helm also stores it in the release record.
+
+To keep the credentials out of Helm, set `config.existingSecret` to the name of
+a Secret in the release namespace that holds two keys, `OAUTH_CLIENT_ID` and
+`OAUTH_CLIENT_SECRET`. The chart then creates no Secret, ignores
+`config.oauthClientId` and `config.oauthClientSecret`, and the runner reads the
+named Secret. Remove `config.oauthClientId` and `config.oauthClientSecret` from
+your values file: Helm stores every value you pass in the release record, used
+or not. You create the Secret and keep it up to date, for example from
+Azure Key Vault with the Secrets Store CSI driver (below), from AWS Secrets
+Manager or GCP Secret Manager with the External Secrets Operator, or by hand:
+
+```bash
+kubectl create secret generic runner-oauth --namespace matillion \
+  --from-literal=OAUTH_CLIENT_ID='<client id>' \
+  --from-literal=OAUTH_CLIENT_SECRET='<client secret>'
+```
+
+The Secret can't be the chart's own `<fullname>-config`: an existing release
+still owns that one, so `helm upgrade` would delete it. The chart refuses that
+name.
+
+The runner reads the credentials when its container starts. After the Secret
+changes, restart the runner with `kubectl rollout restart deployment/matillion-runner-app -n matillion`
+(the Deployment is `<fullname>-app`).
+If the Secret does not exist, the pod stays in `ContainerCreating` and
+`kubectl describe pod` shows a `FailedMount` event naming it. If it lacks
+either key, the pod shows `CreateContainerConfigError` and the event names the
+missing key.
+
+#### From Azure Key Vault on AKS
+
+The [Azure Key Vault provider for the Secrets Store CSI driver](https://learn.microsoft.com/azure/aks/csi-secrets-store-driver)
+copies Key Vault secrets into a Kubernetes Secret, using the runner's workload
+identity to read the vault.
+
+1. Enable the add-on with secret rotation. Without rotation the driver never
+   updates a Secret it has synced, so a client secret rotated in Key Vault
+   would not reach the runner.
+   - **Cluster from `runner/azure/aks`:** set `enable_key_vault_secrets_provider = true`
+     and run `terraform apply`. Don't use `az aks enable-addons` on this
+     cluster: the next `terraform apply` would remove the add-on.
+   - **Any other cluster, including `runner/azure/aks-existing-cluster`:**
+     `az aks enable-addons --addons azure-keyvault-secrets-provider --enable-secret-rotation --name <cluster> --resource-group <rg>`.
+2. Store the client ID and secret in the vault the runner's identity can read
+   (`terraform output -raw key_vault_name` in `runner/azure/aks` or
+   `runner/azure/aks-existing-cluster`):
+
+   ```bash
+   az keyvault secret set --vault-name <vault> --name runner-oauth-client-id --value '<client id>'
+   az keyvault secret set --vault-name <vault> --name runner-oauth-client-secret --value '<client secret>'
+   ```
+
+3. Create a `SecretProviderClass` in the release namespace. `clientID` is the
+   same managed identity as `azure.workloadIdentity.clientId`:
+
+   ```yaml
+   apiVersion: secrets-store.csi.x-k8s.io/v1
+   kind: SecretProviderClass
+   metadata:
+     name: runner-oauth
+     namespace: matillion
+   spec:
+     provider: azure
+     parameters:
+       clientID: "<azure.workloadIdentity.clientId>"
+       keyvaultName: "<vault>"
+       tenantId: "<tenant id>"
+       objects: |
+         array:
+           - |
+             objectName: runner-oauth-client-id
+             objectType: secret
+           - |
+             objectName: runner-oauth-client-secret
+             objectType: secret
+     secretObjects:
+       - secretName: runner-oauth
+         type: Opaque
+         data:
+           - objectName: runner-oauth-client-id
+             key: OAUTH_CLIENT_ID
+           - objectName: runner-oauth-client-secret
+             key: OAUTH_CLIENT_SECRET
+   ```
+
+4. Point the chart at the Secret and mount the CSI volume on the runner pod.
+   The driver only creates and updates the Kubernetes Secret while a pod
+   mounts the volume, so the mount is required even though the runner reads
+   the Secret, not the files:
+
+   ```yaml
+   config:
+     existingSecret: runner-oauth
+   extraVolumes:
+     - name: runner-oauth
+       csi:
+         driver: secrets-store.csi.k8s.io
+         readOnly: true
+         volumeAttributes:
+           secretProviderClass: runner-oauth
+   extraVolumeMounts:
+     - name: runner-oauth
+       mountPath: /mnt/runner-oauth
+       readOnly: true
+   ```
+
+On the first install the pod can show `FailedMount` events for `config-volume`
+(`secret "runner-oauth" not found`) while the driver creates the Secret.
+Kubelet retries with backoff, so this can last up to about two minutes. The pod
+then starts without intervention.
+
+To rotate the client secret, set the new value in Key Vault. The driver
+updates the Kubernetes Secret within its polling interval (2 minutes by
+default). Then restart the runner as above.
 
 ### AWS credential source
 
@@ -1200,7 +1332,7 @@ dpcAgent:
 cloudProvider: "aws"
 config:
   oauthClientId: "your-client-id"
-  oauthClientSecret: "your-client-secret"  # Consider using external secrets
+  oauthClientSecret: "your-client-secret"  # Or config.existingSecret; see "OAuth credentials from a Secret you manage"
 serviceAccount:
   roleArn: "arn:aws:iam::123456789012:role/matillion-runner-prod"
 dpcAgent:
@@ -1366,6 +1498,10 @@ externalPrometheus:
 ```
 
 ### Secrets Management Example
+
+To keep the OAuth credentials out of values files altogether, use
+[`config.existingSecret`](#oauth-credentials-from-a-secret-you-manage).
+
 ```yaml
 # secrets-values.yaml (keep this file secure and out of version control)
 config:

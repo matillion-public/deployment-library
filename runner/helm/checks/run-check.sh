@@ -650,6 +650,11 @@ if [[ -n "$SA_NAME" ]]; then
                 GCP_SA=$(echo "$SA_JSON" | grep -o '"iam.gke.io/gcp-service-account":[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
                 if [[ -n "$GCP_SA" ]]; then
                     c_info "GCP Workload Identity configured: ${GCP_SA}"
+                elif [[ "$POD_CLOUD_PROVIDER" == "GCP" ]]; then
+                    c_info "GCP: no Workload Identity annotation on ServiceAccount ${SA_NAME}"
+                    detail "The pod uses the node pool's service account (gcp.nodeIdentity.enabled=true)"
+                    detail "For Workload Identity, set gcp.workloadIdentity.enabled=true and gcp.workloadIdentity.serviceAccountEmail"
+                    detail "See runner/gcp/gke/README.md, Binding an identity to a runner already installed"
                 fi
                 ;;
         esac
@@ -683,7 +688,7 @@ if [[ $POD_JSON_RC -eq 0 && -n "$POD_JSON" ]]; then
                 # "not found" — kc_safe returned 2
                 c_fail "Secret '${secret_name}' not found"
                 add_issue "FAIL" "Secret '${secret_name}' not found in namespace ${NAMESPACE}" \
-                    "Create the missing secret before deployment. Check the Helm values for oauthClientId/oauthClientSecret or run: kubectl get secrets -n ${NAMESPACE}"
+                    "Create the missing secret before deployment. Check the Helm values for oauthClientId/oauthClientSecret, or, with config.existingSecret, that the Secret it names exists with OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET. Run: kubectl get secrets -n ${NAMESPACE}"
             elif [[ $KC_RC -ne 0 ]]; then
                 # Auth/permission error — kc_safe already reported it
                 :

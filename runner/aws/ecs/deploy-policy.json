@@ -1,0 +1,295 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Ec2ReadUnavoidableWildcard",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeAvailabilityZones",
+        "ec2:DescribeInternetGateways",
+        "ec2:DescribeNetworkAcls",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeRouteTables",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeVpcAttribute",
+        "ec2:DescribeVpcs"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Ec2CreateTagged",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateVpc",
+        "ec2:CreateSubnet",
+        "ec2:CreateRouteTable",
+        "ec2:CreateInternetGateway",
+        "ec2:CreateSecurityGroup",
+        "ec2:CreateTags"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/matillion:deployment-id": "<NAME>"
+        }
+      }
+    },
+    {
+      "Sid": "Ec2CreateParentVpc",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateSubnet",
+        "ec2:CreateRouteTable",
+        "ec2:CreateSecurityGroup"
+      ],
+      "Resource": "arn:aws:ec2:<REGION>:<ACCOUNT_ID>:vpc/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/matillion:deployment-id": "<NAME>"
+        }
+      }
+    },
+    {
+      "Sid": "Ec2MutateTagged",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AssociateRouteTable",
+        "ec2:AttachInternetGateway",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:CreateRoute",
+        "ec2:DeleteInternetGateway",
+        "ec2:DeleteRouteTable",
+        "ec2:DeleteSecurityGroup",
+        "ec2:DeleteSubnet",
+        "ec2:DeleteVpc",
+        "ec2:DetachInternetGateway",
+        "ec2:DisassociateRouteTable",
+        "ec2:ModifySubnetAttribute",
+        "ec2:ModifyVpcAttribute",
+        "ec2:RevokeSecurityGroupEgress"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/matillion:deployment-id": "<NAME>"
+        }
+      }
+    },
+    {
+      "Sid": "EcsRegister",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:RegisterTaskDefinition",
+        "ecs:DescribeTaskDefinition",
+        "ecs:DeregisterTaskDefinition"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcsScoped",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:CreateCluster",
+        "ecs:DeleteCluster",
+        "ecs:DescribeClusters",
+        "ecs:CreateService",
+        "ecs:DeleteService",
+        "ecs:DescribeServices",
+        "ecs:UpdateService"
+      ],
+      "Resource": [
+        "arn:aws:ecs:<REGION>:<ACCOUNT_ID>:cluster/<NAME>-*",
+        "arn:aws:ecs:<REGION>:<ACCOUNT_ID>:service/<NAME>-*/*"
+      ]
+    },
+    {
+      "Sid": "IamRoleScoped",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole"
+      ],
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/<NAME>-*"
+    },
+    {
+      "Sid": "IamInstanceProfileScoped",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateInstanceProfile",
+        "iam:DeleteInstanceProfile",
+        "iam:GetInstanceProfile",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile"
+      ],
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:instance-profile/<NAME>-*"
+    },
+    {
+      "Sid": "IamAttachAllowListOnly",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/<NAME>-*",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": [
+            "arn:aws:iam::aws:policy/SecretsManagerReadWrite",
+            "arn:aws:iam::aws:policy/CloudWatchFullAccess",
+            "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "IamServiceLinkedEcsOnly",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "ecs.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "IamPassRoleScopedByArnOnly",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/<NAME>-*"
+    },
+    {
+      "Sid": "S3Scoped",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:GetBucketPolicy",
+        "s3:PutBucketTagging",
+        "s3:GetBucketTagging",
+        "s3:GetBucketAcl",
+        "s3:GetBucketCORS",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetBucketLogging",
+        "s3:GetBucketObjectLockConfiguration",
+        "s3:GetReplicationConfiguration",
+        "s3:GetBucketRequestPayment",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketWebsite",
+        "s3:GetAccelerateConfiguration"
+      ],
+      "Resource": "arn:aws:s3:::<NAME>-*"
+    },
+    {
+      "Sid": "S3HeadBucketPoll",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::<NAME>-*"
+    },
+    {
+      "Sid": "LogsScoped",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:PutRetentionPolicy",
+        "logs:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/ecs/<NAME>-*",
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/ecs/<NAME>-*:*",
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/aws/ecs/containerinsights/<NAME>-*",
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/aws/ecs/containerinsights/<NAME>-*:*"
+      ]
+    },
+    {
+      "Sid": "LogsDescribe",
+      "Effect": "Allow",
+      "Action": "logs:DescribeLogGroups",
+      "Resource": "*"
+    },
+    {
+      "Sid": "SecretsScoped",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:GetResourcePolicy"
+      ],
+      "Resource": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:<NAME>-*"
+    },
+    {
+      "Sid": "KmsViaSecretsManagerOnly",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "secretsmanager.<REGION>.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "StsSelf",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "TaggingOnCreate",
+      "Effect": "Allow",
+      "Action": "iam:TagRole",
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/<NAME>-*"
+    },
+    {
+      "Sid": "TaggingOnCreateProfile",
+      "Effect": "Allow",
+      "Action": "iam:TagInstanceProfile",
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:instance-profile/<NAME>-*"
+    },
+    {
+      "Sid": "TaggingEcs",
+      "Effect": "Allow",
+      "Action": "ecs:TagResource",
+      "Resource": [
+        "arn:aws:ecs:<REGION>:<ACCOUNT_ID>:cluster/<NAME>-*",
+        "arn:aws:ecs:<REGION>:<ACCOUNT_ID>:service/<NAME>-*/*",
+        "arn:aws:ecs:<REGION>:<ACCOUNT_ID>:task-definition/<NAME>-*"
+      ]
+    },
+    {
+      "Sid": "TaggingLogs",
+      "Effect": "Allow",
+      "Action": "logs:TagResource",
+      "Resource": [
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/ecs/<NAME>-*",
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/ecs/<NAME>-*:*",
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/aws/ecs/containerinsights/<NAME>-*",
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/aws/ecs/containerinsights/<NAME>-*:*"
+      ]
+    },
+    {
+      "Sid": "TaggingSecret",
+      "Effect": "Allow",
+      "Action": "secretsmanager:TagResource",
+      "Resource": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:<NAME>-*"
+    }
+  ]
+}

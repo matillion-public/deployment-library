@@ -252,6 +252,56 @@ run_inpod_check() {
     env -i "${cmd_args[@]}" "${env_args[@]}" bash "$IN_POD_CHECK" 2>&1 || true
 }
 
+# Mock curl for the GCP metadata server.
+# $1 = mock env dir, $2 = HTTP status the /token endpoint returns
+# /token prints a fake token body unless the caller discards it with -o /dev/null,
+# so a check that prints the token fails the "not contains FAKE-ACCESS-TOKEN" assertions.
+write_mock_gcp_curl() {
+    local mock_env="$1"
+    local token_status="$2"
+
+    cat > "${mock_env}/bin/curl" <<CURLEOF
+#!/usr/bin/env bash
+has_w=false
+discards_body=false
+prev=""
+for arg in "\$@"; do
+    [[ "\$arg" == "-w" ]] && has_w=true
+    [[ "\$prev" == "-o" && "\$arg" == "/dev/null" ]] && discards_body=true
+    prev="\$arg"
+done
+url="\${*: -1}"
+case "\$url" in
+    */email)
+        echo "matillion-runner@test-project.iam.gserviceaccount.com"
+        ;;
+    */token)
+        [[ "\$discards_body" == false ]] && echo "FAKE-ACCESS-TOKEN-SHOULD-NOT-APPEAR"
+        [[ "\$has_w" == true ]] && printf '%s' "${token_status}"
+        ;;
+    *)
+        [[ "\$has_w" == true ]] && printf '200'
+        ;;
+esac
+exit 0
+CURLEOF
+    chmod +x "${mock_env}/bin/curl"
+}
+
+# Builds \$1/nocurl: symlinks to every executable in /usr/bin and /bin except curl and wget,
+# so a PATH of "\$1/bin:\$1/nocurl" hides the host's curl and wget.
+write_path_without_curl_or_wget() {
+    local mock_env="$1"
+    local nocurl="${mock_env}/nocurl"
+    local tool name
+    mkdir -p "$nocurl"
+    for tool in /usr/bin/* /bin/*; do
+        name="${tool##*/}"
+        [[ "$name" == "curl" || "$name" == "wget" ]] && continue
+        [[ -x "$tool" && ! -e "${nocurl}/${name}" ]] && ln -s "$tool" "${nocurl}/${name}"
+    done
+}
+
 # ===========================================================================
 # CLUSTER-LEVEL TESTS (C7 — mock kubectl)
 # ===========================================================================
@@ -496,6 +546,42 @@ assert_output_contains "$OUTPUT" \
     "GCP Workload Identity configured" \
     "GCP WI annotation, indented JSON → INFO"
 
+assert_output_not_contains "$OUTPUT" \
+    "no Workload Identity annotation" \
+    "GCP WI annotation, indented JSON → no false WARN"
+
+# --- Test: GCP without WI annotation (nodeIdentity) → INFO, no issue ---
+setup_mock_dir
+write_mock_kubectl_base
+append_mock_pod_and_sa \
+    "GCP" \
+    '{"apiVersion":"v1","kind":"ServiceAccount","metadata":{"name":"test-sa","namespace":"test-ns"}}' \
+    ""
+OUTPUT=$(bash "$RUN_CHECK" --namespace test-ns 2>&1) || true
+teardown_mock_dir
+
+assert_output_contains "$OUTPUT" \
+    "\[INFO\] GCP: no Workload Identity annotation" \
+    "GCP no WI annotation → INFO"
+
+assert_output_not_contains "$OUTPUT" \
+    "\[WARN\] GCP: no Workload Identity annotation" \
+    "GCP no WI annotation → no WARN for nodeIdentity"
+
+# --- Test: other provider without WI annotation → no GCP WARN ---
+setup_mock_dir
+write_mock_kubectl_base
+append_mock_pod_and_sa \
+    "OTHER" \
+    '{"apiVersion":"v1","kind":"ServiceAccount","metadata":{"name":"test-sa","namespace":"test-ns"}}' \
+    ""
+OUTPUT=$(bash "$RUN_CHECK" --namespace test-ns 2>&1) || true
+teardown_mock_dir
+
+assert_output_not_contains "$OUTPUT" \
+    "no Workload Identity annotation" \
+    "Other provider, no annotation → no GCP WARN"
+
 
 # ===========================================================================
 # IN-POD TESTS (P20b — mock env)
@@ -721,6 +807,139 @@ rm -rf "$MOCK_ENV"
 assert_output_contains "$OUTPUT" \
     "no Workload Identity token and no SP credentials" \
     "Azure no creds → WARN"
+
+echo ""
+echo "  --- In-Pod: GCP Tests ---"
+
+# --- Test: GCP metadata token 200 → PASS ---
+MOCK_ENV=$(setup_inpod_mock_env)
+write_mock_gcp_curl "$MOCK_ENV" 200
+
+OUTPUT=$(
+    PATH="${MOCK_ENV}/bin:/usr/bin:/bin" \
+    TMPDIR="${MOCK_ENV}/tmp" \
+    HOME="${MOCK_ENV}/home/agentuser" \
+    MTLN_EMERALD_WORKING_DIR="${MOCK_ENV}/home/agentuser" \
+    MATILLION_REGION="eu1" \
+    ACCOUNT_ID="test-account-123" \
+    AGENT_ID="test-agent-456" \
+    FORCE_COLOR=0 \
+    CLOUD_PROVIDER="GCP" \
+    bash "$IN_POD_CHECK" 2>&1
+) || true
+rm -rf "$MOCK_ENV"
+
+assert_output_contains "$OUTPUT" \
+    "issued an access token (HTTP 200)" \
+    "GCP token 200 → PASS"
+
+assert_output_contains "$OUTPUT" \
+    "matillion-runner@test-project.iam.gserviceaccount.com" \
+    "GCP token 200 → /email reported"
+
+assert_output_not_contains "$OUTPUT" \
+    "FAKE-ACCESS-TOKEN" \
+    "GCP token 200 → token body not printed"
+
+assert_output_not_contains "$OUTPUT" \
+    "skipping credential validation" \
+    "GCP token 200 → credentials validated, not skipped"
+
+# --- Test: GCP metadata token 403 → FAIL ---
+MOCK_ENV=$(setup_inpod_mock_env)
+write_mock_gcp_curl "$MOCK_ENV" 403
+
+OUTPUT=$(
+    PATH="${MOCK_ENV}/bin:/usr/bin:/bin" \
+    TMPDIR="${MOCK_ENV}/tmp" \
+    HOME="${MOCK_ENV}/home/agentuser" \
+    MTLN_EMERALD_WORKING_DIR="${MOCK_ENV}/home/agentuser" \
+    MATILLION_REGION="eu1" \
+    ACCOUNT_ID="test-account-123" \
+    AGENT_ID="test-agent-456" \
+    FORCE_COLOR=0 \
+    CLOUD_PROVIDER="GCP" \
+    bash "$IN_POD_CHECK" 2>&1
+) || true
+rm -rf "$MOCK_ENV"
+
+assert_output_contains "$OUTPUT" \
+    "did not issue an access token (HTTP 403)" \
+    "GCP token 403 → FAIL"
+
+assert_output_contains "$OUTPUT" \
+    "roles/iam.workloadIdentityUser" \
+    "GCP token 403 → names the workloadIdentityUser binding"
+
+assert_output_contains "$OUTPUT" \
+    "RESULT: FAIL" \
+    "GCP token 403 → overall FAIL"
+
+assert_output_not_contains "$OUTPUT" \
+    "FAKE-ACCESS-TOKEN" \
+    "GCP token 403 → token body not printed"
+
+# --- Test: GCP with wget only, token refused → FAIL ---
+MOCK_ENV=$(setup_inpod_mock_env)
+write_path_without_curl_or_wget "$MOCK_ENV"
+cat > "${MOCK_ENV}/bin/wget" <<'WGETEOF'
+#!/usr/bin/env bash
+url="${*: -1}"
+case "$url" in
+    */email) echo "matillion-runner@test-project.iam.gserviceaccount.com"; exit 0 ;;
+    */token) exit 8 ;;
+esac
+exit 0
+WGETEOF
+chmod +x "${MOCK_ENV}/bin/wget"
+
+OUTPUT=$(
+    PATH="${MOCK_ENV}/bin:${MOCK_ENV}/nocurl" \
+    TMPDIR="${MOCK_ENV}/tmp" \
+    HOME="${MOCK_ENV}/home/agentuser" \
+    MTLN_EMERALD_WORKING_DIR="${MOCK_ENV}/home/agentuser" \
+    MATILLION_REGION="eu1" \
+    ACCOUNT_ID="test-account-123" \
+    AGENT_ID="test-agent-456" \
+    FORCE_COLOR=0 \
+    CLOUD_PROVIDER="GCP" \
+    bash "$IN_POD_CHECK" 2>&1
+) || true
+rm -rf "$MOCK_ENV"
+
+assert_output_contains "$OUTPUT" \
+    "did not issue an access token" \
+    "GCP wget only, token refused → FAIL"
+
+# --- Test: GCP with neither curl nor wget → WARN ---
+MOCK_ENV=$(setup_inpod_mock_env)
+write_path_without_curl_or_wget "$MOCK_ENV"
+
+OUTPUT=$(
+    PATH="${MOCK_ENV}/bin:${MOCK_ENV}/nocurl" \
+    TMPDIR="${MOCK_ENV}/tmp" \
+    HOME="${MOCK_ENV}/home/agentuser" \
+    MTLN_EMERALD_WORKING_DIR="${MOCK_ENV}/home/agentuser" \
+    MATILLION_REGION="eu1" \
+    ACCOUNT_ID="test-account-123" \
+    AGENT_ID="test-agent-456" \
+    FORCE_COLOR=0 \
+    CLOUD_PROVIDER="GCP" \
+    bash "$IN_POD_CHECK" 2>&1
+) || true
+rm -rf "$MOCK_ENV"
+
+assert_output_contains "$OUTPUT" \
+    "no curl or wget available" \
+    "GCP no curl or wget → WARN message"
+
+assert_output_contains "$OUTPUT" \
+    "\[WARN\] GCP: no curl or wget" \
+    "GCP no curl or wget → reported as WARN"
+
+assert_output_not_contains "$OUTPUT" \
+    "issued an access token" \
+    "GCP no curl or wget → no token result"
 
 echo ""
 echo "  --- In-Pod: Other ---"

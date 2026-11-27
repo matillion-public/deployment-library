@@ -11,7 +11,7 @@ resource "aws_vpc" "main_vpc" {
   cidr_block           = var.cidr_block
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags = merge(var.tags, {
+  tags = merge(local.tags, {
     Name = join("-", [var.name, random_string.salt.result, "vpc"])
   })
 }
@@ -20,6 +20,10 @@ locals {
   vpc_id = var.use_existing_vpc ? var.vpc_id : aws_vpc.main_vpc[0].id
 
   sqs_adapter_matillion_api_url = var.sqs_adapter_matillion_api_url != "" ? var.sqs_adapter_matillion_api_url : "https://${var.matillion_region}.api.matillion.com/dpc/v1"
+
+  tags = merge(var.tags, {
+    "matillion:deployment-id" = var.name
+  })
 }
 
 data "aws_vpc" "vpc" {
@@ -128,7 +132,7 @@ resource "aws_internet_gateway" "igw" {
   count = var.use_existing_vpc ? 0 : 1
 
   vpc_id = data.aws_vpc.vpc.id
-  tags = merge(var.tags, {
+  tags = merge(local.tags, {
     Name = join("-", [var.name, random_string.salt.result, "igw"])
   })
 }
@@ -141,7 +145,7 @@ resource "aws_route_table" "public" {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.igw[count.index].id
   }
-  tags = merge(var.tags, {
+  tags = merge(local.tags, {
     Name = join("-", [var.name, random_string.salt.result, "public", "route", "table"])
   })
 }
@@ -153,7 +157,7 @@ resource "aws_subnet" "ecs_subnet" {
   cidr_block              = local.subnet_cidrs[count.index]
   availability_zone       = element(random_shuffle.aws_availability_zone_names.result, count.index)
   map_public_ip_on_launch = true
-  tags = merge(var.tags, {
+  tags = merge(local.tags, {
     Name = join("-", [var.name, random_string.salt.result, "ecs", "subnet", count.index])
   })
 
@@ -195,17 +199,17 @@ resource "aws_security_group" "ecs_security_group" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(var.tags, {
+  tags = merge(local.tags, {
     Name = join("-", [var.name, random_string.salt.result, "ecs", "sg"])
   })
 }
 
-module "secert_manager" {
-  source = "../../../modules/aws/secerts-manager"
+module "secrets_manager" {
+  source = "../../../modules/aws/secrets-manager"
 
   name        = join("-", [var.name, random_string.salt.result])
   secret_name = var.secret_name
-  tags        = var.tags
+  tags        = local.tags
 
   client_id     = var.client_id
   client_secret = var.client_secret
@@ -215,16 +219,26 @@ module "secert_manager" {
   runner_authorized_keys     = var.runner_authorized_keys
 }
 
+moved {
+  from = module.secert_manager
+  to   = module.secrets_manager
+}
+
 module "iam_roles" {
   source = "../../../modules/aws/iam"
 
   name              = join("-", [var.name, random_string.salt.result])
-  runner_secret_arn = module.secert_manager.runner_secret_arn
+  runner_secret_arn = module.secrets_manager.runner_secret_arn
 
   enable_script_runner                       = var.enable_script_runner
-  runner_keypair_secret_arn                  = module.secert_manager.runner_keypair_secret_arn
+  runner_keypair_secret_arn                  = module.secrets_manager.runner_keypair_secret_arn
   script_runner_extension_library_bucket_arn = var.script_runner_extension_library_bucket_arn
   script_runner_task_role_policy_arns        = var.script_runner_task_role_policy_arns
+
+  ecs_task_role_policy_arn                   = var.ecs_task_role_policy_arn
+  ecs_task_execution_role_policy_arn         = var.ecs_task_execution_role_policy_arn
+  ecs_task_execution_role_keypair_policy_arn = var.ecs_task_execution_role_keypair_policy_arn
+  script_runner_extension_library_policy_arn = var.script_runner_extension_library_policy_arn
 }
 
 module "runner" {
@@ -261,7 +275,7 @@ module "runner" {
   runner_task_role_arn           = module.iam_roles.ecs_task_role_arn
   runner_task_role_execution_arn = module.iam_roles.ecs_task_execution_role
 
-  runner_secret_arn = module.secert_manager.runner_secret_arn
+  runner_secret_arn = module.secrets_manager.runner_secret_arn
   desired_count     = var.desired_count
 
   runner_size   = var.runner_size
@@ -270,14 +284,14 @@ module "runner" {
 
   assign_public_ip       = var.assign_public_ip
   ephemeral_storage_size = var.ephemeral_storage_size
-  tags                   = var.tags
+  tags                   = local.tags
 
   enable_script_runner             = var.enable_script_runner
   script_runner_image_url          = var.script_runner_image_url
   script_runner_size               = var.script_runner_size
   script_runner_desired_count      = var.script_runner_desired_count
   script_runner_log_retention_days = var.script_runner_log_retention_days
-  runner_keypair_secret_arn        = module.secert_manager.runner_keypair_secret_arn
+  runner_keypair_secret_arn        = module.secrets_manager.runner_keypair_secret_arn
   script_runner_task_role_arn      = module.iam_roles.script_runner_task_role_arn
 }
 
@@ -321,5 +335,7 @@ module "sqs_dpc_adapter" {
   matillion_api_url   = local.sqs_adapter_matillion_api_url
   matillion_token_url = var.sqs_adapter_matillion_token_url
 
-  tags = var.tags
+  lambda_policy_arn = var.sqs_adapter_lambda_policy_arn
+
+  tags = local.tags
 }

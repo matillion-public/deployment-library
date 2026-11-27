@@ -136,6 +136,13 @@ variable "nat_gateway_idle_timeout" {
   default     = 10
 }
 
+variable "https_inbound_source_prefixes" {
+  type        = list(string)
+  description = "Sources allowed inbound on TCP 443 by the NSG on the deployment's subnets. Empty (default) adds no rule: no Container App has external ingress, and the Azure default rules still allow traffic from inside the VNet and from the Azure load balancer. [\"*\"] allows any source, as earlier versions did; a list of IP addresses or CIDR ranges allows only those."
+  default     = []
+  nullable    = false
+}
+
 variable "tags" {
   type        = map(string)
   description = "Tags to apply to all resources"
@@ -227,6 +234,78 @@ variable "proxy_protocol_https" {
   default     = ""
 }
 
+variable "key_vault_administrator_principal_ids" {
+  description = <<-EOT
+    Object IDs of the users, groups or service principals granted Key Vault
+    Administrator on the vault. Null (default) grants the identity running
+    Terraform, so the grant follows whoever applies. A set replaces that grant
+    with one per listed ID; the identity running Terraform must be in the set or
+    must manage the vault some other way. An empty set grants no administrator.
+    Values must be known at plan time.
+  EOT
+  type        = set(string)
+  default     = null
+
+  validation {
+    condition = alltrue([
+      for id in var.key_vault_administrator_principal_ids == null ? tolist([]) : tolist(var.key_vault_administrator_principal_ids) :
+      can(regex("^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$", id))
+    ])
+    error_message = "Each entry in key_vault_administrator_principal_ids must be an Entra object ID (GUID), not a user principal name or display name."
+  }
+}
+
+variable "key_vault_allowed_ip_ranges" {
+  type        = list(string)
+  description = "Public IPv4 addresses or CIDR ranges (/8 to /30) allowed through the Key Vault firewall, for example the operator's egress IP so they can add secrets. Empty keeps the vault reachable only from the deployment's subnets. A rule added with az keyvault network-rule add is removed by the next apply."
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for r in var.key_vault_allowed_ip_ranges :
+      can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?$", r)) &&
+      try(cidrsubnet(length(split("/", r)) == 2 ? r : "${r}/32", 0, 0) == (length(split("/", r)) == 2 ? r : "${r}/32"), false)
+    ])
+    error_message = "Each entry in key_vault_allowed_ip_ranges must be an IPv4 address (203.0.113.10) or an IPv4 CIDR with no host bits set (203.0.113.0/24)."
+  }
+
+  validation {
+    condition = alltrue([
+      for r in var.key_vault_allowed_ip_ranges :
+      try(length(split("/", r)) == 1 || (tonumber(split("/", r)[1]) >= 8 && tonumber(split("/", r)[1]) <= 30), true)
+    ])
+    error_message = "key_vault_allowed_ip_ranges CIDRs must have a prefix between /8 and /30. Give a single host as a plain address (203.0.113.10), not /32: Key Vault does not accept /31 or /32."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for r in var.key_vault_allowed_ip_ranges : [
+        for a in [{
+          n = sum([for i, o in split(".", split("/", r)[0]) : tonumber(o) * pow(256, 3 - i)])
+          p = length(split("/", r)) == 2 ? tonumber(split("/", r)[1]) : 32
+          }] : [
+          for b in [{ n = 167772160, p = 8 }, { n = 2886729728, p = 12 }, { n = 3232235520, p = 16 }] :
+          floor(a.n / pow(2, 32 - min(a.p, b.p))) != floor(b.n / pow(2, 32 - min(a.p, b.p)))
+        ]
+      ] if can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?$", r))
+    ]))
+    error_message = "key_vault_allowed_ip_ranges must not overlap private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). Key Vault IP rules accept public addresses only; traffic from the deployment's subnets is allowed by the subnet rule."
+  }
+}
+
+variable "purge_key_vault_on_destroy" {
+  description = "Whether terraform destroy purges the Key Vault after deleting it. When false, the vault is left soft-deleted for 7 days and its name cannot be reused for a new vault until then (a vault with the same name is recovered, not recreated). When true, the identity running terraform needs the Microsoft.KeyVault/locations/deletedVaults/purge/action permission at subscription scope, which a Contributor or Owner role on the resource group does not include; without it destroy fails with a 403 after deleting everything else."
+  type        = bool
+  nullable    = false
+  default     = false
+}
+
+variable "purge_log_analytics_workspace_on_destroy" {
+  description = "Whether terraform destroy permanently deletes the Log Analytics workspace. When false, the workspace is left soft-deleted for 14 days: its logs can be recovered, and a new workspace with the same name in the same resource group and subscription recovers it instead of creating a new one. When true, the workspace and its logs are deleted permanently and cannot be recovered. The setting applies only when terraform deletes the workspace; deleting the resource group outside terraform (for example az group delete) soft-deletes the workspace whatever this is set to."
+  type        = bool
+  nullable    = false
+  default     = false
+}
 
 ###############################################################################
 # Resource naming.                                                            #

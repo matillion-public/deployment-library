@@ -38,3 +38,8 @@ output "sqs_pipeline_trigger_queue_arn" {
   description = "ARN of the source queue consumed by the adapter (null when disabled)."
   value       = var.enable_sqs_pipeline_trigger ? module.sqs_dpc_adapter[0].source_queue_arn : null
 }
+
+output "sqs_pipeline_trigger_queue_url" {
+  description = "URL of the source queue consumed by the adapter, for producers to send to (null when disabled, or when an existing queue is used without sqs_adapter_existing_queue_url)."
+  value       = var.enable_sqs_pipeline_trigger ? try(coalesce(module.sqs_dpc_adapter[0].source_queue_url), null) : null
+}

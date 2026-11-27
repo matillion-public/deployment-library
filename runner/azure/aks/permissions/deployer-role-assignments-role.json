@@ -1,0 +1,16 @@
+{
+  "Name": "<ROLE_PREFIX>-aks-deployer-role-assignments",
+  "IsCustom": true,
+  "Description": "Creates the role assignments runner/azure/aks makes. Assign at the resource group with condition-resource-group.txt and, while grant_runner_subscription_reader = true, at the subscription with condition-subscription.txt.",
+  "Actions": [
+    "Microsoft.Authorization/roleAssignments/read",
+    "Microsoft.Authorization/roleAssignments/write",
+    "Microsoft.Authorization/roleAssignments/delete"
+  ],
+  "NotActions": [],
+  "DataActions": [],
+  "NotDataActions": [],
+  "AssignableScopes": [
+    "/subscriptions/<SUBSCRIPTION_ID>"
+  ]
+}
