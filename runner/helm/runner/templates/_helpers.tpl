@@ -100,6 +100,34 @@ Name of the Script Runner's service account. Same shape as the runner's.
 {{- end }}
 
 {{/*
+Name of the Secret holding OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET. With
+config.existingSecret set the chart creates no Secret and the runner reads the
+one named there, which the customer fills (for example from Azure Key Vault
+through the Secrets Store CSI driver), so the credentials never pass through
+Helm values or the release record.
+*/}}
+{{- define "matillion-runner.configSecretName" -}}
+{{- .Values.config.existingSecret | default (printf "%s-config" (include "matillion-runner.fullname" .)) }}
+{{- end }}
+
+{{/*
+Rejects an existingSecret the API server would refuse, or one Helm would delete:
+the chart's own <fullname>-config is still owned by an existing release, so
+naming it here makes the upgrade remove the Secret the runner then reads.
+*/}}
+{{- define "matillion-runner.validateExistingSecret" -}}
+{{- $name := .Values.config.existingSecret }}
+{{- if $name }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$" $name) }}
+{{- fail (printf "config.existingSecret %q is not a valid Secret name: use lowercase letters, digits, '-' and '.', starting and ending with a letter or digit." $name) }}
+{{- end }}
+{{- if eq $name (printf "%s-config" (include "matillion-runner.fullname" .)) }}
+{{- fail (printf "config.existingSecret %q is the name of the Secret this chart creates, so helm upgrade would delete it. Give your Secret another name." $name) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Resolve where the pods get their AWS credentials. One of:
 
   irsa    annotate the SA with eks.amazonaws.com/role-arn and let the EKS pod

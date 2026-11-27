@@ -13,6 +13,10 @@ runnerSize: small
 config:
   oauthClientId: "your-oauth-client-id"
   oauthClientSecret: "your-oauth-client-secret"
+  # To read both from Azure Key Vault instead, set existingSecret to a Secret
+  # synced by the Secrets Store CSI driver and drop the two values above. See
+  # "OAuth credentials from a Secret you manage" in runner/helm/README.md.
+  # existingSecret: runner-oauth
 
 # Service account names are pinned to the ones this repo's Terraform creates
 # its federated credentials for: matillion-runner-sa for the runner (the chart

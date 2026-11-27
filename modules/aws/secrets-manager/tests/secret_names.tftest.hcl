@@ -1,4 +1,4 @@
-# Run with: terraform test  (from modules/aws/secerts-manager)
+# Run with: terraform test  (from modules/aws/secrets-manager)
 #
 # Secret naming, tags and recovery window. Uses a mock provider, so no AWS credentials or resources are needed.
 

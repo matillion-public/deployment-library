@@ -28,3 +28,21 @@ run "excludes_zones_without_eks_control_plane_support" {
     error_message = "Zones that cannot host an EKS control plane must be excluded from selection."
   }
 }
+
+run "subnets_in_own_vpc_take_cidrs_from_the_managed_vpc" {
+  command = plan
+
+  variables {
+    cidr_block = "10.1.0.0/16"
+  }
+
+  assert {
+    condition     = [for s in aws_subnet.public_subnet : s.cidr_block] == ["10.1.0.0/24", "10.1.1.0/24"]
+    error_message = "Public subnet CIDRs in the deployment's own VPC must be known at plan, or a VPC tag change replaces the subnets."
+  }
+
+  assert {
+    condition     = [for s in aws_subnet.private_subnet : s.cidr_block] == ["10.1.2.0/24", "10.1.3.0/24"]
+    error_message = "Private subnet CIDRs in the deployment's own VPC must be known at plan, or a VPC tag change replaces the subnets."
+  }
+}

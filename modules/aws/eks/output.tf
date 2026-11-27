@@ -14,3 +14,7 @@ output "service_account_role_arn" {
   value = aws_iam_role.service_account_role.arn
 }
 
+output "kms_key_tags" {
+  description = "Tags on the KMS key used for the EKS secret."
+  value       = aws_kms_key.key.tags
+}

@@ -131,6 +131,15 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
     }
   }
 
+  dynamic "key_vault_secrets_provider" {
+    for_each = var.enable_key_vault_secrets_provider ? [1] : []
+    content {
+      # Without rotation the driver never updates a Secret it has synced, so a
+      # client secret rotated in Key Vault would not reach the runner.
+      secret_rotation_enabled = true
+    }
+  }
+
   private_cluster_enabled = var.is_private_cluster
 
   dns_prefix = join("-", [var.name, "aks", var.random_string_salt])
@@ -224,7 +233,7 @@ resource "azurerm_key_vault" "keyvault" {
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
   soft_delete_retention_days = 7
-  enable_rbac_authorization  = true
+  rbac_authorization_enabled = true
 
   tags = var.tags
 
@@ -331,10 +340,15 @@ resource "azurerm_role_assignment" "runner_key_vault_reader_role" {
   scope                = azurerm_key_vault.keyvault.id
 }
 
-# Assign Reader Role to Runner Workload Identity at Subscription level
-# This allows az login --identity to list subscriptions and authenticate properly
+# Reader on the subscription for the runner identity. The runner chart logs in
+# with az login --identity --allow-no-subscriptions, so login does not depend on
+# it. A 2026-11-13 test without it showed login, Key Vault read, blob read and
+# write and the Agent Gateway connection working; pipeline execution without it
+# has not been tested. Creating it needs roleAssignments/write at subscription
+# scope from whoever runs Terraform; grant_runner_subscription_reader = false
+# skips it.
 resource "azurerm_role_assignment" "runner_subscription_reader_role" {
-  count                = local.create_runner_identity ? 1 : 0
+  count                = local.create_runner_identity && var.grant_runner_subscription_reader ? 1 : 0
   principal_id         = azurerm_user_assigned_identity.runner_workload_identity[0].principal_id
   principal_type       = "ServicePrincipal"
   role_definition_name = "Reader"

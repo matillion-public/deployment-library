@@ -119,3 +119,43 @@ variable "additional_gcp_projects" {
   description = "Additional GCP project IDs to grant the runner SA Secret Manager read access to. Each project appears as a separate vault in the Matillion UI alongside the default project."
   default     = []
 }
+
+variable "existing_runner_secret_creator_role_id" {
+  type        = string
+  description = "Full name (projects/<project>/roles/<role_id>) of a custom role created beforehand with the permissions in runner/gcp/gke/runner-secret-creator-role.yaml. When set, this root creates no custom role and grants this one to the runner service account. When null, the root creates and grants its own role."
+  default     = null
+
+  validation {
+    condition     = var.existing_runner_secret_creator_role_id == null || can(regex("^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/roles/[a-zA-Z0-9_.]{3,64}$", var.existing_runner_secret_creator_role_id))
+    error_message = "existing_runner_secret_creator_role_id must be a full project custom role name, projects/<project-id>/roles/<role-id>, where the role id uses only letters, digits, \"_\" and \".\" (3 to 64 characters)."
+  }
+}
+
+variable "existing_node_service_account_email" {
+  type        = string
+  description = "Email of a service account created outside this module for the GKE nodes. When set, the module creates no node service account and both the cluster's initial node pool and the runner node pool run as this account. The deployer then needs iam.serviceAccounts.actAs only on this account. Leave null (default) to have the module create one."
+  default     = null
+
+  validation {
+    condition     = var.existing_node_service_account_email == null || can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9.-]*[a-z0-9]\\.iam\\.gserviceaccount\\.com$", var.existing_node_service_account_email))
+    error_message = "existing_node_service_account_email must be a user-managed service account email, <account-id>@<project-id>.iam.gserviceaccount.com. The default compute service account (<project-number>-compute@developer.gserviceaccount.com) is not accepted."
+  }
+}
+
+variable "existing_runner_workload_service_account_email" {
+  type        = string
+  description = "Email of a service account created outside this root for the runner pods (Workload Identity). When set, this root creates no runner service account and makes no project-level grants to it (the secret creator role, roles/secretmanager.secretAccessor, roles/secretmanager.viewer, roles/browser); an IAM admin makes those. This root still grants it access to the staging bucket, the runner secret, runner_gcs_buckets and additional_gcp_projects, and adds the Workload Identity members non-authoritatively. The deployer then needs iam.serviceAccounts.getIamPolicy and iam.serviceAccounts.setIamPolicy only on this account. Leave null (default) to have this root create one."
+  default     = null
+
+  validation {
+    condition     = var.existing_runner_workload_service_account_email == null || can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9.-]*[a-z0-9]\\.iam\\.gserviceaccount\\.com$", var.existing_runner_workload_service_account_email))
+    error_message = "existing_runner_workload_service_account_email must be a user-managed service account email, <account-id>@<project-id>.iam.gserviceaccount.com. The default compute service account (<project-number>-compute@developer.gserviceaccount.com) is not accepted."
+  }
+}
+
+variable "grant_node_project_roles" {
+  type        = bool
+  nullable    = false
+  description = "When true (default), this root grants the node service account roles/logging.logWriter, roles/monitoring.metricWriter and roles/monitoring.viewer on the project. Set false only with existing_node_service_account_email, after an IAM admin has granted these three roles to that account; the deployer then needs no project IAM rights for the node account."
+  default     = true
+}

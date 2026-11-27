@@ -161,8 +161,15 @@ variable "workload_identity_enabled" {
 
 variable "create_runner_identity" {
   type        = bool
-  description = "Create the shared runner managed identity: its federated credentials for the runner and script-runner service accounts in var.namespace, and its Key Vault Secrets User and Reader grants on the whole vault, Reader on the subscription and Storage Blob Data Contributor on the staging account. Only takes effect with workload_identity_enabled. Set false on a shared cluster where each tenant gets its own identity from modules/azure/runner-identity, because the shared identity can read every secret in the vault, which is the access per-tenant identities exist to withhold. The OIDC issuer and workload identity addon stay enabled either way."
+  description = "Create the shared runner managed identity: its federated credentials for the runner and script-runner service accounts in var.namespace, and its Key Vault Secrets User and Reader grants on the whole vault, Reader on the subscription (unless grant_runner_subscription_reader is false) and Storage Blob Data Contributor on the staging account. Only takes effect with workload_identity_enabled. Set false on a shared cluster where each tenant gets its own identity from modules/azure/runner-identity, because the shared identity can read every secret in the vault, which is the access per-tenant identities exist to withhold. The OIDC issuer and workload identity addon stay enabled either way."
   default     = true
+}
+
+variable "grant_runner_subscription_reader" {
+  type        = bool
+  description = "Grant the shared runner identity Reader on the whole subscription. Only takes effect when the shared identity is created (workload_identity_enabled and create_runner_identity). Planning and applying this grant needs Microsoft.Authorization/roleAssignments/read and roleAssignments/write at subscription scope from whoever runs Terraform. Set false when that principal is scoped to the resource group. Running pipelines without this grant has not been tested. Setting false on an existing deployment destroys the assignment, which needs roleAssignments/delete at subscription scope."
+  default     = true
+  nullable    = false
 }
 
 variable "service_principal_enabled" {
@@ -222,6 +229,12 @@ variable "sku_tier" {
 variable "enable_container_insights" {
   type        = bool
   description = "Create a Log Analytics workspace and connect the cluster to it with the oms_agent addon (Container Insights). False, the default, creates neither, so no workspace is billed or left soft-deleted after destroy. Container Insights bills for the data ingested into the workspace. Enabling it on an existing cluster is applied by the azurerm provider as an update to the cluster's oms_agent block."
+  default     = false
+}
+
+variable "enable_key_vault_secrets_provider" {
+  type        = bool
+  description = "Enable the azure-keyvault-secrets-provider addon (Secrets Store CSI driver for Key Vault) with secret rotation on, so the runner chart's config.existingSecret can be filled from Key Vault and picks up rotated values. False, the default, leaves the addon off; an addon enabled outside Terraform, with az aks enable-addons, is then removed on the next apply. See \"Key Vault secrets provider\" in modules/azure/aks/readme.md."
   default     = false
 }
 

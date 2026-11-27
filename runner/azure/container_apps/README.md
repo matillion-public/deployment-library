@@ -104,14 +104,112 @@ The principal that runs Terraform needs:
   and `/delete` (for example Role Based Access Control Administrator or User
   Access Administrator). The deployment assigns roles on the Key Vault and the
   storage account it creates, to the runner identity and to the Key Vault
-  administrators.
+  administrators. Role Based Access Control Administrator or User Access
+  Administrator on the resource group lets the holder assign any role there,
+  including Owner to itself.
 - On the container registry, when `container_acr_id` or `script_runner_acr_id`
   is set: `Microsoft.Authorization/roleAssignments/write` and `/delete`, to
   assign AcrPull to the runner or script runner identity.
 - On the subscription: permission to register the resource providers above, if
   they are not registered yet.
 
-No role assignment is created at subscription scope.
+No role assignment is created at subscription scope. The purge role below is a
+role definition that an administrator assigns to the deploying principal at
+subscription scope, only for `purge_key_vault_on_destroy = true`.
+
+Instead of the roles above, an administrator can create the custom roles in
+[permissions](permissions/):
+
+| File | Assign at | Condition | Needed when |
+|------|-----------|-----------|-------------|
+| `deployer-resource-group-role.json` | resource group | `condition-resource-group.txt` | always |
+| `deployer-purge-role.json` | subscription | none | only with `purge_key_vault_on_destroy = true` (default `false`) |
+
+The condition limits the role assignments the resource-group role can write and
+delete to Key Vault Administrator, Key Vault Secrets Officer, Key Vault Secrets
+User, Storage Account Contributor, Storage Blob Data Contributor, Reader and
+Storage Blob Data Reader. Storage Blob Data Reader is used only with
+`enable_script_runner = true`. Reading role assignments is not conditioned.
+
+A custom role needs `Microsoft.Network/virtualNetworks/subnets/join/action`,
+`Microsoft.Network/networkSecurityGroups/join/action`,
+`Microsoft.App/managedEnvironments/join/action` and
+`Microsoft.ManagedIdentity/userAssignedIdentities/assign/action` in addition to
+read, write and delete on each resource type. Contributor includes them, a role
+built from the resource types alone does not, and the Activity Log never shows
+them.
+
+Replace the placeholders before you create the roles:
+
+- `<ROLE_PREFIX>`: a prefix for the role names. Custom role names are unique in
+  the tenant, so use a different prefix for each deployment that has its own
+  roles.
+- `<SUBSCRIPTION_ID>`: the ID of the subscription you deploy into.
+- `<RESOURCE_GROUP>`: the resource group you deploy into, the same value as
+  `resource_group_name`. The resource group must exist before you create the
+  roles.
+
+An administrator who holds `Microsoft.Authorization/roleDefinitions/write` and
+`Microsoft.Authorization/roleAssignments/write` at the subscription creates the
+roles and assigns them to the deploying principal (object ID in
+`DEPLOYER_OBJECT_ID`):
+
+```bash
+cd runner/azure/container_apps/permissions
+for f in deployer-*-role.json; do
+  sed -e "s/<ROLE_PREFIX>/$ROLE_PREFIX/g" -e "s/<SUBSCRIPTION_ID>/$SUBSCRIPTION_ID/g" \
+      -e "s/<RESOURCE_GROUP>/$RESOURCE_GROUP/g" "$f" > "/tmp/$f"
+  az role definition create --role-definition "@/tmp/$f"
+done
+
+az role assignment create --assignee-object-id "$DEPLOYER_OBJECT_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "$ROLE_PREFIX-container-apps-deployer-rg" \
+  --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP" \
+  --condition "$(cat condition-resource-group.txt)" --condition-version 2.0
+
+# Only with purge_key_vault_on_destroy = true
+az role assignment create --assignee-object-id "$DEPLOYER_OBJECT_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "$ROLE_PREFIX-container-apps-deployer-purge" \
+  --scope "/subscriptions/$SUBSCRIPTION_ID"
+```
+
+Use `--assignee-principal-type User` when the deploying principal is a user.
+Role assignments can take several minutes to take effect.
+
+AcrPull assignments are scoped to the registry, not the resource group. With
+`container_acr_id` or `script_runner_acr_id` set, the deploying principal also
+needs `Microsoft.Authorization/roleAssignments/write` and `/delete` on that
+registry, as above. If the registry is in the deployment's resource group, add
+AcrPull (`7f951dda-4ed3-4680-a7ca-43fe172d538d`) to both GUID sets in
+`condition-resource-group.txt`. This registry case has not been measured.
+
+Remaining escalation paths with the custom roles:
+
+- The deploying principal can assign Key Vault Administrator or Storage Blob
+  Data Contributor to itself or any principal at the resource group, which
+  reaches every Key Vault and storage account in it.
+- The resource-group role covers every resource of its types in the resource
+  group, for example `Microsoft.Storage/storageAccounts/listKeys/action`
+  (shared-key access to every storage account) and
+  `Microsoft.App/containerApps/listSecrets/action` (refresh calls it).
+- The purge role lets the holder purge any soft-deleted Key Vault in the
+  subscription.
+
+Deploying into a resource group that holds only this deployment limits the
+first two paths to the deployment's own resources.
+`Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials/write`
+is not in the resource-group role.
+
+Coverage: the roles were measured as a service principal holding only these
+roles, for create, a no-change plan and destroy, in two configurations: default
+inputs, and `enable_script_runner = true` with
+`purge_key_vault_on_destroy = true` and the purge role. In-place updates of an existing deployment and a user
+(rather than a service principal) as the deploying principal were not measured.
+These inputs were not measured and may need actions the roles do not include:
+`enable_nat_gateway = true`, `container_acr_id` or `script_runner_acr_id` set,
+and resource providers that are not registered yet.
 
 ### Upgrading: AcrPull scope
 
@@ -133,6 +231,35 @@ when `container_acr_id` was not set. That assignment is no longer created.
   `container_acr_id`. Without it the image pull is anonymous, which a private
   registry rejects whether or not the subscription assignment exists.
 
+### Upgrading: HTTPS inbound rule
+
+Earlier versions created an NSG rule `AllowHTTPS` allowing TCP 443 from any
+source. It is now created only when `https_inbound_source_prefixes` is set.
+
+- `https_inbound_source_prefixes` not set (the default): the next plan updates
+  `module.networking.azurerm_network_security_group.nsg` in place, removing the
+  rule. Nothing is replaced or destroyed. No Container App in this deployment
+  accepts traffic from outside the VNet, so the runner is not affected.
+- To keep the rule, set `https_inbound_source_prefixes = ["*"]`, which plans no
+  change.
+
+### Upgrading: workload profile capacity check
+
+Plan now fails when the requested vCPU (`replica_count` runner replicas plus the
+script runner replica when `enable_script_runner = true`) is more than
+`workload_profile_max_count` times the vCPU of the workload profile type. See
+Container Sizing.
+
+- Configurations whose replicas fit: no plan change.
+- A deployment whose requested vCPU exceeds the profile capacity (for example
+  `runner_size = "large"`, `replica_count = 2`, `workload_profile_max_count = 1`)
+  applied before with a degraded revision and fewer running replicas than
+  requested. Its next plan fails with the capacity message until
+  `workload_profile_max_count` is raised or `replica_count` is lowered. Nothing is
+  replaced or destroyed.
+- Raising `workload_profile_max_count` is an in-place update of the Container
+  App Environment and can add instances, which adds cost.
+
 ## Networking Requirements
 
 ### Container Apps Subnet Restrictions
@@ -146,7 +273,7 @@ Azure Container Apps has specific subnet requirements that differ from AKS. This
 | **Subnet delegation** | The subnet **must** be delegated to `Microsoft.App/environments`. No other resources can share this delegated subnet. |
 | **Dedicated subnet** | The Container Apps Environment subnet cannot be shared with other services (e.g. VMs, AKS, Application Gateway). |
 | **Service endpoints** | `Microsoft.Storage` and `Microsoft.KeyVault` are configured for Key Vault and storage access. |
-| **NSG** | An NSG allowing HTTPS (443) inbound is attached to all subnets. |
+| **NSG** | An NSG is attached to all subnets. By default it has no rule of its own, so the Azure default rules apply: inbound is allowed from the VNet and the Azure load balancer, and all other inbound is denied. `https_inbound_source_prefixes` adds an inbound TCP 443 rule for the listed sources. |
 
 > **Why /23 and not /24?** Azure Container Apps uses the infrastructure subnet to provision internal load balancers, envoy proxies, and platform components. A `/24` (256 addresses) does not provide enough addresses and Azure will reject the deployment with an error.
 
@@ -267,6 +394,19 @@ Pick a t-shirt size with `runner_size`. Container Apps' Consumption profile enfo
 | `large` | 4 | 16 GiB | `D4` | Whole D4 profile per replica |
 | `xlarge` | 8 | 32 GiB | `D8` | Whole D8 profile per replica |
 
+The workload profile must hold `replica_count` runner replicas, plus the script
+runner replica when `enable_script_runner = true`, on at most
+`workload_profile_max_count` instances. `large` and `xlarge` take a whole
+instance each, so they need `workload_profile_max_count` of at least
+`replica_count`, plus one when the script runner is enabled and does not fit
+beside them. Plan fails when the requested vCPU is more than
+`workload_profile_max_count` times the vCPU of a D- or E-series profile type.
+The check does not include the platform's per-instance overhead, so a
+configuration that exactly fills the instances (for example `medium` with
+`replica_count = 2` on one D4) passes the check but may not schedule all
+replicas. Raise `workload_profile_max_count` if a revision shows fewer running
+replicas than `replica_count`. Other profile types are not checked.
+
 ```hcl
 runner_size = "medium"
 ```
@@ -286,7 +426,7 @@ container_memory      = "8Gi"
 | `container_cpu` | derived from `runner_size` | Override the per-container vCPU allocation |
 | `container_memory` | derived from `runner_size` | Override the per-container memory allocation |
 | `workload_profile_type` | derived from `runner_size` | Override the workload profile (D4, D8, D16, E-series) |
-| `workload_profile_max_count` | `1` | Max instances in the workload profile |
+| `workload_profile_max_count` | `1` | Max instances in the workload profile. Must hold all replicas (runner plus script runner); see Container Sizing |
 | `replica_count` | `2` | Fixed number of running replicas (no auto-scaling) |
 | `container_image_url` | `matillion.azurecr.io/cloud-agent:current` | Runner container image |
 | `zone_redundancy_enabled` | `true` | Zone redundancy for the environment |
@@ -372,6 +512,8 @@ Effect on existing deployments:
 |---|---|---|
 | `enable_nat_gateway` | `false` | Enable NAT Gateway for controlled outbound egress |
 | `nat_gateway_idle_timeout` | `10` | NAT Gateway idle timeout in minutes (4-120) |
+| `https_inbound_source_prefixes` | `[]` | Sources allowed inbound on TCP 443 through the subnet NSG. Empty adds no rule; `["*"]` allows any source |
+| `key_vault_allowed_ip_ranges` | `[]` | Public IPv4 addresses or CIDRs allowed through the Key Vault firewall. See [Adding secrets to the Key Vault](#adding-secrets-to-the-key-vault) |
 
 ### Disabling Python Script and Bash Script
 
@@ -402,10 +544,11 @@ zone_redundancy_enabled = false
 
 **Production:**
 ```hcl
-runner_size              = "large"   # 4 vCPU / 16 GiB on D4
-replica_count           = 2
-zone_redundancy_enabled = true
-enable_nat_gateway      = true
+runner_size                = "large"   # 4 vCPU / 16 GiB on D4
+replica_count              = 2
+workload_profile_max_count = 2         # one D4 instance per large replica
+zone_redundancy_enabled    = true
+enable_nat_gateway         = true
 ```
 
 ## Security
@@ -419,14 +562,147 @@ enable_nat_gateway      = true
   - `Key Vault Secrets Officer` - manage secrets
   - `Key Vault Secrets User` - read secrets
   - `Reader` on Key Vault - metadata access
-- **Key Vault** - RBAC-enabled, network-restricted to VNet subnets, 7-day soft delete
+- **Key Vault** - RBAC-enabled, network-restricted to VNet subnets, 7-day soft delete. `terraform destroy` leaves it soft-deleted unless `purge_key_vault_on_destroy = true` (see [Cleanup](#cleanup))
 - **Storage Account** - Standard LRS, no public access
-- **Key Vault Administrator** role assigned to the deployer for management
+- **Key Vault Administrator** role assigned to the identity running Terraform, or to the principals in `key_vault_administrator_principal_ids` (see below)
+
+### Key Vault administrators
+
+| Variable | Default | Description |
+|---|---|---|
+| `key_vault_administrator_principal_ids` | `null` | Entra object IDs (GUIDs) of the users, groups or service principals granted Key Vault Administrator. Null grants the identity running Terraform |
+
+Teams and CI should set `key_vault_administrator_principal_ids` to the object
+IDs of the users, groups or service principals that administer the vault.
+
+- Unset (default): Key Vault Administrator goes to the identity that last ran
+  `terraform apply`. A second operator's apply replaces the first operator's
+  grant.
+- Set: the grant to the identity running Terraform is removed and one grant is
+  created per listed ID. The applying identity must be in the list or hold
+  another way to manage the vault (Owner or User Access Administrator alone
+  does not read or write secrets), or later applies that need data-plane
+  access to the vault fail.
+- Empty set: the vault has no Key Vault Administrator from this module.
+
+Each entry must be an object ID (GUID); the plan fails on anything else, such
+as a user principal name. Values must be known at plan time; IDs of principals
+created in the same apply fail with Terraform's `for_each` error.
+
+Upgrading an existing deployment:
+
+- Variable unset: a `moved` block moves the state address from
+  `azurerm_role_assignment.current_client_key_vault_admin` to
+  `azurerm_role_assignment.current_client_key_vault_admin[0]`. The plan shows no
+  change to the assignment.
+- Variable set: the plan destroys
+  `azurerm_role_assignment.current_client_key_vault_admin[0]` and creates one
+  `azurerm_role_assignment.key_vault_administrators["<id>"]` per ID. The
+  current operator loses Key Vault Administrator unless listed.
+- Setting the variable and later unsetting it destroys the listed grants and
+  recreates the grant to the identity running Terraform.
+
+When the applying identity is listed, the old and new grants have the same
+principal, role and scope, which Azure allows only once. `key_vault_administrators`
+depends on `current_client_key_vault_admin`, so Terraform finishes the destroy
+before the create in both directions. If Azure still returns
+`RoleAssignmentExists` (409) because the delete has not propagated, run
+`terraform apply` again; the destroy is already recorded in state and the second
+apply only creates the missing grant.
+
+### Role assignment principal type
+
+The module sets `principal_type = "ServicePrincipal"` on the role assignments
+for the Container App managed identity and, when `enable_script_runner = true`,
+the script runner identity, so Azure does not look the principal up in Entra ID
+before assigning the role. The deployer's Key Vault Administrator assignment is
+not changed, because the deployer can be a user or a service principal.
+
+On existing deployments `terraform plan` is expected to show no change for
+these assignments, because Azure records `principalType` as `ServicePrincipal`
+for managed identities and the provider reads it into state. This was measured
+on the AKS module on 2026-11-13 (seven assignments: the plan of the changed
+configuration showed no changes, and the apply was 0 added, 0 changed,
+0 destroyed). It has not been measured on Container Apps.
+
+Role assignments that Azure stored with an empty `principalType` were not
+tested. For such a deployment, run `terraform plan` before applying and check
+the action on each role assignment. Do not apply a plan that replaces a role
+assignment without reviewing it.
 
 ### Network Security
 
-- Key Vault network ACLs restrict access to VNet subnets only (default deny, Azure Services bypass)
-- NSG on all subnets allows only HTTPS (443) inbound
+- Key Vault network ACLs default deny, with the VNet subnets, Azure trusted services and any `key_vault_allowed_ip_ranges` allowed
+- NSG on all subnets uses the Azure default inbound rules (VNet and Azure load balancer allowed, everything else denied), plus TCP 443 from `https_inbound_source_prefixes` when set
+
+### Adding secrets to the Key Vault
+
+The runner reads secrets from the vault named in its `DEFAULT_KEYVAULT`
+environment variable, which is the vault this deployment creates. Get its name with:
+
+```bash
+terraform output -raw key_vault_name
+```
+
+The vault's Key Vault Administrators (by default, the identity that ran
+`terraform apply`) can manage secrets, but the vault firewall denies requests
+from outside the deployment's subnets. From a laptop,
+`az keyvault secret set` and `az keyvault secret list` fail with:
+
+```
+(Forbidden) Client address is not authorized and caller is not a trusted service.
+```
+
+Use one of the following.
+
+**Allow your egress IP.** Find your public IPv4 address:
+
+```bash
+curl -4 -s https://ifconfig.me
+```
+
+Set it in `terraform.tfvars` and run `terraform apply`. This is an in-place
+update of the vault; the vault is not replaced.
+
+```hcl
+key_vault_allowed_ip_ranges = ["203.0.113.10"]
+```
+
+Give a single address without a prefix. Key Vault does not accept `/31` or `/32`
+rules, and the variable rejects them, along with prefixes shorter than `/8` and
+private (RFC 1918) ranges.
+
+The rule can take up to a minute to take effect. Then add and check the secrets:
+
+```bash
+az keyvault secret set --vault-name <vault> --name <name> --value <value>
+az keyvault secret list --vault-name <vault> -o table
+```
+
+Remove the entry and apply again when you no longer need access. Only public
+addresses work: requests from inside Azure on a subnet with the
+`Microsoft.KeyVault` service endpoint are matched by the subnet rule, not by an
+IP rule.
+
+**Run `az` inside the VNet.** Run the commands from a host on a subnet in
+`subnet_ids`. Use the services subnet (index 1, `10.0.2.0/24` with the default
+address space). The Container Apps subnet (index 0) is delegated to
+`Microsoft.App/environments` and cannot hold a VM. The NSG on these subnets
+allows no inbound traffic from outside the VNet by default (and only TCP 443
+from `https_inbound_source_prefixes` when set), so you cannot SSH or RDP to the
+VM from outside the VNet without changing it. Run the commands with
+`az vm run-command invoke --command-id RunShellScript --scripts "..."`, connect
+through Azure Bastion (which needs its own `AzureBastionSubnet`), or add a
+temporary NSG rule for your address and remove it afterwards.
+
+**Use a private endpoint.** Create a private endpoint for the vault, with a
+private DNS zone `privatelink.vaultcore.azure.net` linked to the network you
+connect from. This module does not create one.
+
+Do not add rules with `az keyvault network-rule add` or the Azure portal. The
+module manages the vault's network rules in full, so the next `terraform apply`
+removes any rule it does not know about. Use `key_vault_allowed_ip_ranges`
+instead.
 
 ## Monitoring
 
@@ -456,6 +732,50 @@ For auto-scaling, sidecar support, and advanced networking, consider the [AKS de
 ```bash
 terraform destroy
 ```
+
+By default `terraform destroy` deletes the Key Vault and leaves it soft-deleted for 7 days. The vault name stays reserved for that time: a new deployment that produces the same vault name, for example through `naming_tokens` or `naming_overrides`, recovers the soft-deleted vault instead of creating a new one.
+
+To purge the vault on destroy, set:
+
+```hcl
+purge_key_vault_on_destroy = true
+```
+
+This needs `Microsoft.KeyVault/locations/deletedVaults/purge/action` and `Microsoft.KeyVault/locations/operationResults/read` at subscription scope: destroy polls the operation result after the purge and fails with a 403 without the second action. [permissions/deployer-purge-role.json](permissions/deployer-purge-role.json) holds both. Contributor or Owner at subscription scope includes both; Key Vault Contributor does not include the purge action (it lists it under `notActions`), and no role on the resource group grants it. Without it, destroy fails with a 403 after deleting every other resource. To purge a soft-deleted vault by hand:
+
+```bash
+az keyvault purge --name <vault> --location <region>
+```
+
+Upgrading: an existing deployment gets `purge_key_vault_on_destroy = false` with no change to its configuration, and `terraform plan` shows no resource change. The behaviour changes only at the next `terraform destroy`: before, the azurerm provider default purged the vault; now the vault is left soft-deleted. If you relied on the purge and hold the subscription-scope permission, set `purge_key_vault_on_destroy = true`.
+
+By default `terraform destroy` deletes the Log Analytics workspace and Azure keeps it soft-deleted for 14 days. The workspace name stays reserved for that time: a new deployment that produces the same workspace name in the same resource group and subscription, for example through `naming_tokens` or `naming_overrides` (the generated default name carries the random salt), recovers the soft-deleted workspace and its data instead of creating a new one.
+
+To delete the workspace permanently on destroy, set:
+
+```hcl
+purge_log_analytics_workspace_on_destroy = true
+```
+
+A permanent delete removes the workspace and all its logs and cannot be undone. Leave the default if the logs may be needed after destroy. No extra permission is needed: a permanent delete uses the same `Microsoft.OperationalInsights/workspaces/delete` action as a soft delete, which Contributor and Log Analytics Contributor include.
+
+The setting applies only when Terraform deletes the workspace. This root does not create the resource group (it takes `resource_group_name` as input); if the group is deleted outside Terraform, for example with `az group delete`, the workspace is soft-deleted whatever the setting.
+
+To delete a live workspace permanently by hand:
+
+```bash
+az monitor log-analytics workspace delete --resource-group <rg> --workspace-name <name> --force --yes
+```
+
+A workspace that is already soft-deleted must be recovered before it can be deleted permanently. Recovering needs `Microsoft.OperationalInsights/workspaces/write` at resource group or subscription scope, and if the resource group itself was deleted, recreate it first:
+
+```bash
+az monitor log-analytics workspace list-deleted-workspaces --resource-group <rg>
+az monitor log-analytics workspace recover --resource-group <rg> --workspace-name <name>
+az monitor log-analytics workspace delete --resource-group <rg> --workspace-name <name> --force --yes
+```
+
+Upgrading: an existing deployment gets `purge_log_analytics_workspace_on_destroy = false` with no change to its configuration. `terraform plan` shows no resource change and destroy behaves as before, because the azurerm provider default is also false. Only deployments that set the variable to `true` get a permanent delete, at their next `terraform destroy`.
 
 ## Comparison with AKS Deployment
 
